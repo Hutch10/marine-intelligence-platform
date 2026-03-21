@@ -1,0 +1,3740 @@
+
+===== FILE: apps/api/src/routes/datasets.ts =====
+import { apiMockData } from "../data";
+import type {
+  DatasetDetailResponse,
+  DatasetDetailTelemetry,
+  DatasetListQuery,
+  DatasetRecordsQuery,
+  DatasetRecordsResponse,
+  DatasetRecordsTelemetry,
+  DatasetsResponse,
+  DatasetsTelemetry,
+  RouteDefinition,
+} from "../types";
+
+type DatasetListReadResult =
+  | {
+      source: "db";
+      datasets: DatasetsResponse["datasets"];
+      filters: DatasetListQuery;
+      pageInfo: NonNullable<DatasetsResponse["pageInfo"]>;
+    }
+  | {
+      source: "mock";
+      datasets: DatasetsResponse["datasets"];
+      filters: DatasetListQuery;
+      pageInfo: NonNullable<DatasetsResponse["pageInfo"]>;
+      fallbackReason: DatasetsTelemetry["fallbackReason"];
+    };
+
+function normalizeDatasetListOptions(query: DatasetListQuery = {}): {
+  filters: DatasetListQuery;
+  sortBy: DatasetsTelemetry["sortBy"];
+  sortDir: DatasetsTelemetry["sortDir"];
+  page: number;
+  pageSize: number;
+} {
+  const filters = {
+    q: query.q?.trim().toLowerCase() || undefined,
+    category: query.category?.trim().toLowerCase() || undefined,
+    region: query.region?.trim().toLowerCase() || undefined,
+    status: query.status?.trim().toLowerCase() || undefined,
+  };
+
+  const sortBy =
+    query.sortBy === "name" || query.sortBy === "records" || query.sortBy === "status" || query.sortBy === "updated"
+      ? query.sortBy
+      : "updated";
+  const sortDir = query.sortDir === "asc" || query.sortDir === "desc" ? query.sortDir : "desc";
+  const page =
+    typeof query.page === "number" ? query.page : Number.parseInt(String(query.page ?? "1"), 10) || 1;
+  const pageSize =
+    typeof query.pageSize === "number"
+      ? query.pageSize
+      : Number.parseInt(String(query.pageSize ?? "25"), 10) || 25;
+
+  return {
+    filters,
+    sortBy,
+    sortDir,
+    page,
+    pageSize,
+  };
+}
+
+function readDatabaseDatasets(query: DatasetListQuery = {}): DatasetListReadResult {
+  const safeOptions = normalizeDatasetListOptions(query);
+
+  try {
+    const runtimeRequire = eval("require") as NodeRequire;
+    const repository = runtimeRequire("../repositories/datasets") as {
+      extractDatasetListOptions: (query: DatasetListQuery | undefined) => {
+        filters: DatasetListQuery;
+        sortBy: DatasetsTelemetry["sortBy"];
+        sortDir: DatasetsTelemetry["sortDir"];
+        page: number;
+        pageSize: number;
+      };
+      listDatasets: (
+        query: DatasetListQuery,
+      ) =>
+        | {
+            source: "db";
+            datasets: DatasetsResponse["datasets"];
+            pageInfo: NonNullable<DatasetsResponse["pageInfo"]>;
+          }
+        | { source: "mock"; fallbackReason: DatasetsTelemetry["fallbackReason"] };
+    };
+
+    const options = repository.extractDatasetListOptions(query);
+    const readResult = repository.listDatasets(query);
+
+    if (readResult.source === "db") {
+      return {
+        source: "db",
+        datasets: readResult.datasets,
+        filters: options.filters,
+        pageInfo: readResult.pageInfo,
+      };
+    }
+
+    return {
+      source: "mock",
+      datasets: [],
+      filters: options.filters,
+      pageInfo: {
+        page: options.page,
+        pageSize: options.pageSize,
+        totalItems: 0,
+        totalPages: 0,
+        sortBy: options.sortBy,
+        sortDir: options.sortDir,
+      },
+      fallbackReason: readResult.fallbackReason,
+    };
+  } catch {
+    return {
+      source: "mock",
+      datasets: [],
+      filters: safeOptions.filters,
+      pageInfo: {
+        page: safeOptions.page,
+        pageSize: safeOptions.pageSize,
+        totalItems: 0,
+        totalPages: 0,
+        sortBy: safeOptions.sortBy,
+        sortDir: safeOptions.sortDir,
+      },
+      fallbackReason: "db_query_failed",
+    };
+  }
+}
+
+function buildFilterSummary(filters: DatasetListQuery): DatasetListQuery | undefined {
+  const filterSummary = Object.fromEntries(
+    Object.entries(filters).filter(([, value]) => Boolean(value)),
+  ) as DatasetListQuery;
+
+  return Object.keys(filterSummary).length > 0 ? filterSummary : undefined;
+}
+
+function buildDatasetSummarySignals(
+  readResult: DatasetListReadResult,
+): DatasetsResponse["summarySignals"] {
+  if (readResult.source === "mock") {
+    return [
+      {
+        title: "Repository status",
+        detail: `Live dataset repository unavailable (${readResult.fallbackReason}).`,
+        tone: "amber",
+      },
+      {
+        title: "Catalog availability",
+        detail: "Dataset rows are intentionally withheld in degraded mode to avoid synthetic fallback data.",
+        tone: "amber",
+      },
+      {
+        title: "Operator guidance",
+        detail: "Retry after backend recovery or verify database path and access controls.",
+        tone: "cyan",
+      },
+    ];
+  }
+
+  const datasets = readResult.datasets;
+  const pageInfo = readResult.pageInfo;
+  const liveCount = datasets.filter((dataset) => dataset.status === "Live").length;
+  const curatedCount = datasets.filter((dataset) => dataset.status === "Curated").length;
+  const draftCount = datasets.filter((dataset) => dataset.status === "Draft").length;
+  const pageCount = datasets.length;
+
+  return [
+    {
+      title: "Coverage in view",
+      detail: `${pageCount} datasets on page ${pageInfo.page} (${pageInfo.totalItems} matching total).`,
+      tone: "cyan",
+    },
+    {
+      title: "Live feed ratio",
+      detail: `${liveCount} Live, ${curatedCount} Curated, ${draftCount} Draft in the current slice.`,
+      tone: liveCount >= Math.max(1, Math.ceil(pageCount / 2)) ? "emerald" : "amber",
+    },
+    {
+      title: "Draft validation queue",
+      detail: draftCount > 0
+        ? `${draftCount} Draft datasets need validation before operational promotion.`
+        : "No Draft datasets in the current result slice.",
+      tone: draftCount > 0 ? "amber" : "emerald",
+    },
+  ];
+}
+
+function parseDatasetRecordCount(value: string): number {
+  const normalized = value.trim().toUpperCase();
+
+  if (!normalized) {
+    return 0;
+  }
+
+  const suffix = normalized.slice(-1);
+  const multiplier = suffix === "M" ? 1_000_000 : suffix === "K" ? 1_000 : 1;
+  const numericPart = multiplier === 1 ? normalized : normalized.slice(0, -1);
+  const parsed = Number.parseFloat(numericPart.replace(/,/g, ""));
+
+  if (Number.isNaN(parsed) || parsed < 0) {
+    return 0;
+  }
+
+  return parsed * multiplier;
+}
+
+function buildDatasetPreviewSeries(
+  datasets: DatasetsResponse["datasets"],
+): DatasetsResponse["previewSeries"] {
+  const seededPoints = datasets.slice(0, 6).map((dataset, index) => ({
+    label: dataset.id.replace("DST-", "") || `S${index + 1}`,
+    count: parseDatasetRecordCount(dataset.records),
+  }));
+
+  if (seededPoints.length === 0) {
+    return ["S1", "S2", "S3", "S4", "S5", "S6"].map((label) => ({
+      label,
+      value: 12,
+    }));
+  }
+
+  const maxCount = Math.max(1, ...seededPoints.map((point) => point.count));
+  const points = seededPoints.map((point) => ({
+    label: point.label,
+    value: Math.max(12, Math.round((point.count / maxCount) * 100)),
+  }));
+  const averageValue = Math.max(
+    12,
+    Math.round(points.reduce((total, point) => total + point.value, 0) / points.length),
+  );
+
+  while (points.length < 6) {
+    points.push({
+      label: `S${points.length + 1}`,
+      value: averageValue,
+    });
+  }
+
+  return points;
+}
+
+function buildDatasetMetadata(
+  readResult: DatasetListReadResult,
+): DatasetsResponse["metadata"] {
+  const datasets = readResult.datasets;
+  const pageInfo = readResult.pageInfo;
+  const uniqueRegions = new Set(datasets.map((dataset) => dataset.region)).size;
+  const uniqueCategories = new Set(datasets.map((dataset) => dataset.category)).size;
+  const liveCount = datasets.filter((dataset) => dataset.status === "Live").length;
+  const curatedCount = datasets.filter((dataset) => dataset.status === "Curated").length;
+  const draftCount = datasets.filter((dataset) => dataset.status === "Draft").length;
+  const coverage =
+    datasets.length > 0
+      ? `${uniqueRegions} regions, ${uniqueCategories} categories in this page slice`
+      : "No datasets in this page slice";
+
+  return [
+    {
+      label: "Source",
+      value:
+        readResult.source === "db"
+          ? "Route-backed dataset repository"
+          : `Degraded backend mode (${readResult.fallbackReason})`,
+    },
+    {
+      label: "Coverage",
+      value: readResult.source === "db" ? coverage : "Live dataset coverage unavailable while backend is degraded",
+    },
+    {
+      label: "Cadence",
+      value: `Sort ${pageInfo.sortBy} ${pageInfo.sortDir}; page ${pageInfo.page}/${Math.max(pageInfo.totalPages, 1)}`,
+    },
+    {
+      label: "Schema",
+      value: "id, name, category, region, updated, records, status",
+    },
+    {
+      label: "Owner",
+      value:
+        readResult.source === "db"
+          ? `Live ${liveCount} | Curated ${curatedCount} | Draft ${draftCount}`
+          : "Provenance locked to explicit degraded backend mode",
+    },
+  ];
+}
+
+function buildDatasetActions(
+  readResult: DatasetListReadResult,
+): DatasetsResponse["actions"] {
+  if (readResult.source === "mock") {
+    return [
+      {
+        label: "Review Degraded Mode",
+        icon: "play",
+        tone: "primary",
+      },
+      {
+        label: "Export Unavailable",
+        icon: "download",
+        tone: "secondary",
+      },
+      {
+        label: "View Fallback Context",
+        icon: "layers",
+        tone: "secondary",
+      },
+    ];
+  }
+
+  const hasFilters = Boolean(
+    readResult.filters.q
+      || readResult.filters.category
+      || readResult.filters.region
+      || readResult.filters.status,
+  );
+  const rowCount = readResult.datasets.length;
+
+  return [
+    {
+      label: hasFilters ? "Run Filtered Query" : "Run Query",
+      icon: "play",
+      tone: "primary",
+    },
+    {
+      label: rowCount > 0 ? `Export ${rowCount} Rows` : "Export CSV",
+      icon: "download",
+      tone: "secondary",
+    },
+    {
+      label: readResult.source === "db" ? "Open Schema" : "Open Fallback Schema",
+      icon: "layers",
+      tone: "secondary",
+    },
+  ];
+}
+
+export function buildDatasetsRouteResponse(
+  query: DatasetListQuery = {},
+  readResult = readDatabaseDatasets(query),
+): { json: DatasetsResponse; telemetry: DatasetsTelemetry } {
+  const datasets = readResult.datasets;
+  const filterSummary = buildFilterSummary(readResult.filters);
+
+  return {
+    json: {
+      actions: buildDatasetActions(readResult),
+      datasets,
+      previewSeries: buildDatasetPreviewSeries(datasets),
+      metadata: buildDatasetMetadata(readResult),
+      summarySignals: buildDatasetSummarySignals(readResult),
+      pageInfo: readResult.pageInfo,
+    },
+    telemetry: {
+      route: "GET /datasets",
+      source: readResult.source,
+      datasetCount: datasets.length,
+      filtersApplied: Boolean(filterSummary),
+      filterSummary,
+      sortBy: readResult.pageInfo.sortBy,
+      sortDir: readResult.pageInfo.sortDir,
+      page: readResult.pageInfo.page,
+      pageSize: readResult.pageInfo.pageSize,
+      fallbackReason: readResult.source === "mock" ? readResult.fallbackReason : undefined,
+    },
+  };
+}
+
+function readDatabaseDatasetById(datasetId: string) {
+  try {
+    const runtimeRequire = eval("require") as NodeRequire;
+    const repository = runtimeRequire("../repositories/datasets") as {
+      getDatasetById: (
+        id: string,
+      ) =>
+        | {
+            source: "db";
+            result: "found";
+            dataset: DatasetDetailResponse;
+            metadataSource: "db_full" | "db_partial";
+          }
+        | { source: "db"; result: "not_found" }
+        | { source: "mock"; fallbackReason: DatasetDetailTelemetry["fallbackReason"] };
+    };
+
+    return repository.getDatasetById(datasetId);
+  } catch {
+    return {
+      source: "mock" as const,
+      fallbackReason: "db_query_failed" as const,
+    };
+  }
+}
+
+type DatasetRecordsReadResult =
+  | {
+      source: "db";
+      result: "found" | "empty";
+      records: DatasetRecordsResponse["records"];
+      pageInfo: NonNullable<DatasetRecordsResponse["pageInfo"]>;
+    }
+  | {
+      source: "mock";
+      fallbackReason: DatasetRecordsTelemetry["fallbackReason"];
+      pageInfo: NonNullable<DatasetRecordsResponse["pageInfo"]>;
+    }
+  | { source: "db"; result: "not_found" };
+
+function normalizeDatasetRecordsOptions(query: DatasetRecordsQuery = {}): {
+  sortBy: DatasetRecordsTelemetry["sortBy"];
+  sortDir: DatasetRecordsTelemetry["sortDir"];
+  page: number;
+  pageSize: number;
+} {
+  const sortBy =
+    query.sortBy === "updated" || query.sortBy === "status" || query.sortBy === "title" || query.sortBy === "type"
+      ? query.sortBy
+      : "updated";
+  const sortDir = query.sortDir === "asc" || query.sortDir === "desc" ? query.sortDir : "desc";
+  const page =
+    typeof query.page === "number" ? query.page : Number.parseInt(String(query.page ?? "1"), 10) || 1;
+  const pageSize =
+    typeof query.pageSize === "number"
+      ? query.pageSize
+      : Number.parseInt(String(query.pageSize ?? "5"), 10) || 5;
+
+  return {
+    sortBy,
+    sortDir,
+    page,
+    pageSize,
+  };
+}
+
+function readDatabaseDatasetRecords(datasetId: string, query: DatasetRecordsQuery = {}): DatasetRecordsReadResult {
+  const safeOptions = normalizeDatasetRecordsOptions(query);
+
+  try {
+    const runtimeRequire = eval("require") as NodeRequire;
+    const repository = runtimeRequire("../repositories/datasets") as {
+      extractDatasetRecordsListOptions: (query: DatasetRecordsQuery | undefined) => {
+        sortBy: DatasetRecordsTelemetry["sortBy"];
+        sortDir: DatasetRecordsTelemetry["sortDir"];
+        page: number;
+        pageSize: number;
+      };
+      listDatasetRecords: (
+        id: string,
+        query: DatasetRecordsQuery,
+      ) =>
+        | {
+            source: "db";
+            result: "found" | "empty";
+            records: DatasetRecordsResponse["records"];
+            pageInfo: NonNullable<DatasetRecordsResponse["pageInfo"]>;
+          }
+        | { source: "db"; result: "not_found" }
+        | { source: "mock"; fallbackReason: DatasetRecordsTelemetry["fallbackReason"] };
+    };
+
+    const options = repository.extractDatasetRecordsListOptions(query);
+    const readResult = repository.listDatasetRecords(datasetId, query);
+
+    if (readResult.source === "db") {
+      return readResult;
+    }
+
+    return {
+      source: "mock",
+      fallbackReason: readResult.fallbackReason,
+      pageInfo: {
+        page: options.page,
+        pageSize: options.pageSize,
+        totalItems: 0,
+        totalPages: 0,
+        sortBy: options.sortBy,
+        sortDir: options.sortDir,
+      },
+    };
+  } catch {
+    return {
+      source: "mock" as const,
+      fallbackReason: "db_query_failed" as const,
+      pageInfo: {
+        page: safeOptions.page,
+        pageSize: safeOptions.pageSize,
+        totalItems: 0,
+        totalPages: 0,
+        sortBy: safeOptions.sortBy,
+        sortDir: safeOptions.sortDir,
+      },
+    };
+  }
+}
+
+function findMockDatasetById(datasetId: string): DatasetDetailResponse | null {
+  const dataset = apiMockData.dataExplorerWorkspaceData.datasets.find((item) => item.id === datasetId);
+
+  if (!dataset) {
+    return null;
+  }
+
+  return {
+    id: dataset.id,
+    name: dataset.name,
+    category: dataset.category,
+    region: dataset.region,
+    updated: dataset.updated,
+    records: dataset.records,
+    status: dataset.status,
+    metadata: Object.fromEntries(
+      apiMockData.dataExplorerWorkspaceData.metadata.map((item) => [item.label, item.value]),
+    ),
+  };
+}
+
+export function buildDatasetDetailRouteResponse(
+  datasetId: string,
+  readResult = readDatabaseDatasetById(datasetId),
+): {
+  status: 200 | 404;
+  json: DatasetDetailResponse | { message: string };
+  telemetry: DatasetDetailTelemetry;
+} {
+  if (readResult.source === "db") {
+    if (readResult.result === "found") {
+      return {
+        status: 200,
+        json: readResult.dataset,
+        telemetry: {
+          route: "GET /datasets/:id",
+          datasetId,
+          source: "db",
+          result: "found",
+          metadataSource: readResult.metadataSource,
+        },
+      };
+    }
+
+    return {
+      status: 404,
+      json: { message: "Dataset not found" },
+      telemetry: {
+        route: "GET /datasets/:id",
+        datasetId,
+        source: "db",
+        result: "not_found",
+      },
+    };
+  }
+
+  const mockDataset = findMockDatasetById(datasetId);
+
+  if (mockDataset) {
+    return {
+      status: 200,
+      json: mockDataset,
+      telemetry: {
+        route: "GET /datasets/:id",
+        datasetId,
+        source: "mock",
+        result: "found",
+        metadataSource: "mock",
+        fallbackReason: readResult.fallbackReason,
+      },
+    };
+  }
+
+  return {
+    status: 404,
+    json: { message: "Dataset not found" },
+    telemetry: {
+      route: "GET /datasets/:id",
+      datasetId,
+      source: "mock",
+      result: "not_found",
+      metadataSource: "mock",
+      fallbackReason: readResult.fallbackReason,
+    },
+  };
+}
+
+export function buildDatasetRecordsRouteResponse(
+  datasetId: string,
+  query: DatasetRecordsQuery = {},
+  readResult = readDatabaseDatasetRecords(datasetId, query),
+): {
+  status: 200 | 404;
+  json: DatasetRecordsResponse | { message: string };
+  telemetry: DatasetRecordsTelemetry;
+} {
+  if (readResult.source === "db") {
+    if (readResult.result === "not_found") {
+      return {
+        status: 404,
+        json: { message: "Dataset not found" },
+        telemetry: {
+          route: "GET /datasets/:id/records",
+          datasetId,
+          source: "db",
+          recordCount: 0,
+          result: "not_found",
+          sortBy: query.sortBy === "status" || query.sortBy === "title" || query.sortBy === "type" || query.sortBy === "updated" ? query.sortBy : "updated",
+          sortDir: query.sortDir === "asc" || query.sortDir === "desc" ? query.sortDir : "desc",
+          page: typeof query.page === "number" ? query.page : Number.parseInt(String(query.page ?? "1"), 10) || 1,
+          pageSize: typeof query.pageSize === "number" ? query.pageSize : Number.parseInt(String(query.pageSize ?? "5"), 10) || 5,
+        },
+      };
+    }
+
+    return {
+      status: 200,
+      json: { records: readResult.records, pageInfo: readResult.pageInfo },
+      telemetry: {
+        route: "GET /datasets/:id/records",
+        datasetId,
+        source: "db",
+        recordCount: readResult.records.length,
+        result: readResult.result,
+        sortBy: readResult.pageInfo.sortBy,
+        sortDir: readResult.pageInfo.sortDir,
+        page: readResult.pageInfo.page,
+        pageSize: readResult.pageInfo.pageSize,
+      },
+    };
+  }
+
+  return {
+    status: 200,
+    json: {
+      records: [],
+      pageInfo: {
+        ...readResult.pageInfo,
+        totalItems: 0,
+        totalPages: 0,
+      },
+    },
+    telemetry: {
+      route: "GET /datasets/:id/records",
+      datasetId,
+      source: "mock",
+      recordCount: 0,
+      result: "empty",
+      sortBy: readResult.pageInfo.sortBy,
+      sortDir: readResult.pageInfo.sortDir,
+      page: readResult.pageInfo.page,
+      pageSize: readResult.pageInfo.pageSize,
+      fallbackReason: readResult.fallbackReason,
+    },
+  };
+}
+
+export const getDatasetsRoute: RouteDefinition<DatasetsResponse, undefined, DatasetListQuery> = {
+  method: "GET",
+  path: "/datasets",
+  handler(request) {
+    const response = buildDatasetsRouteResponse(request.query ?? {});
+
+    return {
+      status: 200,
+      json: response.json,
+      telemetry: response.telemetry,
+    };
+  },
+};
+
+export const getDatasetByIdRoute: RouteDefinition<DatasetDetailResponse | { message: string }, { id: string }> = {
+  method: "GET",
+  path: "/datasets/:id",
+  handler(request) {
+    const datasetId = request.body.id;
+    const response = buildDatasetDetailRouteResponse(datasetId);
+
+    return {
+      status: response.status,
+      json: response.json,
+      telemetry: response.telemetry,
+    };
+  },
+};
+
+export const getDatasetRecordsRoute: RouteDefinition<
+  DatasetRecordsResponse | { message: string },
+  { id: string },
+  DatasetRecordsQuery
+> = {
+  method: "GET",
+  path: "/datasets/:id/records",
+  handler(request) {
+    const datasetId = request.body.id;
+    const response = buildDatasetRecordsRouteResponse(datasetId, request.query ?? {});
+
+    return {
+      status: response.status,
+      json: response.json,
+      telemetry: response.telemetry,
+    };
+  },
+};
+
+===== END FILE: apps/api/src/routes/datasets.ts =====
+
+===== FILE: apps/api/src/routes/datasets.test.ts =====
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  buildDatasetDetailRouteResponse,
+  buildDatasetRecordsRouteResponse,
+  buildDatasetsRouteResponse,
+} from "./datasets";
+
+const PAGE_INFO = {
+  page: 1,
+  pageSize: 25,
+  totalItems: 1,
+  totalPages: 1,
+  sortBy: "updated" as const,
+  sortDir: "desc" as const,
+};
+
+test("datasets route preserves the existing contract with no filters from DB", () => {
+  const response = buildDatasetsRouteResponse(
+    {},
+    {
+      source: "db",
+      filters: {},
+      datasets: [
+        {
+          id: "DST-DB-1",
+          name: "DB dataset",
+          category: "Temperature",
+          region: "North Pacific",
+          updated: "5 min ago",
+          records: "1.2M",
+          status: "Live",
+        },
+      ],
+      pageInfo: PAGE_INFO,
+    },
+  );
+
+  assert.equal(response.telemetry.route, "GET /datasets");
+  assert.equal(response.telemetry.source, "db");
+  assert.equal(response.telemetry.datasetCount, 1);
+  assert.equal(response.telemetry.filtersApplied, false);
+  assert.equal(response.telemetry.filterSummary, undefined);
+  assert.equal(response.telemetry.sortBy, "updated");
+  assert.equal(response.telemetry.sortDir, "desc");
+  assert.equal(response.telemetry.page, 1);
+  assert.equal(response.telemetry.pageSize, 25);
+  assert.equal(response.telemetry.fallbackReason, undefined);
+  assert.deepEqual(Object.keys(response.json).sort(), [
+    "actions",
+    "datasets",
+    "metadata",
+    "pageInfo",
+    "previewSeries",
+    "summarySignals",
+  ]);
+  assert.deepEqual(response.json.pageInfo, PAGE_INFO);
+  assert.deepEqual(response.json.actions, [
+    { label: "Run Query", icon: "play", tone: "primary" },
+    { label: "Export 1 Rows", icon: "download", tone: "secondary" },
+    { label: "Open Schema", icon: "layers", tone: "secondary" },
+  ]);
+  assert.deepEqual(response.json.previewSeries, [
+    { label: "DB-1", value: 100 },
+    { label: "S2", value: 100 },
+    { label: "S3", value: 100 },
+    { label: "S4", value: 100 },
+    { label: "S5", value: 100 },
+    { label: "S6", value: 100 },
+  ]);
+  assert.deepEqual(response.json.metadata, [
+    { label: "Source", value: "Route-backed dataset repository" },
+    { label: "Coverage", value: "1 regions, 1 categories in this page slice" },
+    { label: "Cadence", value: "Sort updated desc; page 1/1" },
+    { label: "Schema", value: "id, name, category, region, updated, records, status" },
+    { label: "Owner", value: "Live 1 | Curated 0 | Draft 0" },
+  ]);
+  assert.deepEqual(response.json.summarySignals, [
+    {
+      title: "Coverage in view",
+      detail: "1 datasets on page 1 (1 matching total).",
+      tone: "cyan",
+    },
+    {
+      title: "Live feed ratio",
+      detail: "1 Live, 0 Curated, 0 Draft in the current slice.",
+      tone: "emerald",
+    },
+    {
+      title: "Draft validation queue",
+      detail: "No Draft datasets in the current result slice.",
+      tone: "emerald",
+    },
+  ]);
+});
+
+test("datasets route returns DB-backed sorted results", () => {
+  const response = buildDatasetsRouteResponse(
+    { sortBy: "name", sortDir: "asc" },
+    {
+      source: "db",
+      filters: { sortBy: "name", sortDir: "asc" },
+      datasets: [
+        {
+          id: "DST-051",
+          name: "Autonomous Buoy Nutrient Profiles",
+          category: "Chemistry",
+          region: "Eastern Shelf",
+          updated: "54 min ago",
+          records: "642K",
+          status: "Live",
+        },
+      ],
+      pageInfo: {
+        page: 1,
+        pageSize: 25,
+        totalItems: 4,
+        totalPages: 1,
+        sortBy: "name",
+        sortDir: "asc",
+      },
+    },
+  );
+
+  assert.equal(response.telemetry.source, "db");
+  assert.equal(response.telemetry.sortBy, "name");
+  assert.equal(response.telemetry.sortDir, "asc");
+  assert.equal(response.json.datasets[0]?.id, "DST-051");
+});
+
+test("datasets route returns DB-backed paginated results", () => {
+  const response = buildDatasetsRouteResponse(
+    { page: 2, pageSize: 1 },
+    {
+      source: "db",
+      filters: { page: 2, pageSize: 1 },
+      datasets: [
+        {
+          id: "DST-088",
+          name: "Coral Reef Stress Survey Bundle",
+          category: "Field Reports",
+          region: "Sector 14-C",
+          updated: "26 min ago",
+          records: "18.4K",
+          status: "Curated",
+        },
+      ],
+      pageInfo: {
+        page: 2,
+        pageSize: 1,
+        totalItems: 4,
+        totalPages: 4,
+        sortBy: "updated",
+        sortDir: "desc",
+      },
+    },
+  );
+
+  assert.equal(response.telemetry.page, 2);
+  assert.equal(response.telemetry.pageSize, 1);
+  assert.equal(response.json.pageInfo?.totalPages, 4);
+});
+
+test("datasets route returns DB-backed filtered, sorted, paginated results", () => {
+  const response = buildDatasetsRouteResponse(
+    { status: "live", sortBy: "records", sortDir: "desc", page: 1, pageSize: 1 },
+    {
+      source: "db",
+      filters: { status: "live", sortBy: "records", sortDir: "desc", page: 1, pageSize: 1 },
+      datasets: [
+        {
+          id: "DST-104",
+          name: "Pacific Thermal Front Observations",
+          category: "Temperature",
+          region: "North Pacific",
+          updated: "8 min ago",
+          records: "1.2M",
+          status: "Live",
+        },
+      ],
+      pageInfo: {
+        page: 1,
+        pageSize: 1,
+        totalItems: 2,
+        totalPages: 2,
+        sortBy: "records",
+        sortDir: "desc",
+      },
+    },
+  );
+
+  assert.equal(response.telemetry.filtersApplied, true);
+  assert.deepEqual(response.telemetry.filterSummary, {
+    status: "live",
+    sortBy: "records",
+    sortDir: "desc",
+    page: 1,
+    pageSize: 1,
+  });
+  assert.equal(response.telemetry.sortBy, "records");
+  assert.equal(response.telemetry.pageSize, 1);
+  assert.equal(response.json.summarySignals[0]?.detail, "1 datasets on page 1 (2 matching total).");
+  assert.equal(response.json.summarySignals[1]?.detail, "1 Live, 0 Curated, 0 Draft in the current slice.");
+});
+
+test("datasets route computes dynamic summary signals for mixed status results", () => {
+  const response = buildDatasetsRouteResponse(
+    { page: 1, pageSize: 3 },
+    {
+      source: "db",
+      filters: { page: 1, pageSize: 3 },
+      datasets: [
+        {
+          id: "DST-104",
+          name: "Pacific Thermal Front Observations",
+          category: "Temperature",
+          region: "North Pacific",
+          updated: "8 min ago",
+          records: "1.2M",
+          status: "Live",
+        },
+        {
+          id: "DST-088",
+          name: "Coral Reef Stress Survey Bundle",
+          category: "Field Reports",
+          region: "Sector 14-C",
+          updated: "26 min ago",
+          records: "18.4K",
+          status: "Curated",
+        },
+        {
+          id: "DST-133",
+          name: "Larval Drift Model Ensemble",
+          category: "Model Output",
+          region: "Reef Boundary",
+          updated: "2 days ago",
+          records: "9.8K",
+          status: "Draft",
+        },
+      ],
+      pageInfo: {
+        page: 1,
+        pageSize: 3,
+        totalItems: 3,
+        totalPages: 1,
+        sortBy: "updated",
+        sortDir: "desc",
+      },
+    },
+  );
+
+  assert.deepEqual(response.json.summarySignals, [
+    {
+      title: "Coverage in view",
+      detail: "3 datasets on page 1 (3 matching total).",
+      tone: "cyan",
+    },
+    {
+      title: "Live feed ratio",
+      detail: "1 Live, 1 Curated, 1 Draft in the current slice.",
+      tone: "amber",
+    },
+    {
+      title: "Draft validation queue",
+      detail: "1 Draft datasets need validation before operational promotion.",
+      tone: "amber",
+    },
+  ]);
+});
+
+test("datasets route returns an empty real DB dataset list when filters match zero rows", () => {
+  const response = buildDatasetsRouteResponse(
+    { q: "missing", page: 1, pageSize: 10 },
+    {
+      source: "db",
+      filters: { q: "missing", page: 1, pageSize: 10 },
+      datasets: [],
+      pageInfo: {
+        page: 1,
+        pageSize: 10,
+        totalItems: 0,
+        totalPages: 0,
+        sortBy: "updated",
+        sortDir: "desc",
+      },
+    },
+  );
+
+  assert.equal(response.telemetry.source, "db");
+  assert.equal(response.telemetry.datasetCount, 0);
+  assert.equal(response.telemetry.filtersApplied, true);
+  assert.deepEqual(response.json.datasets, []);
+});
+
+test("datasets route returns explicit degraded empty results when the DB path is missing", () => {
+  const response = buildDatasetsRouteResponse(
+    { status: "live", sortBy: "name", sortDir: "asc", page: 1, pageSize: 2 },
+    {
+      source: "mock",
+      filters: { status: "live", sortBy: "name", sortDir: "asc", page: 1, pageSize: 2 },
+      datasets: [],
+      pageInfo: {
+        page: 1,
+        pageSize: 2,
+        totalItems: 0,
+        totalPages: 0,
+        sortBy: "name",
+        sortDir: "asc",
+      },
+      fallbackReason: "db_path_missing",
+    },
+  );
+
+  assert.equal(response.telemetry.source, "mock");
+  assert.equal(response.telemetry.fallbackReason, "db_path_missing");
+  assert.equal(response.telemetry.sortBy, "name");
+  assert.equal(response.telemetry.pageSize, 2);
+  assert.deepEqual(response.json.datasets, []);
+  assert.equal(response.json.actions[0]?.label, "Review Degraded Mode");
+  assert.equal(response.json.metadata[0]?.value, "Degraded backend mode (db_path_missing)");
+  assert.equal(response.json.summarySignals[0]?.title, "Repository status");
+});
+
+test("datasets route returns explicit degraded empty results when DB open fails", () => {
+  const response = buildDatasetsRouteResponse(
+    { region: "north pacific", page: 1, pageSize: 10 },
+    {
+      source: "mock",
+      filters: { region: "north pacific", page: 1, pageSize: 10 },
+      datasets: [],
+      pageInfo: {
+        page: 1,
+        pageSize: 10,
+        totalItems: 0,
+        totalPages: 0,
+        sortBy: "updated",
+        sortDir: "desc",
+      },
+      fallbackReason: "db_open_failed",
+    },
+  );
+
+  assert.equal(response.telemetry.source, "mock");
+  assert.equal(response.telemetry.fallbackReason, "db_open_failed");
+  assert.deepEqual(response.json.datasets, []);
+});
+
+test("datasets route returns explicit degraded empty results when DB querying fails", () => {
+  const response = buildDatasetsRouteResponse(
+    { category: "field reports", sortBy: "updated", sortDir: "desc" },
+    {
+      source: "mock",
+      filters: { category: "field reports", sortBy: "updated", sortDir: "desc" },
+      datasets: [],
+      pageInfo: {
+        page: 1,
+        pageSize: 25,
+        totalItems: 0,
+        totalPages: 0,
+        sortBy: "updated",
+        sortDir: "desc",
+      },
+      fallbackReason: "db_query_failed",
+    },
+  );
+
+  assert.equal(response.telemetry.source, "mock");
+  assert.equal(response.telemetry.fallbackReason, "db_query_failed");
+  assert.equal(response.json.actions[2]?.label, "View Fallback Context");
+  assert.equal(response.json.metadata[0]?.value, "Degraded backend mode (db_query_failed)");
+});
+
+test("datasets route returns an unchanged contract with empty filtered mock results", () => {
+  const response = buildDatasetsRouteResponse(
+    { q: "missing", page: 2, pageSize: 10 },
+    {
+      source: "mock",
+      filters: { q: "missing", page: 2, pageSize: 10 },
+      datasets: [],
+      pageInfo: {
+        page: 2,
+        pageSize: 10,
+        totalItems: 0,
+        totalPages: 0,
+        sortBy: "updated",
+        sortDir: "desc",
+      },
+      fallbackReason: "db_query_failed",
+    },
+  );
+
+  assert.equal(response.telemetry.source, "mock");
+  assert.equal(response.telemetry.datasetCount, 0);
+  assert.equal(response.telemetry.page, 2);
+  assert.deepEqual(response.json.datasets, []);
+  assert.deepEqual(response.json.previewSeries, [
+    { label: "S1", value: 12 },
+    { label: "S2", value: 12 },
+    { label: "S3", value: 12 },
+    { label: "S4", value: 12 },
+    { label: "S5", value: 12 },
+    { label: "S6", value: 12 },
+  ]);
+  assert.equal(response.json.metadata[1]?.value, "Live dataset coverage unavailable while backend is degraded");
+});
+
+test("dataset detail route returns 200 from DB when the record is found", () => {
+  const response = buildDatasetDetailRouteResponse("DST-DB-1", {
+    source: "db",
+    result: "found",
+    metadataSource: "db_full",
+    dataset: {
+      id: "DST-DB-1",
+      name: "DB dataset",
+      category: "Temperature",
+      region: "North Pacific",
+      updated: "5 min ago",
+      records: "1.2M",
+      status: "Live",
+      metadata: {
+        Owner: "Ocean Systems Lab",
+      },
+    },
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.telemetry.source, "db");
+  assert.equal(response.telemetry.result, "found");
+  assert.equal(response.telemetry.metadataSource, "db_full");
+});
+
+test("dataset detail route returns 200 from DB with partial metadata when metadata is incomplete", () => {
+  const response = buildDatasetDetailRouteResponse("DST-DB-2", {
+    source: "db",
+    result: "found",
+    metadataSource: "db_partial",
+    dataset: {
+      id: "DST-DB-2",
+      name: "Partial dataset",
+      category: "Chemistry",
+      region: "Eastern Shelf",
+      updated: "1 hr ago",
+      records: "9.8K",
+      status: "Draft",
+      metadata: {
+        Source: "Custom source",
+        Coverage: "34.2N-35.0N / 142.1W-145.4W",
+      },
+    },
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.telemetry.source, "db");
+  assert.equal(response.telemetry.result, "found");
+  assert.equal(response.telemetry.metadataSource, "db_partial");
+});
+
+test("dataset detail route returns 404 from DB when no matching record exists", () => {
+  const response = buildDatasetDetailRouteResponse("DST-MISSING", {
+    source: "db",
+    result: "not_found",
+  });
+
+  assert.equal(response.status, 404);
+  assert.equal(response.telemetry.source, "db");
+  assert.equal(response.telemetry.result, "not_found");
+  assert.equal(response.telemetry.metadataSource, undefined);
+});
+
+test("dataset detail route falls back to mock with db_path_missing when mock record exists", () => {
+  const response = buildDatasetDetailRouteResponse("DST-104", {
+    source: "mock",
+    fallbackReason: "db_path_missing",
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.telemetry.source, "mock");
+  assert.equal(response.telemetry.result, "found");
+  assert.equal(response.telemetry.metadataSource, "mock");
+  assert.equal(response.telemetry.fallbackReason, "db_path_missing");
+});
+
+test("dataset detail route falls back to mock with db_open_failed when mock record exists", () => {
+  const response = buildDatasetDetailRouteResponse("DST-104", {
+    source: "mock",
+    fallbackReason: "db_open_failed",
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.telemetry.source, "mock");
+  assert.equal(response.telemetry.result, "found");
+  assert.equal(response.telemetry.metadataSource, "mock");
+  assert.equal(response.telemetry.fallbackReason, "db_open_failed");
+});
+
+test("dataset detail route falls back to mock with db_query_failed when mock record exists", () => {
+  const response = buildDatasetDetailRouteResponse("DST-104", {
+    source: "mock",
+    fallbackReason: "db_query_failed",
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.telemetry.source, "mock");
+  assert.equal(response.telemetry.result, "found");
+  assert.equal(response.telemetry.metadataSource, "mock");
+  assert.equal(response.telemetry.fallbackReason, "db_query_failed");
+});
+
+test("dataset detail route returns 404 from mock fallback when no equivalent mock record exists", () => {
+  const response = buildDatasetDetailRouteResponse("DST-MISSING", {
+    source: "mock",
+    fallbackReason: "db_query_failed",
+  });
+
+  assert.equal(response.status, 404);
+  assert.equal(response.telemetry.source, "mock");
+  assert.equal(response.telemetry.result, "not_found");
+  assert.equal(response.telemetry.metadataSource, "mock");
+  assert.equal(response.telemetry.fallbackReason, "db_query_failed");
+});
+
+test("dataset records route returns 200 from DB when records are found", () => {
+  const response = buildDatasetRecordsRouteResponse("DST-104", { sortBy: "title", sortDir: "asc", page: 1, pageSize: 2 }, {
+    source: "db",
+    result: "found",
+    records: [
+      {
+        id: "ALT-214",
+        title: "Thermal spike detected in reef-edge grid",
+        type: "Alert",
+        status: "Open",
+        updated: "11 min ago",
+        summary:
+          "Elevated surface temperature exceeded the seasonal envelope across two adjacent cells.",
+      },
+    ],
+    pageInfo: {
+      page: 1,
+      pageSize: 2,
+      totalItems: 4,
+      totalPages: 2,
+      sortBy: "title",
+      sortDir: "asc",
+    },
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.telemetry.source, "db");
+  assert.equal(response.telemetry.result, "found");
+  assert.equal(response.telemetry.recordCount, 1);
+  assert.equal(response.telemetry.sortBy, "title");
+  assert.equal(response.telemetry.pageSize, 2);
+  if ("records" in response.json) {
+    assert.equal(response.json.pageInfo?.totalItems, 4);
+  }
+});
+
+test("dataset records route returns 200 with empty records when the dataset has no related records", () => {
+  const response = buildDatasetRecordsRouteResponse("DST-051", { page: 2, pageSize: 2 }, {
+    source: "db",
+    result: "empty",
+    records: [],
+    pageInfo: {
+      page: 2,
+      pageSize: 2,
+      totalItems: 0,
+      totalPages: 0,
+      sortBy: "updated",
+      sortDir: "desc",
+    },
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.telemetry.source, "db");
+  assert.equal(response.telemetry.result, "empty");
+  assert.equal(response.telemetry.recordCount, 0);
+  assert.equal(response.telemetry.page, 2);
+  assert.deepEqual(response.json, {
+    records: [],
+    pageInfo: {
+      page: 2,
+      pageSize: 2,
+      totalItems: 0,
+      totalPages: 0,
+      sortBy: "updated",
+      sortDir: "desc",
+    },
+  });
+});
+
+test("dataset records route returns 404 from DB when the dataset is absent", () => {
+  const response = buildDatasetRecordsRouteResponse("DST-MISSING", { sortBy: "status", sortDir: "asc", page: 3, pageSize: 1 }, {
+    source: "db",
+    result: "not_found",
+  });
+
+  assert.equal(response.status, 404);
+  assert.equal(response.telemetry.source, "db");
+  assert.equal(response.telemetry.result, "not_found");
+  assert.equal(response.telemetry.recordCount, 0);
+  assert.equal(response.telemetry.sortBy, "status");
+  assert.equal(response.telemetry.page, 3);
+});
+
+test("dataset records route returns explicit degraded empty results when the DB path is missing", () => {
+  const response = buildDatasetRecordsRouteResponse("DST-104", { page: 1, pageSize: 1, sortBy: "updated", sortDir: "desc" }, {
+    source: "mock",
+    pageInfo: {
+      page: 1,
+      pageSize: 1,
+      totalItems: 0,
+      totalPages: 0,
+      sortBy: "updated",
+      sortDir: "desc",
+    },
+    fallbackReason: "db_path_missing",
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.telemetry.source, "mock");
+  assert.equal(response.telemetry.result, "empty");
+  assert.equal(response.telemetry.recordCount, 0);
+  assert.equal(response.telemetry.fallbackReason, "db_path_missing");
+  if ("records" in response.json) {
+    assert.equal(response.json.pageInfo?.totalPages, 0);
+  }
+});
+
+test("dataset records route returns an empty mock record list when no safe mock records exist", () => {
+  const response = buildDatasetRecordsRouteResponse("DST-088", { page: 2, pageSize: 2 }, {
+    source: "mock",
+    pageInfo: {
+      page: 2,
+      pageSize: 2,
+      totalItems: 0,
+      totalPages: 0,
+      sortBy: "updated",
+      sortDir: "desc",
+    },
+    fallbackReason: "db_open_failed",
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.telemetry.source, "mock");
+  assert.equal(response.telemetry.result, "empty");
+  assert.equal(response.telemetry.recordCount, 0);
+  assert.equal(response.telemetry.fallbackReason, "db_open_failed");
+  assert.deepEqual(response.json, {
+    records: [],
+    pageInfo: {
+      page: 2,
+      pageSize: 2,
+      totalItems: 0,
+      totalPages: 0,
+      sortBy: "updated",
+      sortDir: "desc",
+    },
+  });
+});
+
+test("dataset records route keeps degraded behavior explicit and does not infer not_found in fallback mode", () => {
+  const response = buildDatasetRecordsRouteResponse("DST-MISSING", { sortBy: "title", sortDir: "asc", page: 1, pageSize: 5 }, {
+    source: "mock",
+    pageInfo: {
+      page: 1,
+      pageSize: 5,
+      totalItems: 0,
+      totalPages: 0,
+      sortBy: "title",
+      sortDir: "asc",
+    },
+    fallbackReason: "db_query_failed",
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.telemetry.source, "mock");
+  assert.equal(response.telemetry.result, "empty");
+  assert.equal(response.telemetry.recordCount, 0);
+  assert.equal(response.telemetry.fallbackReason, "db_query_failed");
+  assert.equal(response.telemetry.sortBy, "title");
+  assert.deepEqual(response.json, {
+    records: [],
+    pageInfo: {
+      page: 1,
+      pageSize: 5,
+      totalItems: 0,
+      totalPages: 0,
+      sortBy: "title",
+      sortDir: "asc",
+    },
+  });
+});
+
+===== END FILE: apps/api/src/routes/datasets.test.ts =====
+
+===== FILE: apps/web/components/data-explorer/data-explorer-workspace.tsx =====
+"use client";
+
+import {
+  BellDot,
+  Bot,
+  Database,
+  Download,
+  Eye,
+  FileSearch,
+  Filter,
+  Layers3,
+  Play,
+  Search,
+  Sparkles,
+  Table2,
+  Waves,
+  X,
+  type LucideIcon,
+} from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { apiClient } from "@/lib/api/client";
+import type {
+  DataExplorerDatasetDetail,
+  DataExplorerDatasetFilters,
+  DataExplorerDatasetSortBy,
+  DataExplorerFetchMeta,
+  DataExplorerPageInfo,
+  DataExplorerDatasetRow,
+  DataExplorerMetadataItem,
+  DataExplorerRelatedRecord,
+  DataExplorerRelatedRecordsPageInfo,
+  DataExplorerRelatedRecordsQuery,
+  DataExplorerRelatedRecordSortBy,
+  DataExplorerSortDirection,
+  DataExplorerWorkspaceData,
+  ExplorerAction,
+} from "@/lib/api/types";
+import {
+  deleteDataExplorerPresetById,
+  loadDataExplorerPresets,
+  markDataExplorerPresetUsed,
+  saveDataExplorerPreset,
+  upsertDataExplorerPreset,
+} from "@/lib/persistence/data-explorer-presets";
+import type { DataExplorerPresetRecord } from "@/lib/persistence/types";
+import { cn } from "@/lib/utils";
+import { Panel } from "@/components/ui/panel";
+import { StatusBadge } from "@/components/ui/status-badge";
+import {
+  formatDataExplorerPresetUsageMeta,
+  isDataExplorerPresetInSync,
+  selectDataExplorerPresetById,
+  selectSortedDataExplorerPresets,
+  toDataExplorerPresetFilterSnapshot,
+} from "@/components/data-explorer/preset-presentation";
+
+const STATUS_STYLES = {
+  Curated: "border-emerald-500/25 bg-emerald-500/10 text-emerald-300",
+  Live: "border-cyan-500/25 bg-cyan-500/10 text-cyan-300",
+  Draft: "border-amber-500/25 bg-amber-500/10 text-amber-300",
+} as const;
+
+const TONE_STYLES = {
+  cyan: "border-cyan-500/25 bg-cyan-500/10 text-cyan-300",
+  emerald: "border-emerald-500/25 bg-emerald-500/10 text-emerald-300",
+  amber: "border-amber-500/25 bg-amber-500/10 text-amber-300",
+} as const;
+
+const ACTION_ICONS: Record<ExplorerAction["icon"], LucideIcon> = {
+  play: Play,
+  download: Download,
+  layers: Layers3,
+};
+
+const EMPTY_FILTERS: Required<DataExplorerDatasetFilters> = {
+  q: "",
+  category: "",
+  region: "",
+  status: "",
+  sortBy: "updated",
+  sortDir: "desc",
+  page: 1,
+  pageSize: 25,
+};
+
+const EMPTY_RECORD_FILTERS: Required<DataExplorerRelatedRecordsQuery> = {
+  sortBy: "updated",
+  sortDir: "desc",
+  page: 1,
+  pageSize: 5,
+};
+
+type DetailStatus = "idle" | "loading" | "not_found" | "error";
+type RecordsStatus = "idle" | "loading" | "empty" | "not_found" | "error";
+type ListStatus = "idle" | "loading" | "empty" | "error";
+type PresetStatus = "idle" | "error";
+
+const SHOW_DEBUG = process.env.NODE_ENV !== "production";
+
+interface DataExplorerWorkspaceProps {
+  data: DataExplorerWorkspaceData;
+  initialMeta?: DataExplorerFetchMeta | null;
+}
+
+function formatFallbackReasonLabel(
+  fallbackReason: DataExplorerFetchMeta["fallbackReason"],
+): string {
+  if (fallbackReason === "db_path_missing") {
+    return "DB path missing";
+  }
+
+  if (fallbackReason === "db_open_failed") {
+    return "DB open failed";
+  }
+
+  if (fallbackReason === "db_query_failed") {
+    return "DB query failed";
+  }
+
+  return "Backend unavailable";
+}
+
+function buildFallbackDetail(dataset: DataExplorerDatasetRow | undefined, metadata: DataExplorerMetadataItem[]) {
+  if (!dataset) {
+    return null;
+  }
+
+  return {
+    id: dataset.id,
+    name: dataset.name,
+    category: dataset.category,
+    region: dataset.region,
+    updated: dataset.updated,
+    records: dataset.records,
+    status: dataset.status,
+    metadata: Object.fromEntries(metadata.map((item) => [item.label, item.value])),
+  } satisfies DataExplorerDatasetDetail;
+}
+
+function toMetadataItems(detail: DataExplorerDatasetDetail | null): DataExplorerMetadataItem[] {
+  if (!detail?.metadata) {
+    return [];
+  }
+
+  return Object.entries(detail.metadata).map(([label, value]) => ({
+    label,
+    value: value == null ? "Unavailable" : String(value),
+  }));
+}
+
+function normalizeFilters(filters: Required<DataExplorerDatasetFilters>): DataExplorerDatasetFilters {
+  return {
+    q: filters.q.trim() || undefined,
+    category: filters.category || undefined,
+    region: filters.region || undefined,
+    status: filters.status || undefined,
+    sortBy: filters.sortBy,
+    sortDir: filters.sortDir,
+    page: filters.page,
+    pageSize: filters.pageSize,
+  };
+}
+
+function formatDebugMeta(meta: DataExplorerFetchMeta | null): string {
+  if (!meta) {
+    return "No diagnostics yet";
+  }
+
+  const parts = [
+    meta.section,
+    meta.state,
+    meta.source ?? "unknown",
+    `${meta.durationMs}ms`,
+  ];
+
+  if (meta.fallbackReason) {
+    parts.push(meta.fallbackReason);
+  }
+
+  if (meta.datasetId) {
+    parts.push(meta.datasetId);
+  }
+
+  return parts.join(" · ");
+}
+
+function DebugBadge({ meta, label }: { meta: DataExplorerFetchMeta | null; label: string }) {
+  if (!SHOW_DEBUG) {
+    return null;
+  }
+
+  return (
+    <div
+      data-testid={`debug-${label}`}
+      className="rounded-xl border border-dashed border-cyan-500/20 bg-cyan-500/5 px-3 py-2 text-[10px] text-slate-400"
+    >
+      <span className="font-medium uppercase tracking-[0.18em] text-cyan-400">{label}</span>
+      <span className="ml-2">{formatDebugMeta(meta)}</span>
+    </div>
+  );
+}
+
+export function DataExplorerWorkspace({ data, initialMeta = null }: DataExplorerWorkspaceProps) {
+  const { actions, datasets: initialDatasets, previewSeries, metadata, summarySignals } = data;
+  const [datasets, setDatasets] = useState(initialDatasets);
+  const [draftFilters, setDraftFilters] = useState(EMPTY_FILTERS);
+  const [presetName, setPresetName] = useState("");
+  const [selectedPresetId, setSelectedPresetId] = useState("");
+  const [savedPresets, setSavedPresets] = useState<DataExplorerPresetRecord[]>([]);
+  const [presetStatus, setPresetStatus] = useState<PresetStatus>("idle");
+  const [presetError, setPresetError] = useState<string | null>(null);
+  const [activeFilters, setActiveFilters] = useState<DataExplorerDatasetFilters>({});
+  const [pageInfo, setPageInfo] = useState<DataExplorerPageInfo>(
+    data.pageInfo ?? {
+      page: 1,
+      pageSize: Math.max(initialDatasets.length, 1),
+      totalItems: initialDatasets.length,
+      totalPages: initialDatasets.length > 0 ? 1 : 0,
+      sortBy: "updated",
+      sortDir: "desc",
+    },
+  );
+  const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(initialDatasets[0]?.id ?? null);
+  const [selectedDetail, setSelectedDetail] = useState<DataExplorerDatasetDetail | null>(
+    buildFallbackDetail(initialDatasets[0], metadata),
+  );
+  const [listMeta, setListMeta] = useState<DataExplorerFetchMeta | null>(initialMeta);
+  const [detailMeta, setDetailMeta] = useState<DataExplorerFetchMeta | null>(null);
+  const [recordsMeta, setRecordsMeta] = useState<DataExplorerFetchMeta | null>(null);
+  const [detailStatus, setDetailStatus] = useState<DetailStatus>(initialDatasets[0] ? "loading" : "idle");
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [relatedRecords, setRelatedRecords] = useState<DataExplorerRelatedRecord[]>([]);
+  const [recordFilters, setRecordFilters] = useState(EMPTY_RECORD_FILTERS);
+  const [recordsPageInfo, setRecordsPageInfo] = useState<DataExplorerRelatedRecordsPageInfo>({
+    page: 1,
+    pageSize: EMPTY_RECORD_FILTERS.pageSize,
+    totalItems: 0,
+    totalPages: 0,
+    sortBy: EMPTY_RECORD_FILTERS.sortBy,
+    sortDir: EMPTY_RECORD_FILTERS.sortDir,
+  });
+  const [recordsStatus, setRecordsStatus] = useState<RecordsStatus>(initialDatasets[0] ? "loading" : "idle");
+  const [recordsError, setRecordsError] = useState<string | null>(null);
+  const [listStatus, setListStatus] = useState<ListStatus>(initialDatasets.length > 0 ? "idle" : "empty");
+  const [listError, setListError] = useState<string | null>(null);
+  const requestSequence = useRef(0);
+  const maxValue = Math.max(1, ...previewSeries.map((item) => item.value));
+
+  const categoryOptions = useMemo(
+    () => [...new Set(initialDatasets.map((dataset) => dataset.category))].sort((a, b) => a.localeCompare(b)),
+    [initialDatasets],
+  );
+  const regionOptions = useMemo(
+    () => [...new Set(initialDatasets.map((dataset) => dataset.region))].sort((a, b) => a.localeCompare(b)),
+    [initialDatasets],
+  );
+  const statusOptions = useMemo(
+    () => [...new Set(initialDatasets.map((dataset) => dataset.status))].sort((a, b) => a.localeCompare(b)),
+    [initialDatasets],
+  );
+  const sortedPresets = useMemo(() => selectSortedDataExplorerPresets(savedPresets), [savedPresets]);
+  const selectedPreset = useMemo(
+    () => selectDataExplorerPresetById(sortedPresets, selectedPresetId),
+    [sortedPresets, selectedPresetId],
+  );
+  const selectedPresetInSync = useMemo(() => {
+    if (!selectedPreset) {
+      return false;
+    }
+
+    return isDataExplorerPresetInSync(selectedPreset, draftFilters);
+  }, [selectedPreset, draftFilters]);
+
+  useEffect(() => {
+    setSavedPresets(loadDataExplorerPresets());
+  }, []);
+
+  useEffect(() => {
+    if (!selectedDatasetId) {
+      setSelectedDetail(null);
+      setDetailStatus("idle");
+      setDetailError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setDetailStatus("loading");
+    setDetailError(null);
+
+    void apiClient.dataExplorer.getDatasetDetail(selectedDatasetId).then(({ data: detail, meta }) => {
+      if (cancelled) return;
+      setDetailMeta(meta);
+      if (!detail) {
+        setDetailStatus(meta.state === "error" ? "error" : "not_found");
+        if (meta.state === "error") {
+          setDetailError(meta.errorMessage ?? "Unable to load dataset detail right now.");
+        }
+        return;
+      }
+      setSelectedDetail(detail);
+      setDetailStatus("idle");
+    }).catch(() => {
+      if (cancelled) return;
+      setDetailStatus("error");
+      setDetailError("Unable to load dataset detail right now.");
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDatasetId]);
+
+  useEffect(() => {
+    if (!selectedDatasetId) {
+      setRelatedRecords([]);
+      setRecordsPageInfo({
+        page: 1,
+        pageSize: recordFilters.pageSize,
+        totalItems: 0,
+        totalPages: 0,
+        sortBy: recordFilters.sortBy,
+        sortDir: recordFilters.sortDir,
+      });
+      setRecordsStatus("idle");
+      setRecordsError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setRecordsStatus("loading");
+    setRecordsError(null);
+    setRelatedRecords([]);
+
+    void apiClient.dataExplorer.getDatasetRecords(selectedDatasetId, recordFilters).then(({ data: result, meta }) => {
+      if (cancelled) return;
+      setRecordsMeta(meta);
+      if (!result) {
+        setRecordsStatus(meta.state === "error" ? "error" : "not_found");
+        if (meta.state === "error") {
+          setRecordsError(meta.errorMessage ?? "Unable to load related records right now.");
+        }
+        return;
+      }
+      setRelatedRecords(result.records);
+      setRecordsPageInfo(
+        result.pageInfo ?? {
+          page: recordFilters.page,
+          pageSize: recordFilters.pageSize,
+          totalItems: result.records.length,
+          totalPages: result.records.length > 0 ? 1 : 0,
+          sortBy: recordFilters.sortBy,
+          sortDir: recordFilters.sortDir,
+        },
+      );
+      setRecordsStatus(result.records.length > 0 ? "idle" : "empty");
+    }).catch(() => {
+      if (cancelled) return;
+      setRecordsStatus("error");
+      setRecordsError("Unable to load related records right now.");
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [recordFilters, selectedDatasetId]);
+
+  function prepareSelection(dataset: DataExplorerDatasetRow | undefined) {
+    setSelectedDatasetId(dataset?.id ?? null);
+    setSelectedDetail(buildFallbackDetail(dataset, metadata));
+    setDetailStatus(dataset ? "loading" : "idle");
+    setDetailError(null);
+    setDetailMeta(null);
+    setRecordFilters(EMPTY_RECORD_FILTERS);
+    setRelatedRecords([]);
+    setRecordsPageInfo({
+      page: 1,
+      pageSize: EMPTY_RECORD_FILTERS.pageSize,
+      totalItems: 0,
+      totalPages: 0,
+      sortBy: EMPTY_RECORD_FILTERS.sortBy,
+      sortDir: EMPTY_RECORD_FILTERS.sortDir,
+    });
+    setRecordsStatus(dataset ? "loading" : "idle");
+    setRecordsError(null);
+    setRecordsMeta(null);
+  }
+
+  async function applyFilters(filters: Required<DataExplorerDatasetFilters>) {
+    const requestId = requestSequence.current + 1;
+    requestSequence.current = requestId;
+    const normalized = normalizeFilters(filters);
+
+    setListStatus("loading");
+    setListError(null);
+
+    try {
+      const response = await apiClient.dataExplorer.getWorkspace(normalized);
+
+      if (requestSequence.current !== requestId) {
+        return;
+      }
+
+      setListMeta(response.meta);
+      setDatasets(response.data.datasets);
+      setActiveFilters(normalized);
+      setPageInfo(
+        response.data.pageInfo ?? {
+          page: normalized.page ?? 1,
+          pageSize: normalized.pageSize ?? 25,
+          totalItems: response.data.datasets.length,
+          totalPages: response.data.datasets.length > 0 ? 1 : 0,
+          sortBy: normalized.sortBy ?? "updated",
+          sortDir: normalized.sortDir ?? "desc",
+        },
+      );
+
+      if (response.data.datasets.length === 0) {
+        setListStatus("empty");
+        prepareSelection(undefined);
+        return;
+      }
+
+      setListStatus("idle");
+
+      if (selectedDatasetId && response.data.datasets.some((dataset) => dataset.id === selectedDatasetId)) {
+        return;
+      }
+
+      prepareSelection(response.data.datasets[0]);
+    } catch {
+      if (requestSequence.current !== requestId) {
+        return;
+      }
+      setListStatus("error");
+      setListError("Unable to refresh datasets right now.");
+    }
+  }
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void applyFilters(draftFilters);
+  }
+
+  function handleResetFilters() {
+    setDraftFilters(EMPTY_FILTERS);
+    void applyFilters(EMPTY_FILTERS);
+  }
+
+  function handleSavePreset() {
+    const result = saveDataExplorerPreset({
+      name: presetName,
+      filters: {
+        q: draftFilters.q,
+        category: draftFilters.category,
+        region: draftFilters.region,
+        status: draftFilters.status,
+        sortBy: draftFilters.sortBy,
+        sortDir: draftFilters.sortDir,
+        pageSize: draftFilters.pageSize,
+      },
+    });
+
+    if (!result.ok) {
+      setPresetStatus("error");
+      setPresetError(result.error ?? "Unable to save presets in this browser.");
+      return;
+    }
+
+    setSavedPresets(result.presets);
+    const savedPreset = result.presets.find((preset) => preset.name === presetName.trim());
+    setSelectedPresetId(savedPreset?.id ?? "");
+    setPresetName("");
+    setPresetStatus("idle");
+    setPresetError(null);
+  }
+
+  function handleApplyPreset() {
+    const preset = savedPresets.find((item) => item.id === selectedPresetId);
+
+    if (!preset) {
+      return;
+    }
+
+    const nextFilters: Required<DataExplorerDatasetFilters> = {
+      ...EMPTY_FILTERS,
+      ...preset.filters,
+      page: 1,
+    };
+
+    setDraftFilters(nextFilters);
+    setPresetStatus("idle");
+    setPresetError(null);
+
+    // Usage tracking is best-effort and should never block preset application.
+    const markUsedResult = markDataExplorerPresetUsed(preset.id);
+    if (markUsedResult.ok) {
+      setSavedPresets(markUsedResult.presets);
+    }
+
+    void applyFilters(nextFilters);
+  }
+
+  function handleUpdatePreset() {
+    const preset = selectDataExplorerPresetById(savedPresets, selectedPresetId);
+
+    if (!preset) {
+      return;
+    }
+
+    const result = upsertDataExplorerPreset({
+      id: preset.id,
+      name: preset.name,
+      filters: toDataExplorerPresetFilterSnapshot(draftFilters),
+    });
+
+    if (!result.ok) {
+      setPresetStatus("error");
+      setPresetError(result.error ?? "Unable to update presets in this browser.");
+      return;
+    }
+
+    setSavedPresets(result.presets);
+    setSelectedPresetId(preset.id);
+    setPresetStatus("idle");
+    setPresetError(null);
+  }
+
+  function handleDeletePreset() {
+    if (!selectedPresetId) {
+      return;
+    }
+
+    const result = deleteDataExplorerPresetById(selectedPresetId);
+
+    if (!result.ok) {
+      setPresetStatus("error");
+      setPresetError(result.error ?? "Unable to update presets in this browser.");
+      return;
+    }
+
+    setSavedPresets(result.presets);
+    setSelectedPresetId("");
+    setPresetStatus("idle");
+    setPresetError(null);
+  }
+
+  const detailMetadata = toMetadataItems(selectedDetail);
+  const filtersApplied = Boolean(activeFilters.q || activeFilters.category || activeFilters.region || activeFilters.status);
+  const canGoToPreviousPage = pageInfo.page > 1;
+  const canGoToNextPage = pageInfo.totalPages > 0 && pageInfo.page < pageInfo.totalPages;
+  const canGoToPreviousRecordsPage = recordsPageInfo.page > 1;
+  const canGoToNextRecordsPage =
+    recordsPageInfo.totalPages > 0 && recordsPageInfo.page < recordsPageInfo.totalPages;
+  const workspaceDegraded = listMeta?.state === "success" && listMeta.source === "mock";
+  const workspaceDegradedReason = workspaceDegraded
+    ? formatFallbackReasonLabel(listMeta?.fallbackReason)
+    : null;
+  const recordsDegraded = recordsMeta?.state === "success" && recordsMeta.source === "mock";
+  const recordsDegradedReason = recordsDegraded
+    ? formatFallbackReasonLabel(recordsMeta?.fallbackReason)
+    : null;
+
+  function handleSortByChange(value: DataExplorerDatasetSortBy) {
+    const next = { ...draftFilters, sortBy: value, page: 1 };
+    setDraftFilters(next);
+    void applyFilters(next);
+  }
+
+  function handleSortDirChange(value: DataExplorerSortDirection) {
+    const next = { ...draftFilters, sortDir: value, page: 1 };
+    setDraftFilters(next);
+    void applyFilters(next);
+  }
+
+  function handlePageSizeChange(value: number) {
+    const next = { ...draftFilters, pageSize: value, page: 1 };
+    setDraftFilters(next);
+    void applyFilters(next);
+  }
+
+  function handlePageChange(nextPage: number) {
+    const next = { ...draftFilters, page: nextPage };
+    setDraftFilters(next);
+    void applyFilters(next);
+  }
+
+  function handleRecordSortByChange(value: DataExplorerRelatedRecordSortBy) {
+    setRecordFilters((current) => ({ ...current, sortBy: value, page: 1 }));
+  }
+
+  function handleRecordSortDirChange(value: DataExplorerSortDirection) {
+    setRecordFilters((current) => ({ ...current, sortDir: value, page: 1 }));
+  }
+
+  function handleRecordPageSizeChange(value: number) {
+    setRecordFilters((current) => ({ ...current, pageSize: value, page: 1 }));
+  }
+
+  function handleRecordPageChange(nextPage: number) {
+    setRecordFilters((current) => ({ ...current, page: nextPage }));
+  }
+
+  return (
+    <div className="mx-auto flex max-w-[1600px] flex-col gap-6 p-6">
+      <div>
+        <p className="text-[11px] font-medium uppercase tracking-[0.28em] text-cyan-400">Data Explorer</p>
+        <h2 className="mt-2 text-xl font-semibold text-slate-100">Research dataset access and rapid preview workspace</h2>
+        <p className="mt-1 max-w-3xl text-sm text-slate-400">
+          Search across active marine datasets, inspect structure and freshness, and review AI-assisted
+          summaries before exporting or joining with other feeds.
+        </p>
+      </div>
+
+      <Panel
+        title="Search and Actions"
+        subtitle="Refine the active catalog without leaving the platform shell."
+        action={
+          <div className="flex items-center gap-2 text-[10px] text-slate-500">
+            <Database size={12} className="text-cyan-400" />
+            {pageInfo.totalItems} indexed matches
+          </div>
+        }
+      >
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <form className="flex flex-1 flex-col gap-3" onSubmit={handleSubmit}>
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_180px_180px_160px]">
+              <div className="relative">
+                <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                <input
+                  type="text"
+                  value={draftFilters.q}
+                  onChange={(event) => setDraftFilters((current) => ({ ...current, q: event.target.value }))}
+                  className="w-full rounded-xl border border-surface-borderSubtle bg-ocean-850 py-2.5 pl-9 pr-4 text-sm text-slate-200 outline-none transition-colors focus:border-cyan-500/30"
+                  aria-label="Dataset search"
+                  placeholder="Search by dataset name or category"
+                />
+              </div>
+              <select value={draftFilters.category} onChange={(event) => setDraftFilters((current) => ({ ...current, category: event.target.value }))} className="rounded-xl border border-surface-borderSubtle bg-ocean-850 px-3 py-2.5 text-sm text-slate-200 outline-none transition-colors focus:border-cyan-500/30" aria-label="Dataset category filter">
+                <option value="">All categories</option>
+                {categoryOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+              </select>
+              <select value={draftFilters.region} onChange={(event) => setDraftFilters((current) => ({ ...current, region: event.target.value }))} className="rounded-xl border border-surface-borderSubtle bg-ocean-850 px-3 py-2.5 text-sm text-slate-200 outline-none transition-colors focus:border-cyan-500/30" aria-label="Dataset region filter">
+                <option value="">All regions</option>
+                {regionOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+              </select>
+              <select value={draftFilters.status} onChange={(event) => setDraftFilters((current) => ({ ...current, status: event.target.value }))} className="rounded-xl border border-surface-borderSubtle bg-ocean-850 px-3 py-2.5 text-sm text-slate-200 outline-none transition-colors focus:border-cyan-500/30" aria-label="Dataset status filter">
+                <option value="">All statuses</option>
+                {statusOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+              </select>
+            </div>
+
+            <div className="grid gap-3 lg:grid-cols-[180px_160px_160px_minmax(0,1fr)]">
+              <select value={draftFilters.sortBy} onChange={(event) => handleSortByChange(event.target.value as DataExplorerDatasetSortBy)} className="rounded-xl border border-surface-borderSubtle bg-ocean-850 px-3 py-2.5 text-sm text-slate-200 outline-none transition-colors focus:border-cyan-500/30" aria-label="Dataset sort field">
+                <option value="updated">Sort: Updated</option>
+                <option value="name">Sort: Name</option>
+                <option value="records">Sort: Records</option>
+                <option value="status">Sort: Status</option>
+              </select>
+              <select value={draftFilters.sortDir} onChange={(event) => handleSortDirChange(event.target.value as DataExplorerSortDirection)} className="rounded-xl border border-surface-borderSubtle bg-ocean-850 px-3 py-2.5 text-sm text-slate-200 outline-none transition-colors focus:border-cyan-500/30" aria-label="Dataset sort direction">
+                <option value="desc">Descending</option>
+                <option value="asc">Ascending</option>
+              </select>
+              <select value={draftFilters.pageSize} onChange={(event) => handlePageSizeChange(Number.parseInt(event.target.value, 10))} className="rounded-xl border border-surface-borderSubtle bg-ocean-850 px-3 py-2.5 text-sm text-slate-200 outline-none transition-colors focus:border-cyan-500/30" aria-label="Dataset page size">
+                <option value="10">10 / page</option>
+                <option value="25">25 / page</option>
+                <option value="50">50 / page</option>
+              </select>
+              <div className="flex items-center justify-end text-[11px] text-slate-500">
+                Page {pageInfo.totalPages === 0 ? 0 : pageInfo.page} of {pageInfo.totalPages}
+              </div>
+            </div>
+
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_auto_auto]">
+              <input
+                type="text"
+                value={presetName}
+                onChange={(event) => setPresetName(event.target.value)}
+                className="rounded-xl border border-surface-borderSubtle bg-ocean-850 px-3 py-2.5 text-sm text-slate-200 outline-none transition-colors focus:border-cyan-500/30"
+                aria-label="Preset name"
+                placeholder="Save current search as..."
+              />
+              <select
+                value={selectedPresetId}
+                onChange={(event) => setSelectedPresetId(event.target.value)}
+                className="rounded-xl border border-surface-borderSubtle bg-ocean-850 px-3 py-2.5 text-sm text-slate-200 outline-none transition-colors focus:border-cyan-500/30"
+                aria-label="Saved presets"
+              >
+                <option value="">Saved presets</option>
+                {sortedPresets.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={handleSavePreset}
+                className="inline-flex items-center justify-center rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-300 transition-colors hover:bg-emerald-500/15"
+              >
+                Save preset
+              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleApplyPreset}
+                  disabled={!selectedPresetId}
+                  className="inline-flex items-center justify-center rounded-xl border border-cyan-500/25 bg-cyan-500/10 px-3 py-2 text-xs font-medium text-cyan-300 transition-colors hover:bg-cyan-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Apply preset
+                </button>
+                <button
+                  type="button"
+                  onClick={handleUpdatePreset}
+                  disabled={!selectedPresetId || selectedPresetInSync}
+                  className="inline-flex items-center justify-center rounded-xl border border-surface-borderSubtle bg-ocean-850 px-3 py-2 text-xs text-slate-300 transition-colors hover:border-cyan-500/30 hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Update preset
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeletePreset}
+                  disabled={!selectedPresetId}
+                  className="inline-flex items-center justify-center rounded-xl border border-surface-borderSubtle bg-ocean-850 px-3 py-2 text-xs text-slate-300 transition-colors hover:border-rose-500/30 hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+
+            <div className="text-[11px] text-slate-500" data-testid="saved-preset-usage-meta">
+              {selectedPreset
+                ? formatDataExplorerPresetUsageMeta(selectedPreset)
+                : "Select a preset to view usage metadata."}
+            </div>
+            {selectedPreset && (
+              <div className="text-[11px] text-slate-500" data-testid="saved-preset-sync-status">
+                {selectedPresetInSync
+                  ? "Preset is in sync with current filters."
+                  : "Current filters differ from selected preset."}
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="submit" disabled={listStatus === "loading"} className="inline-flex items-center gap-2 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-xs font-medium text-cyan-300 transition-colors hover:bg-cyan-500/15 disabled:cursor-wait disabled:opacity-70">
+                <Filter size={13} />
+                {listStatus === "loading" ? "Filtering..." : "Apply Filters"}
+              </button>
+              <button type="button" onClick={handleResetFilters} className="inline-flex items-center gap-2 rounded-xl border border-surface-borderSubtle bg-ocean-850 px-3 py-2 text-xs text-slate-300 transition-colors hover:border-cyan-500/30 hover:text-slate-100">
+                <X size={13} className="text-slate-400" />
+                Reset
+              </button>
+
+              {(listStatus === "loading" || listStatus === "error" || filtersApplied || workspaceDegraded) && (
+                <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                  {listStatus === "loading" && <StatusBadge label="Refreshing dataset list" className="border-cyan-500/25 bg-cyan-500/10 text-cyan-300" />}
+                  {listStatus === "error" && listError && <StatusBadge label={listError} className="border-rose-500/25 bg-rose-500/10 text-rose-300" />}
+                  {presetStatus === "error" && presetError && <StatusBadge label={presetError} className="border-rose-500/25 bg-rose-500/10 text-rose-300" />}
+                  {filtersApplied && <StatusBadge label="Filters active" className="border-amber-500/25 bg-amber-500/10 text-amber-300" />}
+                  {workspaceDegraded && (
+                    <StatusBadge
+                      label={`Fallback data mode (${workspaceDegradedReason})`}
+                      className="border-amber-500/25 bg-amber-500/10 text-amber-300"
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+
+            <DebugBadge label="list" meta={listMeta} />
+          </form>
+
+          <div className="flex flex-wrap gap-2">
+            {actions.map((action) => {
+              const Icon = ACTION_ICONS[action.icon];
+              return (
+                <button
+                  key={action.label}
+                  className={cn(
+                    "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-medium transition-colors",
+                    action.tone === "primary"
+                      ? "border-cyan-500/30 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/15"
+                      : "border-surface-borderSubtle bg-ocean-850 text-slate-300 hover:border-cyan-500/30 hover:text-slate-100",
+                  )}
+                >
+                  <Icon size={13} className={action.tone === "primary" ? "text-cyan-400" : "text-slate-400"} />
+                  {action.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </Panel>
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_360px]">
+        <div className="space-y-6">
+          <Panel title="Dataset Catalog" subtitle="A focused list view for recent data products relevant to the current case." action={<div className="flex items-center gap-2 text-[11px] text-slate-500"><Table2 size={13} className="text-cyan-400" />List view</div>}>
+            {workspaceDegraded && (
+              <div
+                data-testid="workspace-degraded-state"
+                className="mb-3 rounded-xl border border-dashed border-amber-500/25 bg-amber-500/5 px-4 py-3"
+              >
+                <p className="text-xs font-medium text-slate-100">Backend degraded mode</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                  Showing fallback dataset output because the live repository is unavailable ({workspaceDegradedReason}).
+                </p>
+              </div>
+            )}
+            {listStatus === "empty" ? (
+              <div className="rounded-xl border border-dashed border-surface-borderSubtle bg-ocean-900/60 p-6">
+                <p className="text-sm font-medium text-slate-100">
+                  {workspaceDegraded ? "Live dataset catalog unavailable" : "No datasets match the current filters"}
+                </p>
+                <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                  {workspaceDegraded
+                    ? `The backend is currently degraded (${workspaceDegradedReason}). Retry after recovery to access live dataset rows.`
+                    : "Adjust the search or clear one of the category, region, or status filters to restore results."}
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-hidden rounded-xl border border-surface-borderSubtle">
+                <div className="grid grid-cols-[120px_minmax(0,1.4fr)_110px_120px_90px_96px] gap-3 bg-ocean-850 px-4 py-3 text-[10px] uppercase tracking-[0.22em] text-slate-500">
+                  <span>Dataset</span><span>Name</span><span>Category</span><span>Region</span><span>Records</span><span>Status</span>
+                </div>
+                <div className="divide-y divide-surface-borderSubtle">
+                  {datasets.map((dataset) => {
+                    const selected = dataset.id === selectedDatasetId;
+                    return (
+                      <button key={dataset.id} type="button" onClick={() => prepareSelection(dataset)} className={cn("grid w-full grid-cols-[120px_minmax(0,1.4fr)_110px_120px_90px_96px] gap-3 px-4 py-4 text-left transition-colors", selected ? "bg-cyan-500/8" : "bg-ocean-900/70 hover:bg-ocean-850/70")}>
+                        <div className="flex flex-col gap-1">
+                          <span className="font-mono text-[10px] text-slate-500">{dataset.id}</span>
+                          <span className="text-[10px] text-slate-600">{dataset.updated}</span>
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-slate-100">{dataset.name}</p>
+                          <p className="mt-1 flex items-center gap-2 text-[11px] text-slate-500"><FileSearch size={11} className="text-cyan-400" />Indexed for investigation joins and anomaly review</p>
+                        </div>
+                        <span className="text-xs text-slate-300">{dataset.category}</span>
+                        <span className="text-xs text-slate-400">{dataset.region}</span>
+                        <span className="font-mono text-xs text-slate-300">{dataset.records}</span>
+                        <div className="flex items-start justify-start"><StatusBadge label={dataset.status} className={STATUS_STYLES[dataset.status]} /></div>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-surface-borderSubtle bg-ocean-900/70 px-4 py-3 text-[11px] text-slate-500">
+                  <span>
+                    Showing {datasets.length === 0 ? 0 : (pageInfo.page - 1) * pageInfo.pageSize + 1}
+                    {" "}-{" "}
+                    {Math.min(pageInfo.page * pageInfo.pageSize, pageInfo.totalItems)} of {pageInfo.totalItems}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handlePageChange(pageInfo.page - 1)}
+                      disabled={!canGoToPreviousPage || listStatus === "loading"}
+                      className="rounded-xl border border-surface-borderSubtle bg-ocean-850 px-3 py-1.5 text-xs text-slate-300 transition-colors hover:border-cyan-500/30 hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Previous
+                    </button>
+                    <span className="font-mono text-[10px] text-slate-500">
+                      Page {pageInfo.totalPages === 0 ? 0 : pageInfo.page}/{pageInfo.totalPages}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handlePageChange(pageInfo.page + 1)}
+                      disabled={!canGoToNextPage || listStatus === "loading"}
+                      className="rounded-xl border border-surface-borderSubtle bg-ocean-850 px-3 py-1.5 text-xs text-slate-300 transition-colors hover:border-cyan-500/30 hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </Panel>
+
+          <Panel title="Dataset Preview" subtitle="A fast look at the currently selected feed before deeper analysis." action={<button className="inline-flex items-center gap-2 rounded-full border border-cyan-500/25 bg-cyan-500/10 px-3 py-1 text-[11px] font-medium text-cyan-300 transition-colors hover:bg-cyan-500/15"><Eye size={12} />Open full preview</button>}>
+            <div className="grid gap-5 lg:grid-cols-[minmax(0,1.2fr)_280px]">
+              <div className="rounded-2xl border border-cyan-500/20 bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.14),_rgba(2,13,24,0)_38%),linear-gradient(180deg,rgba(6,27,48,0.94),rgba(4,20,37,0.96))] p-5">
+                {selectedDetail ? (
+                  <>
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-[10px] uppercase tracking-[0.24em] text-cyan-400">Selected Dataset</p>
+                        <h3 className="mt-2 text-lg font-semibold text-slate-100">{selectedDetail.name}</h3>
+                        <p className="mt-2 text-sm leading-relaxed text-slate-400">Live blended observations tracking thermal front intensity across the reef boundary, optimized for fast anomaly checks and cross-feed joins.</p>
+                        <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                          <span>{selectedDetail.category}</span><span className="text-slate-700">•</span><span>{selectedDetail.region}</span><span className="text-slate-700">•</span><span>{selectedDetail.records} records</span>
+                        </div>
+                      </div>
+                      <StatusBadge label={selectedDetail.status} className={STATUS_STYLES[selectedDetail.status]} />
+                    </div>
+
+                    {(detailStatus === "loading" || detailStatus === "not_found" || detailStatus === "error") && (
+                      <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px]">
+                        {detailStatus === "loading" && <StatusBadge label="Loading dataset detail" className="border-cyan-500/25 bg-cyan-500/10 text-cyan-300" />}
+                        {detailStatus === "not_found" && <StatusBadge label="Dataset not found" className="border-amber-500/25 bg-amber-500/10 text-amber-300" />}
+                        {detailStatus === "error" && detailError && <StatusBadge label={detailError} className="border-rose-500/25 bg-rose-500/10 text-rose-300" />}
+                      </div>
+                    )}
+
+                    <div className="mt-4">
+                      <DebugBadge label="detail" meta={detailMeta} />
+                    </div>
+
+                    <div className="mt-6">
+                      {detailStatus === "not_found" ? (
+                        <div className="rounded-xl border border-dashed border-amber-500/25 bg-amber-500/5 p-5">
+                          <p className="text-sm font-medium text-slate-100">Dataset detail unavailable</p>
+                          <p className="mt-2 text-[11px] leading-relaxed text-slate-500">The selected dataset is no longer available in the current detail catalog.</p>
+                        </div>
+                      ) : (
+                        <div className="flex h-48 items-end gap-3 rounded-xl border border-surface-borderSubtle bg-ocean-900/70 p-4">
+                          {previewSeries.map((point) => (
+                            <div key={point.label} className="flex flex-1 flex-col items-center gap-2">
+                              <div className="flex h-full w-full items-end">
+                                <div className="w-full rounded-t-md bg-gradient-to-t from-cyan-500 to-cyan-300" style={{ height: `${(point.value / maxValue) * 100}%` }} />
+                              </div>
+                              <span className="font-mono text-[10px] text-slate-500">{point.label}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-surface-borderSubtle bg-ocean-900/70 p-5">
+                    <p className="text-sm font-medium text-slate-100">No dataset selected</p>
+                    <p className="mt-2 text-[11px] leading-relaxed text-slate-500">Adjust the filters or select a dataset from the catalog to load detail.</p>
+                  </div>
+                )}
+              </div>
+              <div className="space-y-3">
+                <div className="rounded-xl border border-surface-borderSubtle bg-ocean-850/75 p-4">
+                  <p className="text-[10px] uppercase tracking-[0.22em] text-slate-500">Preview Metrics</p>
+                  <div className="mt-3 space-y-3">
+                    <div><p className="text-2xl font-semibold text-slate-100">97.4%</p><p className="text-[11px] text-slate-500">Completeness across active window</p></div>
+                    <div><p className="text-2xl font-semibold text-slate-100">5 min</p><p className="text-[11px] text-slate-500">Median ingestion lag</p></div>
+                    <div><p className="text-2xl font-semibold text-slate-100">14 grids</p><p className="text-[11px] text-slate-500">High-priority anomaly cells surfaced</p></div>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-surface-borderSubtle bg-ocean-850/75 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[10px] uppercase tracking-[0.22em] text-slate-500">Related Records</p>
+                    <BellDot size={14} className="text-cyan-400" />
+                  </div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_120px_110px]">
+                    <select
+                      value={recordFilters.sortBy}
+                      onChange={(event) =>
+                        handleRecordSortByChange(event.target.value as DataExplorerRelatedRecordSortBy)
+                      }
+                      className="rounded-xl border border-surface-borderSubtle bg-ocean-900/70 px-3 py-2 text-xs text-slate-200 outline-none transition-colors focus:border-cyan-500/30"
+                      aria-label="Related records sort field"
+                    >
+                      <option value="updated">Sort: Updated</option>
+                      <option value="title">Sort: Title</option>
+                      <option value="status">Sort: Status</option>
+                      <option value="type">Sort: Type</option>
+                    </select>
+                    <select
+                      value={recordFilters.sortDir}
+                      onChange={(event) => handleRecordSortDirChange(event.target.value as DataExplorerSortDirection)}
+                      className="rounded-xl border border-surface-borderSubtle bg-ocean-900/70 px-3 py-2 text-xs text-slate-200 outline-none transition-colors focus:border-cyan-500/30"
+                      aria-label="Related records sort direction"
+                    >
+                      <option value="desc">Desc</option>
+                      <option value="asc">Asc</option>
+                    </select>
+                    <select
+                      value={recordFilters.pageSize}
+                      onChange={(event) => handleRecordPageSizeChange(Number.parseInt(event.target.value, 10))}
+                      className="rounded-xl border border-surface-borderSubtle bg-ocean-900/70 px-3 py-2 text-xs text-slate-200 outline-none transition-colors focus:border-cyan-500/30"
+                      aria-label="Related records page size"
+                    >
+                      <option value="2">2 / page</option>
+                      <option value="5">5 / page</option>
+                      <option value="10">10 / page</option>
+                    </select>
+                  </div>
+                  <div className="mt-3">
+                    <DebugBadge label="records" meta={recordsMeta} />
+                  </div>
+                  {recordsStatus === "loading" && <div className="mt-3"><StatusBadge label="Loading related records" className="border-cyan-500/25 bg-cyan-500/10 text-cyan-300" /></div>}
+                  {recordsStatus === "not_found" && <div className="mt-3 rounded-xl border border-dashed border-amber-500/25 bg-amber-500/5 p-4"><p className="text-xs font-medium text-slate-100">Dataset not found</p><p className="mt-2 text-[11px] leading-relaxed text-slate-500">Related records are unavailable because the selected dataset detail no longer exists.</p></div>}
+                  {recordsStatus === "error" && <div className="mt-3 rounded-xl border border-dashed border-rose-500/25 bg-rose-500/5 p-4"><p className="text-xs font-medium text-slate-100">Related records unavailable</p><p className="mt-2 text-[11px] leading-relaxed text-slate-500">{recordsError ?? "The related records request failed. Try selecting the dataset again."}</p></div>}
+                  {recordsStatus === "empty" && (
+                    <div className="mt-3 rounded-xl border border-dashed border-surface-borderSubtle bg-ocean-900/60 p-4">
+                      <p className="text-xs font-medium text-slate-100">
+                        {recordsDegraded ? "Related records unavailable in degraded mode" : "No related records yet"}
+                      </p>
+                      <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                        {recordsDegraded
+                          ? `The related-record repository is currently degraded (${recordsDegradedReason}).`
+                          : "No linked records were returned for the currently selected dataset."}
+                      </p>
+                    </div>
+                  )}
+                  {recordsStatus === "idle" && relatedRecords.length > 0 && (
+                    <div className="mt-3 space-y-3">
+                      {relatedRecords.map((record) => (
+                        <div key={record.id} className="rounded-xl border border-surface-borderSubtle bg-ocean-900/70 p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-mono text-[10px] text-slate-500">{record.id}</p>
+                              <p className="mt-1 text-xs font-medium text-slate-100">{record.title}</p>
+                            </div>
+                            <StatusBadge label={record.status} className="border-cyan-500/25 bg-cyan-500/10 text-cyan-300" />
+                          </div>
+                          <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] text-slate-500"><span>{record.type}</span><span className="text-slate-700">•</span><span>{record.updated}</span></div>
+                          {record.summary && <p className="mt-2 text-[11px] leading-relaxed text-slate-400">{record.summary}</p>}
+                        </div>
+                      ))}
+                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-surface-borderSubtle bg-ocean-900/70 px-3 py-2 text-[11px] text-slate-500">
+                        <span>
+                          Showing {relatedRecords.length === 0 ? 0 : (recordsPageInfo.page - 1) * recordsPageInfo.pageSize + 1}
+                          {" "}-{" "}
+                          {Math.min(recordsPageInfo.page * recordsPageInfo.pageSize, recordsPageInfo.totalItems)} of {recordsPageInfo.totalItems}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleRecordPageChange(recordsPageInfo.page - 1)}
+                            disabled={!canGoToPreviousRecordsPage}
+                            className="rounded-xl border border-surface-borderSubtle bg-ocean-850 px-3 py-1.5 text-[11px] text-slate-300 transition-colors hover:border-cyan-500/30 hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Previous records
+                          </button>
+                          <span className="font-mono text-[10px] text-slate-500">
+                            Page {recordsPageInfo.totalPages === 0 ? 0 : recordsPageInfo.page}/{recordsPageInfo.totalPages}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleRecordPageChange(recordsPageInfo.page + 1)}
+                            disabled={!canGoToNextRecordsPage}
+                            className="rounded-xl border border-surface-borderSubtle bg-ocean-850 px-3 py-1.5 text-[11px] text-slate-300 transition-colors hover:border-cyan-500/30 hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Next records
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-xl border border-dashed border-cyan-500/25 bg-cyan-500/5 p-4">
+                  <div className="flex items-start gap-3">
+                    <Waves size={16} className="mt-0.5 text-cyan-400" />
+                    <div>
+                      <p className="text-xs font-medium text-slate-200">Suggested next step</p>
+                      <p className="mt-1 text-[11px] leading-relaxed text-slate-500">Compare this feed against dissolved oxygen outliers before promoting it to the investigation evidence stack.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </Panel>
+        </div>
+
+        <div className="space-y-6">
+          <Panel title="Metadata" subtitle="Operational context for the selected dataset." action={<Database size={14} className="text-cyan-400" />} className="h-fit">
+            <div className="space-y-3">
+              {detailStatus === "not_found" ? (
+                <div className="rounded-xl border border-dashed border-amber-500/25 bg-amber-500/5 p-4">
+                  <p className="text-xs font-medium text-slate-100">Dataset not found</p>
+                  <p className="mt-2 text-[11px] leading-relaxed text-slate-500">Metadata could not be loaded because the selected dataset detail no longer exists.</p>
+                </div>
+              ) : detailStatus === "error" ? (
+                <div className="rounded-xl border border-dashed border-rose-500/25 bg-rose-500/5 p-4">
+                  <p className="text-xs font-medium text-slate-100">Detail unavailable</p>
+                  <p className="mt-2 text-[11px] leading-relaxed text-slate-500">{detailError ?? "The dataset detail request failed. Try selecting the dataset again."}</p>
+                </div>
+              ) : detailMetadata.length > 0 ? (
+                detailMetadata.map((item) => (
+                  <div key={item.label} className="rounded-xl border border-surface-borderSubtle bg-ocean-850/75 p-4">
+                    <p className="text-[10px] uppercase tracking-[0.22em] text-slate-500">{item.label}</p>
+                    <p className="mt-2 text-xs leading-relaxed text-slate-200">{item.value}</p>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-xl border border-dashed border-surface-borderSubtle bg-ocean-850/40 p-4">
+                  <p className="text-xs font-medium text-slate-100">No metadata available</p>
+                  <p className="mt-2 text-[11px] leading-relaxed text-slate-500">Select a dataset to inspect operational context.</p>
+                </div>
+              )}
+            </div>
+          </Panel>
+
+          <Panel title="AI Summary" subtitle="Machine-assisted readout of the active dataset." action={<Bot size={14} className="text-violet-400" />} className="h-fit">
+            <div className="space-y-3">
+              <div className="rounded-xl border border-violet-500/25 bg-violet-500/10 p-4">
+                <div className="flex items-center gap-2"><Sparkles size={14} className="text-violet-400" /><p className="text-xs font-medium text-slate-100">OceanGPT assistant</p></div>
+                <p className="mt-2 text-[11px] leading-relaxed text-slate-400">This dataset is a strong candidate for anomaly triage and temporal comparison because it combines stable cadence with high cross-source agreement.</p>
+              </div>
+              {summarySignals.map((signal) => (
+                <div key={signal.title} className="rounded-xl border border-surface-borderSubtle bg-ocean-850/75 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs font-medium text-slate-100">{signal.title}</p>
+                    <StatusBadge label="Active" className={TONE_STYLES[signal.tone]} />
+                  </div>
+                  <p className="mt-2 text-[11px] leading-relaxed text-slate-400">{signal.detail}</p>
+                </div>
+              ))}
+            </div>
+          </Panel>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+===== END FILE: apps/web/components/data-explorer/data-explorer-workspace.tsx =====
+
+===== FILE: apps/web/components/data-explorer/data-explorer-workspace.test.tsx =====
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { vi } from "vitest";
+import { DataExplorerWorkspace } from "@/components/data-explorer/data-explorer-workspace";
+import { dataExplorerWorkspaceData } from "@/lib/api/mock-data";
+import type {
+  DataExplorerDatasetDetail,
+  DataExplorerFetchMeta,
+  DataExplorerDatasetRow,
+  DataExplorerPageInfo,
+  DataExplorerRelatedRecord,
+  DataExplorerRelatedRecordsResult,
+  DataExplorerWorkspaceData,
+} from "@/lib/api/types";
+
+const { mockApiClient } = vi.hoisted(() => ({
+  mockApiClient: {
+    dataExplorer: {
+      getWorkspace: vi.fn(),
+      getDatasetDetail: vi.fn(),
+      getDatasetRecords: vi.fn(),
+    },
+  },
+}));
+
+vi.mock("@/lib/api/client", () => ({
+  apiClient: mockApiClient,
+}));
+
+const BASE_DATASETS = dataExplorerWorkspaceData.datasets.slice(0, 3);
+
+function createPageInfo(
+  datasets: DataExplorerDatasetRow[],
+  overrides: Partial<DataExplorerPageInfo> = {},
+): DataExplorerPageInfo {
+  return {
+    page: 1,
+    pageSize: 25,
+    totalItems: datasets.length,
+    totalPages: datasets.length > 0 ? 1 : 0,
+    sortBy: "updated",
+    sortDir: "desc",
+    ...overrides,
+  };
+}
+
+function createWorkspace(
+  datasets: DataExplorerDatasetRow[] = BASE_DATASETS,
+  overrides: Partial<DataExplorerWorkspaceData> = {},
+): DataExplorerWorkspaceData {
+  return {
+    ...dataExplorerWorkspaceData,
+    datasets,
+    pageInfo: createPageInfo(datasets),
+    ...overrides,
+  };
+}
+
+function createDetail(dataset: DataExplorerDatasetRow): DataExplorerDatasetDetail {
+  return {
+    ...dataset,
+    metadata: {
+      Source: "Mocked Source",
+      Coverage: dataset.region,
+      Cadence: "5 minute ingest",
+      Schema: "temperature_c, anomaly_index",
+      Owner: "Ocean Systems Lab",
+    },
+  };
+}
+
+function createRecords(datasetId: string): DataExplorerRelatedRecord[] {
+  return [
+    {
+      id: `${datasetId}-REC-1`,
+      title: `Related record for ${datasetId}`,
+      type: "Alert",
+      status: "Open",
+      updated: "4 min ago",
+      summary: "Localized anomaly cluster persisted through the latest ingest window.",
+    },
+  ];
+}
+
+function createRecordsResult(
+  records: DataExplorerRelatedRecord[],
+  overrides: Partial<DataExplorerRelatedRecordsResult["pageInfo"]> = {},
+): DataExplorerRelatedRecordsResult {
+  return {
+    records,
+    pageInfo: {
+      page: 1,
+      pageSize: 5,
+      totalItems: records.length,
+      totalPages: records.length > 0 ? 1 : 0,
+      sortBy: "updated",
+      sortDir: "desc",
+      ...overrides,
+    },
+  };
+}
+
+function createMeta(
+  section: DataExplorerFetchMeta["section"],
+  overrides: Partial<DataExplorerFetchMeta> = {},
+): DataExplorerFetchMeta {
+  return {
+    section,
+    state: "success",
+    startedAt: "2026-03-14T12:00:00.000Z",
+    finishedAt: "2026-03-14T12:00:00.012Z",
+    durationMs: 12,
+    source: "db",
+    ...overrides,
+  };
+}
+
+function createWorkspaceResponse(data: DataExplorerWorkspaceData) {
+  return {
+    data,
+    meta: createMeta("workspace"),
+  };
+}
+
+function createDetailResponse(data: DataExplorerDatasetDetail | null, datasetId: string) {
+  return {
+    data,
+    meta: createMeta("detail", {
+      datasetId,
+      state: data ? "success" : "not_found",
+    }),
+  };
+}
+
+function createRecordsResponse(data: DataExplorerRelatedRecordsResult | null, datasetId: string) {
+  return {
+    data,
+    meta: createMeta("records", {
+      datasetId,
+      state: data ? "success" : "not_found",
+    }),
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+
+  return { promise, resolve, reject };
+}
+
+function renderWorkspace(
+  data = createWorkspace(),
+  initialMeta: DataExplorerFetchMeta | null = null,
+) {
+  return render(<DataExplorerWorkspace data={data} initialMeta={initialMeta} />);
+}
+
+beforeEach(() => {
+  window.localStorage.clear();
+  mockApiClient.dataExplorer.getWorkspace.mockReset();
+  mockApiClient.dataExplorer.getDatasetDetail.mockReset();
+  mockApiClient.dataExplorer.getDatasetRecords.mockReset();
+
+  mockApiClient.dataExplorer.getDatasetDetail.mockImplementation(async (datasetId: string) => {
+    const dataset = BASE_DATASETS.find((item) => item.id === datasetId);
+    return createDetailResponse(dataset ? createDetail(dataset) : null, datasetId);
+  });
+
+  mockApiClient.dataExplorer.getDatasetRecords.mockImplementation(async (datasetId: string) => {
+    const dataset = BASE_DATASETS.find((item) => item.id === datasetId);
+    return createRecordsResponse(dataset ? createRecordsResult(createRecords(datasetId)) : null, datasetId);
+  });
+});
+
+test("applying filters triggers a dataset list refresh with the current query", async () => {
+  const user = userEvent.setup();
+  const filteredWorkspace = createWorkspace([BASE_DATASETS[2]!]);
+  mockApiClient.dataExplorer.getWorkspace.mockResolvedValue(createWorkspaceResponse(filteredWorkspace));
+
+  renderWorkspace();
+
+  await user.type(screen.getByLabelText("Dataset search"), "chemistry");
+  await user.click(screen.getByRole("button", { name: "Apply Filters" }));
+
+  await waitFor(() => {
+    expect(mockApiClient.dataExplorer.getWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({
+        q: "chemistry",
+        sortBy: "updated",
+        sortDir: "desc",
+        page: 1,
+        pageSize: 25,
+      }),
+    );
+  });
+});
+
+test("changing sort triggers a dataset list refresh", async () => {
+  const user = userEvent.setup();
+  mockApiClient.dataExplorer.getWorkspace.mockResolvedValue(
+    createWorkspaceResponse(createWorkspace([...BASE_DATASETS].reverse())),
+  );
+
+  renderWorkspace();
+
+  await user.selectOptions(screen.getByLabelText("Dataset sort field"), "name");
+
+  await waitFor(() => {
+    expect(mockApiClient.dataExplorer.getWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sortBy: "name",
+        sortDir: "desc",
+        page: 1,
+      }),
+    );
+  });
+});
+
+test("changing page triggers a dataset list refresh", async () => {
+  const user = userEvent.setup();
+  const pageOne = createWorkspace([BASE_DATASETS[0]!], {
+    pageInfo: createPageInfo([BASE_DATASETS[0]!], {
+      page: 1,
+      pageSize: 1,
+      totalItems: 2,
+      totalPages: 2,
+    }),
+  });
+  const pageTwo = createWorkspace([BASE_DATASETS[1]!], {
+    pageInfo: createPageInfo([BASE_DATASETS[1]!], {
+      page: 2,
+      pageSize: 1,
+      totalItems: 2,
+      totalPages: 2,
+    }),
+  });
+  mockApiClient.dataExplorer.getWorkspace.mockResolvedValue(createWorkspaceResponse(pageTwo));
+
+  renderWorkspace(pageOne);
+
+  await user.click(screen.getByRole("button", { name: "Next" }));
+
+  await waitFor(() => {
+    expect(mockApiClient.dataExplorer.getWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({
+        page: 2,
+        pageSize: 25,
+      }),
+    );
+  });
+});
+
+test("selection is preserved when the selected dataset still exists after refresh", async () => {
+  const user = userEvent.setup();
+  const preservedDataset = BASE_DATASETS[1]!;
+  mockApiClient.dataExplorer.getWorkspace.mockResolvedValue(
+    createWorkspaceResponse(createWorkspace([BASE_DATASETS[0]!, preservedDataset])),
+  );
+
+  renderWorkspace();
+
+  await user.click(screen.getByRole("button", { name: new RegExp(preservedDataset.name, "i") }));
+  await waitFor(() => {
+    expect(screen.getByRole("heading", { name: preservedDataset.name })).toBeInTheDocument();
+  });
+
+  const detailCallsBeforeRefresh = mockApiClient.dataExplorer.getDatasetDetail.mock.calls.length;
+
+  await user.click(screen.getByRole("button", { name: "Apply Filters" }));
+
+  await waitFor(() => {
+    expect(mockApiClient.dataExplorer.getWorkspace).toHaveBeenCalled();
+    expect(screen.getByRole("heading", { name: preservedDataset.name })).toBeInTheDocument();
+  });
+
+  expect(mockApiClient.dataExplorer.getDatasetDetail.mock.calls).toHaveLength(detailCallsBeforeRefresh);
+});
+
+test("selection resets to the first dataset when the previous selection is absent after refresh", async () => {
+  const user = userEvent.setup();
+  const selectedDataset = BASE_DATASETS[1]!;
+  const nextDataset = BASE_DATASETS[0]!;
+  mockApiClient.dataExplorer.getWorkspace.mockResolvedValue(createWorkspaceResponse(createWorkspace([nextDataset])));
+
+  renderWorkspace();
+
+  await user.click(screen.getByRole("button", { name: new RegExp(selectedDataset.name, "i") }));
+  await waitFor(() => {
+    expect(screen.getByRole("heading", { name: selectedDataset.name })).toBeInTheDocument();
+  });
+
+  await user.click(screen.getByRole("button", { name: "Apply Filters" }));
+
+  await waitFor(() => {
+    expect(screen.getByRole("heading", { name: nextDataset.name })).toBeInTheDocument();
+  });
+
+  expect(mockApiClient.dataExplorer.getDatasetDetail).toHaveBeenLastCalledWith(nextDataset.id);
+});
+
+test("empty refresh results clear the selected detail and related-record panels safely", async () => {
+  const user = userEvent.setup();
+  mockApiClient.dataExplorer.getWorkspace.mockResolvedValue(
+    createWorkspaceResponse(
+      createWorkspace([], {
+        pageInfo: createPageInfo([], {
+          page: 1,
+          pageSize: 25,
+          totalItems: 0,
+          totalPages: 0,
+        }),
+      }),
+    ),
+  );
+
+  renderWorkspace();
+
+  await user.click(screen.getByRole("button", { name: "Apply Filters" }));
+
+  await waitFor(() => {
+    expect(screen.getByText("No datasets match the current filters")).toBeInTheDocument();
+    expect(screen.getByText("No dataset selected")).toBeInTheDocument();
+    expect(screen.getByText("No metadata available")).toBeInTheDocument();
+  });
+});
+
+test("list loading state appears during refresh", async () => {
+  const user = userEvent.setup();
+  const pendingResponse = deferred<ReturnType<typeof createWorkspaceResponse>>();
+  mockApiClient.dataExplorer.getWorkspace.mockReturnValue(pendingResponse.promise);
+
+  renderWorkspace();
+
+  await user.click(screen.getByRole("button", { name: "Apply Filters" }));
+
+  expect(screen.getByText("Refreshing dataset list")).toBeInTheDocument();
+
+  pendingResponse.resolve(createWorkspaceResponse(createWorkspace([BASE_DATASETS[0]!])));
+
+  await waitFor(() => {
+    expect(screen.queryByText("Refreshing dataset list")).not.toBeInTheDocument();
+  });
+});
+
+test("initial degraded workspace state is visible without becoming noisy", async () => {
+  renderWorkspace(
+    createWorkspace(),
+    createMeta("workspace", {
+      source: "mock",
+      fallbackReason: "db_query_failed",
+      state: "success",
+    }),
+  );
+
+  await waitFor(() => {
+    expect(mockApiClient.dataExplorer.getDatasetDetail).toHaveBeenCalled();
+  });
+
+  expect(screen.getByText("Fallback data mode (DB query failed)")).toBeInTheDocument();
+  expect(screen.getByTestId("workspace-degraded-state")).toHaveTextContent("Backend degraded mode");
+  expect(screen.queryByText("Unable to refresh datasets right now.")).not.toBeInTheDocument();
+});
+
+test("empty and degraded states remain distinguishable", async () => {
+  renderWorkspace(
+    createWorkspace([], {
+      pageInfo: createPageInfo([], {
+        page: 1,
+        pageSize: 25,
+        totalItems: 0,
+        totalPages: 0,
+      }),
+    }),
+    createMeta("workspace", {
+      source: "mock",
+      fallbackReason: "db_open_failed",
+      state: "success",
+    }),
+  );
+
+  await waitFor(() => {
+    expect(mockApiClient.dataExplorer.getDatasetDetail).not.toHaveBeenCalled();
+  });
+
+  expect(screen.getByText("Live dataset catalog unavailable")).toBeInTheDocument();
+  expect(screen.getByTestId("workspace-degraded-state")).toHaveTextContent(
+    "Showing fallback dataset output because the live repository is unavailable (DB open failed).",
+  );
+});
+
+test("list errors preserve the last known good list and selection", async () => {
+  const user = userEvent.setup();
+  const selectedDataset = BASE_DATASETS[1]!;
+  mockApiClient.dataExplorer.getWorkspace.mockRejectedValue(new Error("refresh failed"));
+
+  renderWorkspace();
+
+  await user.click(screen.getByRole("button", { name: new RegExp(selectedDataset.name, "i") }));
+  await waitFor(() => {
+    expect(screen.getByRole("heading", { name: selectedDataset.name })).toBeInTheDocument();
+  });
+
+  await user.click(screen.getByRole("button", { name: "Apply Filters" }));
+
+  await waitFor(() => {
+    expect(screen.getByText("Unable to refresh datasets right now.")).toBeInTheDocument();
+  });
+
+  expect(screen.getByRole("heading", { name: selectedDataset.name })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: new RegExp(selectedDataset.name, "i") })).toBeInTheDocument();
+});
+
+test("changing related-record sort triggers a related-record refresh", async () => {
+  const user = userEvent.setup();
+  const dataset = BASE_DATASETS[0]!;
+
+  renderWorkspace();
+
+  await waitFor(() => {
+    expect(mockApiClient.dataExplorer.getDatasetRecords).toHaveBeenCalledWith(
+      dataset.id,
+      expect.objectContaining({
+        sortBy: "updated",
+        sortDir: "desc",
+        page: 1,
+        pageSize: 5,
+      }),
+    );
+  });
+
+  await user.selectOptions(screen.getByLabelText("Related records sort field"), "title");
+
+  await waitFor(() => {
+    expect(mockApiClient.dataExplorer.getDatasetRecords).toHaveBeenLastCalledWith(
+      dataset.id,
+      expect.objectContaining({
+        sortBy: "title",
+        sortDir: "desc",
+        page: 1,
+        pageSize: 5,
+      }),
+    );
+  });
+});
+
+test("changing related-record page triggers a related-record refresh", async () => {
+  const user = userEvent.setup();
+  const dataset = BASE_DATASETS[0]!;
+  const firstPageRecords = createRecordsResult(
+    [
+      {
+        id: `${dataset.id}-REC-1`,
+        title: `First page record for ${dataset.id}`,
+        type: "Alert",
+        status: "Open",
+        updated: "4 min ago",
+      },
+      {
+        id: `${dataset.id}-REC-2`,
+        title: `Second page record for ${dataset.id}`,
+        type: "Alert",
+        status: "Monitoring",
+        updated: "8 min ago",
+      },
+      {
+        id: `${dataset.id}-REC-3`,
+        title: `Third page record for ${dataset.id}`,
+        type: "Alert",
+        status: "Review",
+        updated: "12 min ago",
+      },
+      {
+        id: `${dataset.id}-REC-4`,
+        title: `Fourth page record for ${dataset.id}`,
+        type: "Alert",
+        status: "Closed",
+        updated: "16 min ago",
+      },
+      {
+        id: `${dataset.id}-REC-5`,
+        title: `Fifth page record for ${dataset.id}`,
+        type: "Alert",
+        status: "Open",
+        updated: "20 min ago",
+      },
+    ],
+    {
+      page: 1,
+      pageSize: 5,
+      totalItems: 6,
+      totalPages: 2,
+    },
+  );
+  const secondPageRecords = createRecordsResult(
+    [
+      {
+        id: `${dataset.id}-REC-6`,
+        title: `Second page record for ${dataset.id}`,
+        type: "Alert",
+        status: "Monitoring",
+        updated: "12 min ago",
+      },
+    ],
+    {
+      page: 2,
+      pageSize: 5,
+      totalItems: 6,
+      totalPages: 2,
+    },
+  );
+
+  mockApiClient.dataExplorer.getDatasetRecords
+    .mockResolvedValueOnce(createRecordsResponse(firstPageRecords, dataset.id))
+    .mockResolvedValueOnce(createRecordsResponse(secondPageRecords, dataset.id));
+
+  renderWorkspace();
+
+  await waitFor(() => {
+    expect(screen.getByRole("button", { name: "Next records" })).toBeEnabled();
+  });
+
+  await user.click(screen.getByRole("button", { name: "Next records" }));
+
+  await waitFor(() => {
+    expect(mockApiClient.dataExplorer.getDatasetRecords).toHaveBeenLastCalledWith(
+      dataset.id,
+      expect.objectContaining({
+        page: 2,
+        pageSize: 5,
+      }),
+    );
+  });
+});
+
+test("empty related-record results render safely", async () => {
+  const user = userEvent.setup();
+  const dataset = BASE_DATASETS[0]!;
+  mockApiClient.dataExplorer.getDatasetRecords.mockResolvedValueOnce(
+    createRecordsResponse(
+      createRecordsResult([], {
+        totalItems: 0,
+        totalPages: 0,
+      }),
+      dataset.id,
+    ),
+  );
+
+  renderWorkspace();
+
+  await waitFor(() => {
+    expect(screen.getByText("No related records yet")).toBeInTheDocument();
+  });
+
+  await user.selectOptions(screen.getByLabelText("Related records sort field"), "status");
+
+  await waitFor(() => {
+    expect(mockApiClient.dataExplorer.getDatasetRecords).toHaveBeenLastCalledWith(
+      dataset.id,
+      expect.objectContaining({
+        sortBy: "status",
+      }),
+    );
+  });
+});
+
+test("degraded related-record responses render explicit degraded messaging", async () => {
+  const dataset = BASE_DATASETS[0]!;
+
+  mockApiClient.dataExplorer.getDatasetRecords.mockResolvedValueOnce({
+    data: createRecordsResult([], {
+      totalItems: 0,
+      totalPages: 0,
+    }),
+    meta: createMeta("records", {
+      datasetId: dataset.id,
+      state: "success",
+      source: "mock",
+      fallbackReason: "db_path_missing",
+    }),
+  });
+
+  renderWorkspace();
+
+  await waitFor(() => {
+    expect(screen.getByText("Related records unavailable in degraded mode")).toBeInTheDocument();
+  });
+
+  expect(screen.getByText("The related-record repository is currently degraded (DB path missing).")).toBeInTheDocument();
+});
+
+test("related-record errors remain local and non-fatal", async () => {
+  const dataset = BASE_DATASETS[0]!;
+  mockApiClient.dataExplorer.getDatasetRecords.mockResolvedValueOnce({
+    data: null,
+    meta: createMeta("records", {
+      datasetId: dataset.id,
+      state: "error",
+      source: "mock",
+      fallbackReason: "db_query_failed",
+      errorMessage: "records failed",
+    }),
+  });
+
+  renderWorkspace();
+
+  await waitFor(() => {
+    expect(screen.getByText("Related records unavailable")).toBeInTheDocument();
+  });
+
+  expect(screen.getByRole("heading", { name: dataset.name })).toBeInTheDocument();
+  expect(screen.getByText("Preview Metrics")).toBeInTheDocument();
+});
+
+test("dev-only debug info renders source and fallback metadata", async () => {
+  const dataset = BASE_DATASETS[0]!;
+  mockApiClient.dataExplorer.getDatasetRecords.mockResolvedValueOnce({
+    data: createRecordsResult(createRecords(dataset.id)),
+    meta: createMeta("records", {
+      datasetId: dataset.id,
+      source: "mock",
+      fallbackReason: "db_query_failed",
+      durationMs: 21,
+    }),
+  });
+
+  renderWorkspace();
+
+  await waitFor(() => {
+    expect(screen.getByTestId("debug-records")).toHaveTextContent("records");
+    expect(screen.getByTestId("debug-records")).toHaveTextContent("mock");
+    expect(screen.getByTestId("debug-records")).toHaveTextContent("db_query_failed");
+  });
+});
+
+test("saved presets are sorted by recent usage and display usage metadata", async () => {
+  const user = userEvent.setup();
+  window.localStorage.setItem(
+    "marine.dataExplorer.presets.v1",
+    JSON.stringify({
+      version: 2,
+      presets: [
+        {
+          id: "preset-beta",
+          name: "Beta",
+          filters: {
+            q: "beta",
+            category: "",
+            region: "",
+            status: "",
+            sortBy: "updated",
+            sortDir: "desc",
+            pageSize: 25,
+          },
+          createdAt: "2026-03-14T10:00:00.000Z",
+          updatedAt: "2026-03-14T10:00:00.000Z",
+          lastUsedAt: "2026-03-14T11:00:00.000Z",
+          useCount: 3,
+        },
+        {
+          id: "preset-zeta",
+          name: "Zeta",
+          filters: {
+            q: "zeta",
+            category: "",
+            region: "",
+            status: "",
+            sortBy: "updated",
+            sortDir: "desc",
+            pageSize: 25,
+          },
+          createdAt: "2026-03-14T10:00:00.000Z",
+          updatedAt: "2026-03-14T10:00:00.000Z",
+          lastUsedAt: "2026-03-14T12:00:00.000Z",
+          useCount: 5,
+        },
+        {
+          id: "preset-alpha",
+          name: "Alpha",
+          filters: {
+            q: "alpha",
+            category: "",
+            region: "",
+            status: "",
+            sortBy: "updated",
+            sortDir: "desc",
+            pageSize: 25,
+          },
+          createdAt: "2026-03-14T10:00:00.000Z",
+          updatedAt: "2026-03-14T10:00:00.000Z",
+          lastUsedAt: "2026-03-14T11:00:00.000Z",
+          useCount: 1,
+        },
+        {
+          id: "preset-none",
+          name: "No History",
+          filters: {
+            q: "none",
+            category: "",
+            region: "",
+            status: "",
+            sortBy: "updated",
+            sortDir: "desc",
+            pageSize: 25,
+          },
+          createdAt: "2026-03-14T10:00:00.000Z",
+          updatedAt: "2026-03-14T10:00:00.000Z",
+          lastUsedAt: null,
+          useCount: 0,
+        },
+      ],
+    }),
+  );
+
+  renderWorkspace();
+
+  const presetSelect = screen.getByLabelText("Saved presets");
+  const optionLabels = within(presetSelect).getAllByRole("option").map((option) => option.textContent);
+
+  expect(optionLabels).toEqual(["Saved presets", "Zeta", "Alpha", "Beta", "No History"]);
+
+  const zetaOption = within(presetSelect).getByRole("option", { name: "Zeta" }) as HTMLOptionElement;
+  await user.selectOptions(presetSelect, zetaOption.value);
+
+  expect(screen.getByTestId("saved-preset-usage-meta")).toHaveTextContent("Uses: 5");
+  expect(screen.getByTestId("saved-preset-usage-meta")).toHaveTextContent("Last used: 2026-03-14 12:00");
+});
+
+test("saving a preset stores the current control state", async () => {
+  const user = userEvent.setup();
+
+  renderWorkspace();
+
+  await user.type(screen.getByLabelText("Dataset search"), "thermal");
+  await user.selectOptions(screen.getByLabelText("Dataset status filter"), "Live");
+  await user.selectOptions(screen.getByLabelText("Dataset sort field"), "name");
+  await user.selectOptions(screen.getByLabelText("Dataset sort direction"), "asc");
+  await user.type(screen.getByLabelText("Preset name"), "Thermal Live");
+  await user.click(screen.getByRole("button", { name: "Save preset" }));
+
+  const raw = window.localStorage.getItem("marine.dataExplorer.presets.v1");
+  expect(raw).not.toBeNull();
+  const parsed = JSON.parse(raw ?? "null") as {
+    version: number;
+    presets: Array<{
+      id: string;
+      name: string;
+      filters: {
+        q: string;
+        status: string;
+        sortBy: string;
+        sortDir: string;
+      };
+    }>;
+  };
+  const savedPreset = parsed.presets.find((preset) => preset.name === "Thermal Live");
+
+  expect(savedPreset).toBeDefined();
+  expect(savedPreset?.id).toEqual(expect.any(String));
+  expect(savedPreset?.filters.q).toBe("thermal");
+  expect(savedPreset?.filters.status).toBe("Live");
+  expect(savedPreset?.filters.sortBy).toBe("name");
+  expect(savedPreset?.filters.sortDir).toBe("asc");
+
+  const presetSelect = screen.getByLabelText("Saved presets") as HTMLSelectElement;
+  const presetOption = screen.getByRole("option", { name: "Thermal Live" }) as HTMLOptionElement;
+
+  expect(presetOption.value).toBe(savedPreset?.id);
+  expect(presetSelect.value).toBe(savedPreset?.id);
+});
+
+test("updating a selected preset replaces its filter snapshot without creating a duplicate", async () => {
+  const user = userEvent.setup();
+  window.localStorage.setItem(
+    "marine.dataExplorer.presets.v1",
+    JSON.stringify({
+      version: 2,
+      presets: [
+        {
+          id: "preset-update",
+          name: "Update Target",
+          filters: {
+            q: "before",
+            category: "",
+            region: "",
+            status: "",
+            sortBy: "updated",
+            sortDir: "desc",
+            pageSize: 25,
+          },
+          createdAt: "2026-03-14T10:00:00.000Z",
+          updatedAt: "2026-03-14T10:00:00.000Z",
+          lastUsedAt: null,
+          useCount: 0,
+        },
+      ],
+    }),
+  );
+
+  renderWorkspace();
+
+  const presetSelect = screen.getByLabelText("Saved presets");
+  const presetOption = await within(presetSelect).findByRole("option", { name: "Update Target" });
+  const presetId = (presetOption as HTMLOptionElement).value;
+
+  await user.selectOptions(presetSelect, presetId);
+  expect(screen.getByTestId("saved-preset-sync-status")).toHaveTextContent(
+    "Current filters differ from selected preset.",
+  );
+  expect(screen.getByRole("button", { name: "Update preset" })).toBeEnabled();
+
+  await user.clear(screen.getByLabelText("Dataset search"));
+  await user.type(screen.getByLabelText("Dataset search"), "after");
+  expect(screen.getByTestId("saved-preset-sync-status")).toHaveTextContent(
+    "Current filters differ from selected preset.",
+  );
+  expect(screen.getByRole("button", { name: "Update preset" })).toBeEnabled();
+
+  await user.click(screen.getByRole("button", { name: "Update preset" }));
+
+  const raw = window.localStorage.getItem("marine.dataExplorer.presets.v1");
+  const parsed = JSON.parse(raw ?? "null") as {
+    presets: Array<{
+      id: string;
+      name: string;
+      filters: {
+        q: string;
+      };
+    }>;
+  };
+
+  expect(parsed.presets).toHaveLength(1);
+  expect(parsed.presets[0]).toMatchObject({
+    id: "preset-update",
+    name: "Update Target",
+    filters: {
+      q: "after",
+    },
+  });
+  expect(screen.getByLabelText("Saved presets")).toHaveValue("preset-update");
+  expect(screen.getByTestId("saved-preset-sync-status")).toHaveTextContent(
+    "Preset is in sync with current filters.",
+  );
+  expect(screen.getByRole("button", { name: "Update preset" })).toBeDisabled();
+});
+
+test("applying a preset updates controls, triggers refresh, and resets page to 1", async () => {
+  const user = userEvent.setup();
+  window.localStorage.setItem(
+    "marine.dataExplorer.presets.v1",
+    JSON.stringify({
+      version: 1,
+      presets: [
+        {
+          name: "Chemistry Live",
+          filters: {
+            q: "chemistry",
+            category: "",
+            region: "",
+            status: "Live",
+            sortBy: "name",
+            sortDir: "asc",
+            pageSize: 10,
+          },
+        },
+      ],
+    }),
+  );
+  mockApiClient.dataExplorer.getWorkspace.mockResolvedValue(
+    createWorkspaceResponse(
+      createWorkspace([BASE_DATASETS[2]!], {
+        pageInfo: createPageInfo([BASE_DATASETS[2]!], {
+          page: 1,
+          pageSize: 10,
+          totalItems: 1,
+          totalPages: 1,
+          sortBy: "name",
+          sortDir: "asc",
+        }),
+      }),
+    ),
+  );
+
+  renderWorkspace(
+    createWorkspace(BASE_DATASETS, {
+      pageInfo: createPageInfo(BASE_DATASETS, {
+        page: 2,
+        pageSize: 1,
+        totalItems: 3,
+        totalPages: 3,
+      }),
+    }),
+  );
+
+  const migratedPresetOption = await screen.findByRole("option", { name: "Chemistry Live" });
+  const migratedPresetId = (migratedPresetOption as HTMLOptionElement).value;
+
+  expect(migratedPresetId).not.toBe("");
+  expect(migratedPresetId).not.toBe("Chemistry Live");
+
+  await user.selectOptions(screen.getByLabelText("Saved presets"), migratedPresetId);
+  expect(screen.getByLabelText("Saved presets")).toHaveValue(migratedPresetId);
+  await user.click(screen.getByRole("button", { name: "Apply preset" }));
+
+  await waitFor(() => {
+    expect(mockApiClient.dataExplorer.getWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({
+        q: "chemistry",
+        status: "Live",
+        sortBy: "name",
+        sortDir: "asc",
+        page: 1,
+        pageSize: 10,
+      }),
+    );
+  });
+
+  expect(screen.getByLabelText("Dataset search")).toHaveValue("chemistry");
+  expect(screen.getByLabelText("Dataset status filter")).toHaveValue("Live");
+  expect(screen.getByLabelText("Dataset sort field")).toHaveValue("name");
+});
+
+test("applying a preset updates rendered usage metadata", async () => {
+  const user = userEvent.setup();
+  window.localStorage.setItem(
+    "marine.dataExplorer.presets.v1",
+    JSON.stringify({
+      version: 2,
+      presets: [
+        {
+          id: "preset-usage-update",
+          name: "Usage Update",
+          filters: {
+            q: "usage",
+            category: "",
+            region: "",
+            status: "Live",
+            sortBy: "name",
+            sortDir: "asc",
+            pageSize: 10,
+          },
+          createdAt: "2026-03-14T12:00:00.000Z",
+          updatedAt: "2026-03-14T12:00:00.000Z",
+          lastUsedAt: null,
+          useCount: 0,
+        },
+      ],
+    }),
+  );
+  mockApiClient.dataExplorer.getWorkspace.mockResolvedValue(
+    createWorkspaceResponse(
+      createWorkspace([BASE_DATASETS[2]!], {
+        pageInfo: createPageInfo([BASE_DATASETS[2]!], {
+          page: 1,
+          pageSize: 10,
+          totalItems: 1,
+          totalPages: 1,
+          sortBy: "name",
+          sortDir: "asc",
+        }),
+      }),
+    ),
+  );
+
+  renderWorkspace();
+
+  const presetSelect = screen.getByLabelText("Saved presets");
+  const presetOption = await within(presetSelect).findByRole("option", { name: "Usage Update" });
+  const presetId = (presetOption as HTMLOptionElement).value;
+
+  await user.selectOptions(presetSelect, presetId);
+  expect(screen.getByTestId("saved-preset-usage-meta")).toHaveTextContent("Uses: 0");
+  expect(screen.getByTestId("saved-preset-usage-meta")).toHaveTextContent("Last used: Never");
+
+  await user.click(screen.getByRole("button", { name: "Apply preset" }));
+
+  await waitFor(() => {
+    expect(screen.getByTestId("saved-preset-usage-meta")).toHaveTextContent("Uses: 1");
+  });
+  expect(screen.getByTestId("saved-preset-usage-meta")).not.toHaveTextContent("Last used: Never");
+});
+
+test("presets without usage history render usage metadata safely", async () => {
+  const user = userEvent.setup();
+  window.localStorage.setItem(
+    "marine.dataExplorer.presets.v1",
+    JSON.stringify({
+      version: 1,
+      presets: [
+        {
+          name: "Legacy No Usage",
+          filters: {
+            q: "legacy",
+            category: "",
+            region: "",
+            status: "",
+            sortBy: "updated",
+            sortDir: "desc",
+            pageSize: 25,
+          },
+        },
+      ],
+    }),
+  );
+
+  renderWorkspace();
+
+  const presetSelect = screen.getByLabelText("Saved presets");
+  const legacyOption = await within(presetSelect).findByRole("option", { name: "Legacy No Usage" });
+  await user.selectOptions(presetSelect, (legacyOption as HTMLOptionElement).value);
+
+  expect(screen.getByTestId("saved-preset-usage-meta")).toHaveTextContent("Uses: 0");
+  expect(screen.getByTestId("saved-preset-usage-meta")).toHaveTextContent("Last used: Never");
+});
+
+test("applying a preset still works when usage tracking fails", async () => {
+  const user = userEvent.setup();
+  window.localStorage.setItem(
+    "marine.dataExplorer.presets.v1",
+    JSON.stringify({
+      version: 2,
+      presets: [
+        {
+          id: "preset-usage-failure",
+          name: "Chemistry Live",
+          filters: {
+            q: "chemistry",
+            category: "",
+            region: "",
+            status: "Live",
+            sortBy: "name",
+            sortDir: "asc",
+            pageSize: 10,
+          },
+          createdAt: "2026-03-14T12:00:00.000Z",
+          updatedAt: "2026-03-14T12:00:00.000Z",
+          lastUsedAt: null,
+          useCount: 0,
+        },
+      ],
+    }),
+  );
+  mockApiClient.dataExplorer.getWorkspace.mockResolvedValue(
+    createWorkspaceResponse(
+      createWorkspace([BASE_DATASETS[2]!], {
+        pageInfo: createPageInfo([BASE_DATASETS[2]!], {
+          page: 1,
+          pageSize: 10,
+          totalItems: 1,
+          totalPages: 1,
+          sortBy: "name",
+          sortDir: "asc",
+        }),
+      }),
+    ),
+  );
+
+  renderWorkspace();
+
+  const presetOption = await screen.findByRole("option", { name: "Chemistry Live" });
+  const presetId = (presetOption as HTMLOptionElement).value;
+  await user.selectOptions(screen.getByLabelText("Saved presets"), presetId);
+
+  const setItemSpy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+    throw new Error("storage write failed");
+  });
+
+  await user.click(screen.getByRole("button", { name: "Apply preset" }));
+
+  await waitFor(() => {
+    expect(mockApiClient.dataExplorer.getWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({
+        q: "chemistry",
+        status: "Live",
+        sortBy: "name",
+        sortDir: "asc",
+        page: 1,
+        pageSize: 10,
+      }),
+    );
+  });
+
+  expect(screen.getByLabelText("Dataset search")).toHaveValue("chemistry");
+  expect(screen.getByLabelText("Dataset status filter")).toHaveValue("Live");
+  expect(screen.queryByText("Unable to update presets in this browser.")).not.toBeInTheDocument();
+
+  setItemSpy.mockRestore();
+});
+
+test("deleting a preset removes it from storage and the preset list", async () => {
+  const user = userEvent.setup();
+  window.localStorage.setItem(
+    "marine.dataExplorer.presets.v1",
+    JSON.stringify({
+      version: 1,
+      presets: [
+        {
+          name: "Delete Me",
+          filters: {
+            q: "",
+            category: "",
+            region: "",
+            status: "",
+            sortBy: "updated",
+            sortDir: "desc",
+            pageSize: 25,
+          },
+        },
+      ],
+    }),
+  );
+
+  renderWorkspace();
+
+  const presetOption = await screen.findByRole("option", { name: "Delete Me" });
+  const presetId = (presetOption as HTMLOptionElement).value;
+
+  expect(presetId).not.toBe("");
+  expect(presetId).not.toBe("Delete Me");
+
+  await user.selectOptions(screen.getByLabelText("Saved presets"), presetId);
+  expect(screen.getByLabelText("Saved presets")).toHaveValue(presetId);
+  await user.click(screen.getByRole("button", { name: "Delete" }));
+
+  expect(screen.queryByRole("option", { name: "Delete Me" })).not.toBeInTheDocument();
+
+  const updatedRaw = window.localStorage.getItem("marine.dataExplorer.presets.v1");
+  const updated = JSON.parse(updatedRaw ?? "null") as {
+    presets: Array<{ id: string; name: string }>;
+  };
+
+  expect(updated.presets).toEqual([]);
+});
+
+test("corrupt preset storage fails safely", async () => {
+  window.localStorage.setItem("marine.dataExplorer.presets.v1", "{bad-json");
+
+  renderWorkspace();
+
+  await waitFor(() => {
+    expect(mockApiClient.dataExplorer.getDatasetDetail).toHaveBeenCalledTimes(1);
+    expect(mockApiClient.dataExplorer.getDatasetRecords).toHaveBeenCalledTimes(1);
+  });
+
+  await screen.findByText(/^Related record for /i);
+
+  expect(screen.getByLabelText("Saved presets")).toBeInTheDocument();
+  expect(screen.queryByRole("option", { name: "Delete Me" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Save preset" })).toBeEnabled();
+});
+
+===== END FILE: apps/web/components/data-explorer/data-explorer-workspace.test.tsx =====
+
+===== FILE: docs/data-explorer-v1-definition-of-done.md =====
+# Data Explorer v1 Definition of Done
+
+## Surface Audit (Current State)
+
+### Real backend-backed paths
+
+- [x] Dataset list query path (`GET /datasets`) uses typed API route + repository DB reads.
+- [x] Dataset detail path (`GET /datasets/:id`) uses typed API route + repository DB reads.
+- [x] Dataset related-record path (`GET /datasets/:id/records`) uses typed API route + repository DB reads.
+- [x] Workspace summary signals are generated from typed backend dataset results (not static mock text).
+
+### Fallback-only or mock-backed behavior still present
+
+- [x] Workspace `actions` payload is derived from route-backed dataset/page context.
+- [x] Workspace `previewSeries` payload is derived from route-backed dataset slice values.
+- [x] Workspace `metadata` payload is derived from route-backed source/filter/status context.
+- [x] Dataset and related-record fallback paths use explicit degraded empty responses (no synthetic mock rows).
+- [ ] Data Explorer page/API client still runs in-process route handlers (not networked Next API requests).
+
+### Local-only behavior still present
+
+- [ ] Preset persistence is browser localStorage only (no shared/server preset store).
+- [ ] Some secondary UI affordances remain local/static (e.g. preview metric cards and suggested next-step text).
+
+## Definition of Done Checklist
+
+### 1) Real data paths
+
+- [x] Primary list/detail/records paths use typed backend route contracts.
+- [x] At least one workspace context block is derived from backend data (summary signals).
+- [x] All workspace context blocks (`actions`, `previewSeries`, `metadata`, `summarySignals`) are backend-derived.
+
+### 2) Persistence
+
+- [x] Preset schema versioning and migration are implemented.
+- [x] Preset IDs are stable and mutation APIs are ID-based.
+- [x] Usage tracking (`lastUsedAt`, `useCount`) is persisted.
+- [ ] Shared/team preset persistence path exists (server-backed).
+
+### 3) Error handling
+
+- [x] Safe parse/load behavior for corrupt/invalid storage.
+- [x] Typed backend fallback reason and source metadata exposed.
+- [x] Non-blocking preset usage tracking on apply.
+- [x] Operator-visible user-facing messaging for backend unavailable mode is explicit and actionable.
+
+### 4) Test coverage
+
+- [x] Persistence seam tests (save/load/upsert/delete/mark-used/migration).
+- [x] Workspace behavior tests (sorting, usage metadata, apply/delete/update flows).
+- [x] Shared selector/helper tests for preset presentation logic.
+- [x] Client fallback integration tests for typed route-builder recovery.
+- [x] Dataset route tests for dynamic backend-derived summary signals.
+
+### 5) UX completeness
+
+- [x] Preset save/apply/delete/update with compact controls.
+- [x] Preset usage metadata display and recency-based sorting.
+- [x] Preset in-sync/out-of-sync status and guarded update action.
+- [x] Explicit empty/loading/error affordance for workspace-level backend degraded mode.
+- [ ] Final operator polish pass for static preview cards and action buttons.
+
+===== END FILE: docs/data-explorer-v1-definition-of-done.md =====
+

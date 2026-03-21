@@ -1,0 +1,438 @@
+PS C:\Users\hetfw\marine> pnpm --filter web test
+
+> web@0.1.0 test C:\Users\hetfw\marine\apps\web
+> vitest run
+
+
+ RUN  v4.1.0 C:/Users/hetfw/marine/apps/web
+
+ ✓ app/ocean-stations/[id]/admin/page.test.tsx (12 tests) 56ms
+ ✓ app/page.test.tsx (7 tests) 336ms
+ ✓ components/signals/signal-center.test.tsx (2 tests) 662ms
+   ✓ signal center ranks open signals by severity and confidence  650ms
+stdout | components/data-explorer/data-explorer-workspace.test.tsx > applying fi
+lters triggers a dataset list refresh with the current query                    [DataExplorerPresets] { event: 'load_success', presetCount: 0, migrated: false }
+
+ ✓ app/species-database/page.test.tsx (2 tests) 246ms
+ ✓ components/ocean-map/ocean-map-workspace.test.tsx (4 tests) 1465ms
+   ✓ ocean map workspace toggles overlay layers locally  924ms
+   ✓ ocean map workspace renders corridor foundations when that layer is enabled
+  350ms                                                                          ✓ components/ocean-stations/ocean-station-alert-activity.test.tsx (8 tests) 176
+1ms                                                                                ✓ renders alert title, detail, and acknowledge button for unacknowledged aler
+t  651ms                                                                        stdout | components/data-explorer/data-explorer-workspace.test.tsx > changing so
+rt triggers a dataset list refresh                                              [DataExplorerPresets] { event: 'load_success', presetCount: 0, migrated: false }
+
+stdout | components/data-explorer/data-explorer-workspace.test.tsx > changing pa
+ge triggers a dataset list refresh                                              [DataExplorerPresets] { event: 'load_success', presetCount: 0, migrated: false }
+
+stdout | components/data-explorer/data-explorer-workspace.test.tsx > selection i
+s preserved when the selected dataset still exists after refresh                [DataExplorerPresets] { event: 'load_success', presetCount: 0, migrated: false }
+
+stdout | components/data-explorer/data-explorer-workspace.test.tsx > selection r
+esets to the first dataset when the previous selection is absent after refresh  [DataExplorerPresets] { event: 'load_success', presetCount: 0, migrated: false }
+
+stdout | components/data-explorer/data-explorer-workspace.test.tsx > empty refre
+sh results clear the selected detail and related-record panels safely           [DataExplorerPresets] { event: 'load_success', presetCount: 0, migrated: false }
+
+stdout | components/data-explorer/data-explorer-workspace.test.tsx > list loadin
+g state appears during refresh                                                  [DataExplorerPresets] { event: 'load_success', presetCount: 0, migrated: false }
+
+stdout | lib/persistence/data-explorer-presets.test.ts > preset save, load, and 
+delete work through the persistence seam
+[DataExplorerPresets] { event: 'load_success', presetCount: 0, migrated: false }
+[DataExplorerPresets] {                                                           event: 'upsert_success',
+  presetCount: 1,
+  presetId: 'c15529d9-937d-40d8-929b-3faf7db378f0'
+}
+[DataExplorerPresets] { event: 'load_success', presetCount: 1, migrated: false }
+[DataExplorerPresets] { event: 'load_success', presetCount: 1, migrated: false }[DataExplorerPresets] {                                                           event: 'delete_success',
+  presetCount: 0,
+  presetId: 'c15529d9-937d-40d8-929b-3faf7db378f0'
+}
+[DataExplorerPresets] { event: 'load_success', presetCount: 0, migrated: false }
+
+stdout | lib/persistence/data-explorer-presets.test.ts > existing stored preset 
+payloads are migrated into the typed schema
+[DataExplorerPresets] { event: 'load_success', presetCount: 1, migrated: true } 
+
+stdout | lib/persistence/data-explorer-presets.test.ts > corrupt preset storage 
+fails safely to an empty list
+[DataExplorerPresets] { event: 'load_failed', reason: 'corrupt_json' }
+
+stdout | lib/persistence/data-explorer-presets.test.ts > upsert updates an exist
+ing preset by ID                                                                [DataExplorerPresets] { event: 'load_success', presetCount: 0, migrated: false }
+[DataExplorerPresets] {                                                           event: 'upsert_success',
+  presetCount: 1,
+  presetId: '999fad36-9304-4951-81e8-81e0322ea7a1'
+}
+[DataExplorerPresets] { event: 'load_success', presetCount: 1, migrated: false }
+[DataExplorerPresets] {                                                           event: 'upsert_success',
+  presetCount: 1,
+  presetId: '999fad36-9304-4951-81e8-81e0322ea7a1'
+}
+
+stdout | lib/persistence/data-explorer-presets.test.ts > new presets receive sta
+ble unique IDs                                                                  [DataExplorerPresets] { event: 'load_success', presetCount: 0, migrated: false }
+[DataExplorerPresets] {                                                           event: 'upsert_success',
+  presetCount: 1,
+  presetId: '7b8713e5-39ce-4f6b-b0e3-dd637b86be07'
+}
+[DataExplorerPresets] { event: 'load_success', presetCount: 1, migrated: false }
+[DataExplorerPresets] {                                                           event: 'upsert_success',
+  presetCount: 2,
+  presetId: '75aac317-c6ab-430b-a032-e274813295f8'
+}
+
+stdout | lib/persistence/data-explorer-presets.test.ts > delete by ID returns no
+t_found and does not mutate storage when missing                                [DataExplorerPresets] { event: 'load_success', presetCount: 0, migrated: false }
+[DataExplorerPresets] {                                                           event: 'upsert_success',
+  presetCount: 1,
+  presetId: '55e2fc4a-811c-4e62-9863-dc0c4b462920'
+}
+[DataExplorerPresets] { event: 'load_success', presetCount: 1, migrated: false }
+                                                                                stdout | lib/persistence/data-explorer-presets.test.ts > mark-used increments us
+eCount and sets lastUsedAt                                                      [DataExplorerPresets] { event: 'load_success', presetCount: 0, migrated: false }
+[DataExplorerPresets] {                                                           event: 'upsert_success',
+  presetCount: 1,
+  presetId: '7ebda910-c213-4acc-be3b-8c9a9be1562f'
+}
+[DataExplorerPresets] { event: 'load_success', presetCount: 1, migrated: false }
+[DataExplorerPresets] {                                                           event: 'mark_used_success',
+  presetId: '7ebda910-c213-4acc-be3b-8c9a9be1562f'
+}
+
+stdout | lib/persistence/data-explorer-presets.test.ts > mark-used returns not_f
+ound and does not mutate storage when preset is missing                         [DataExplorerPresets] { event: 'load_success', presetCount: 0, migrated: false }
+[DataExplorerPresets] {                                                           event: 'upsert_success',
+  presetCount: 1,
+  presetId: 'eb07b601-4688-4883-9c2f-fc1372a5c65e'
+}
+[DataExplorerPresets] { event: 'load_success', presetCount: 1, migrated: false }
+                                                                                stdout | lib/persistence/data-explorer-presets.test.ts > empty and duplicate pre
+set names are rejected                                                          [DataExplorerPresets] { event: 'load_success', presetCount: 0, migrated: false }
+[DataExplorerPresets] { event: 'load_success', presetCount: 0, migrated: false }[DataExplorerPresets] {                                                           event: 'upsert_success',
+  presetCount: 1,
+  presetId: '01b72d2e-bbe7-419d-9039-f90a178646b8'
+}
+[DataExplorerPresets] { event: 'load_success', presetCount: 1, migrated: false }
+                                                                                stdout | lib/persistence/data-explorer-presets.test.ts > legacy presets get IDs 
+and can be deleted by ID
+[DataExplorerPresets] { event: 'load_success', presetCount: 1, migrated: true } 
+[DataExplorerPresets] { event: 'load_success', presetCount: 1, migrated: false }
+[DataExplorerPresets] {                                                           event: 'delete_success',
+  presetCount: 0,
+  presetId: 'c88f73b4-3b33-4a00-b6a4-5bd5a0c6450a'
+}
+
+ ✓ lib/persistence/data-explorer-presets.test.ts (10 tests) 42ms
+ ✓ app/ocean-stations/[id]/page.test.tsx (2 tests) 49ms
+stdout | lib/persistence/incident-presets.test.ts > loads empty when storage is 
+empty
+[IncidentPresets] { event: 'load_success', presetCount: 0, migrated: false }    
+
+stdout | lib/persistence/incident-presets.test.ts > returns empty on corrupt JSO
+N                                                                               [IncidentPresets] { event: 'load_failed', reason: 'corrupt_json' }
+
+stdout | lib/persistence/incident-presets.test.ts > returns empty on invalid sch
+ema                                                                             [IncidentPresets] { event: 'load_failed', reason: 'invalid_schema' }
+
+stdout | lib/persistence/incident-presets.test.ts > migrates old v1 records into
+ v2 shape and writes migrated records back                                      [IncidentPresets] { event: 'load_success', presetCount: 1, migrated: true }     
+
+stdout | lib/persistence/incident-presets.test.ts > migration preserves usable d
+ata                                                                             [IncidentPresets] { event: 'load_success', presetCount: 1, migrated: true }     
+
+stdout | lib/persistence/incident-presets.test.ts > rejects duplicate names safe
+ly                                                                              [IncidentPresets] { event: 'load_success', presetCount: 0, migrated: false }    
+[IncidentPresets] {
+  event: 'upsert_success',
+  presetCount: 1,
+  presetId: 'd20cab52-c3d8-4ea4-a1ba-b3d8ff122fc3'
+}
+[IncidentPresets] { event: 'load_success', presetCount: 1, migrated: false }    
+
+stdout | lib/persistence/incident-presets.test.ts > save fails when storage is u
+navailable                                                                      [IncidentPresets] { event: 'load_failed', reason: 'storage_unavailable' }       
+
+stdout | lib/persistence/incident-presets.test.ts > delete fails when storage is
+ unavailable                                                                    [IncidentPresets] { event: 'load_failed', reason: 'storage_unavailable' }       
+
+stdout | lib/persistence/incident-presets.test.ts > delete returns not_found whe
+n preset ID is missing                                                          [IncidentPresets] { event: 'load_success', presetCount: 0, migrated: false }    
+[IncidentPresets] {
+  event: 'upsert_success',
+  presetCount: 1,
+  presetId: 'f5eaadc1-23ba-4027-9b0b-f4b8dd85ada3'
+}
+[IncidentPresets] { event: 'load_success', presetCount: 1, migrated: false }    
+
+stdout | lib/persistence/incident-presets.test.ts > mark-used increments useCoun
+t and sets lastUsedAt                                                           [IncidentPresets] { event: 'load_success', presetCount: 0, migrated: false }    
+[IncidentPresets] {
+  event: 'upsert_success',
+  presetCount: 1,
+  presetId: 'a9377669-a59a-42b9-82f8-5832cddb7d6a'
+}
+[IncidentPresets] { event: 'load_success', presetCount: 1, migrated: false }    
+[IncidentPresets] {
+  event: 'mark_used_success',
+  presetId: 'a9377669-a59a-42b9-82f8-5832cddb7d6a'
+}
+
+stdout | lib/persistence/incident-presets.test.ts > mark-used returns not_found 
+for missing preset
+[IncidentPresets] { event: 'load_success', presetCount: 0, migrated: false }    
+[IncidentPresets] {
+  event: 'upsert_success',
+  presetCount: 1,
+  presetId: '361a2ccc-4c80-4fac-b6a2-17f61e19e836'
+}
+[IncidentPresets] { event: 'load_success', presetCount: 1, migrated: false }    
+
+stdout | lib/persistence/incident-presets.test.ts > delete by ID works
+[IncidentPresets] { event: 'load_success', presetCount: 0, migrated: false }    
+[IncidentPresets] {
+  event: 'upsert_success',
+  presetCount: 1,
+  presetId: '8fa43267-cb87-4b29-8f3a-a4500948b3a1'
+}
+[IncidentPresets] { event: 'load_success', presetCount: 1, migrated: false }    
+[IncidentPresets] {
+  event: 'upsert_success',
+  presetCount: 2,
+  presetId: '2d258e07-fee6-41bb-80f8-1a93dbc188aa'
+}
+[IncidentPresets] { event: 'load_success', presetCount: 2, migrated: false }    
+[IncidentPresets] {
+  event: 'delete_success',
+  presetCount: 1,
+  presetId: '8fa43267-cb87-4b29-8f3a-a4500948b3a1'
+}
+
+stdout | lib/persistence/incident-presets.test.ts > new presets receive stable u
+nique IDs                                                                       [IncidentPresets] { event: 'load_success', presetCount: 0, migrated: false }    
+[IncidentPresets] {
+  event: 'upsert_success',
+  presetCount: 1,
+  presetId: '57c94781-1194-4d92-9729-e3346fe61652'
+}
+[IncidentPresets] { event: 'load_success', presetCount: 1, migrated: false }    
+[IncidentPresets] {
+  event: 'upsert_success',
+  presetCount: 2,
+  presetId: '4e1c70a2-c956-43eb-a6e8-80ef58d45904'
+}
+
+stdout | lib/persistence/incident-presets.test.ts > generates a non-empty ID whe
+n crypto.randomUUID is unavailable                                              [IncidentPresets] { event: 'load_success', presetCount: 0, migrated: false }    
+[IncidentPresets] {
+  event: 'upsert_success',
+  presetCount: 1,
+  presetId: 'preset-0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b'
+}
+
+stdout | lib/persistence/incident-presets.test.ts > relative-time-capable struct
+ure does not break absolute presets                                             [IncidentPresets] { event: 'load_success', presetCount: 0, migrated: false }    
+[IncidentPresets] {
+  event: 'upsert_success',
+  presetCount: 1,
+  presetId: '91bea997-674c-4382-b65f-dd267f501f6f'
+}
+[IncidentPresets] { event: 'load_success', presetCount: 1, migrated: false }    
+
+ ✓ lib/persistence/incident-presets.test.ts (15 tests) 40ms
+ ✓ app/station/[slug]/page.test.tsx (2 tests) 42ms
+ ✓ app/investigations/page.test.tsx (1 test) 32ms
+ ✓ app/ocean-stations/[id]/admin/security/page.test.tsx (4 tests) 34ms
+stdout | components/data-explorer/data-explorer-workspace.test.tsx > list errors
+ preserve the last known good list and selection                                [DataExplorerPresets] { event: 'load_success', presetCount: 0, migrated: false }
+
+ ✓ components/ocean-stations/mfa-management-panel.test.tsx (15 tests) 9953ms    
+   ✓ MFA panel shows not-enrolled state when no mfa state is provided  621ms    
+   ✓ MFA panel enrollment start shows QR code and manual secret  318ms
+   ✓ MFA panel enrollment verify success shows recovery codes  862ms
+   ✓ MFA panel enrollment verify failure shows error message  821ms
+   ✓ MFA panel disable success resets to not-enrolled state  694ms
+   ✓ MFA panel disable with step-up required shows step-up challenge UI  627ms  
+   ✓ MFA panel regenerate flow completes after step-up verification  382ms      
+   ✓ MFA panel disable flow completes after step-up verification  855ms
+   ✓ MFA panel step-up verification shows rate_limited cooldown  876ms
+   ✓ MFA panel step-up verification shows locked_out state  1351ms
+   ✓ MFA panel step-up verification shows expired state  1382ms
+   ✓ MFA panel step-up verification shows mfa_failed attempts remaining  667ms  
+ ✓ components/ocean-stations/ocean-station-admin-workspace.test.tsx (4 tests) 10
+453ms                                                                              ✓ station admin workspace renders structured editors and validation guidance 
+ 1787ms
+   ✓ station admin workspace supports add and remove row controls across editors
+  7714ms                                                                           ✓ station admin workspace shows permission-limited read-only state  867ms    
+stdout | components/data-explorer/data-explorer-workspace.test.tsx > changing re
+lated-record sort triggers a related-record refresh                             [DataExplorerPresets] { event: 'load_success', presetCount: 0, migrated: false }
+
+ ✓ components/ocean-stations/station-admin-login-panel.test.tsx (7 tests) 11843m
+s                                                                                  ✓ login form renders MFA challenge UI when login returns pending_mfa  2301ms 
+   ✓ successful MFA verification redirects to destination  2044ms
+   ✓ failed MFA verification shows inline error  1338ms
+   ✓ rate-limited MFA verification shows cooldown and disables submit  1334ms   
+   ✓ login panel MFA verification displays locked_out when challenge exhausted  
+2403ms
+   ✓ login panel MFA verification displays expired state  1260ms
+   ✓ login panel MFA verification shows attempts remaining on invalid code  1160
+ms                                                                              stdout | components/data-explorer/data-explorer-workspace.test.tsx > changing re
+lated-record page triggers a related-record refresh                             [DataExplorerPresets] { event: 'load_success', presetCount: 0, migrated: false }
+                                                                                stdout | components/data-explorer/data-explorer-workspace.test.tsx > empty relat
+ed-record results render safely                                                 [DataExplorerPresets] { event: 'load_success', presetCount: 0, migrated: false }
+
+stdout | components/data-explorer/data-explorer-workspace.test.tsx > related-rec
+ord errors remain local and non-fatal                                           [DataExplorerPresets] { event: 'load_success', presetCount: 0, migrated: false }
+
+stdout | components/data-explorer/data-explorer-workspace.test.tsx > dev-only de
+bug info renders source and fallback metadata                                   [DataExplorerPresets] { event: 'load_success', presetCount: 0, migrated: false }
+
+stdout | components/data-explorer/data-explorer-workspace.test.tsx > saved prese
+ts are sorted by recent usage and display usage metadata                        [DataExplorerPresets] { event: 'load_success', presetCount: 4, migrated: false }
+
+ ✓ components/data-explorer/preset-presentation.test.ts (4 tests) 19ms
+ ✓ app/ocean-stations/[id]/exhibit/page.test.tsx (2 tests) 36ms
+stdout | components/data-explorer/data-explorer-workspace.test.tsx > saving a pr
+eset stores the current control state                                           [DataExplorerPresets] { event: 'load_success', presetCount: 0, migrated: false }
+
+stdout | lib/api/client.data-explorer.test.ts > workspace fetch falls back throu
+gh typed dataset route builder when route handler throws                        [DataExplorer:workspace] {
+  section: 'workspace',
+  startedAt: '2026-03-19T20:42:30.412Z',
+  finishedAt: '2026-03-19T20:42:30.412Z',
+  durationMs: 0,
+  state: 'success',
+  source: 'db',
+  fallbackReason: undefined
+}
+
+stdout | lib/api/client.data-explorer.test.ts > dataset detail fetch falls back 
+through typed dataset detail route builder when route handler throws
+[DataExplorer:detail] {
+  section: 'detail',
+  startedAt: '2026-03-19T20:42:30.418Z',
+  finishedAt: '2026-03-19T20:42:30.418Z',
+  durationMs: 0,
+  state: 'success',
+  datasetId: 'DST-104',
+  source: 'db',
+  fallbackReason: undefined
+}
+
+stdout | lib/api/client.data-explorer.test.ts > dataset records fetch falls back
+ through typed dataset records route builder when route handler throws          [DataExplorer:records] {
+  section: 'records',
+  startedAt: '2026-03-19T20:42:30.419Z',
+  finishedAt: '2026-03-19T20:42:30.419Z',
+  durationMs: 0,
+  state: 'success',
+  datasetId: 'DST-104',
+  source: 'db',
+  fallbackReason: undefined
+}
+
+ ✓ lib/api/client.data-explorer.test.ts (3 tests) 12ms
+stdout | components/data-explorer/data-explorer-workspace.test.tsx > saving a pr
+eset stores the current control state                                           [DataExplorerPresets] { event: 'load_success', presetCount: 0, migrated: false }
+[DataExplorerPresets] {                                                           event: 'upsert_success',
+  presetCount: 1,
+  presetId: '425af66f-9bb9-4755-8181-c5545dadc9f4'
+}
+
+stdout | components/data-explorer/data-explorer-workspace.test.tsx > updating a 
+selected preset replaces its filter snapshot without creating a duplicate       
+[DataExplorerPresets] { event: 'load_success', presetCount: 1, migrated: false }
+
+stdout | components/data-explorer/data-explorer-workspace.test.tsx > updating a 
+selected preset replaces its filter snapshot without creating a duplicate       
+[DataExplorerPresets] { event: 'load_success', presetCount: 1, migrated: false }
+[DataExplorerPresets] { event: 'upsert_success', presetCount: 1, presetId: 'preset-update' }                                                                    
+stdout | components/data-explorer/data-explorer-workspace.test.tsx > applying a 
+preset updates controls, triggers refresh, and resets page to 1
+[DataExplorerPresets] { event: 'load_success', presetCount: 1, migrated: true } 
+
+stdout | components/data-explorer/data-explorer-workspace.test.tsx > applying a 
+preset updates controls, triggers refresh, and resets page to 1
+[DataExplorerPresets] { event: 'load_success', presetCount: 1, migrated: false }
+[DataExplorerPresets] {                                                           event: 'mark_used_success',
+  presetId: 'efab3c5d-1f4c-4361-aaf6-7eed10c7550e'
+}
+
+stdout | components/data-explorer/data-explorer-workspace.test.tsx > applying a 
+preset updates rendered usage metadata
+[DataExplorerPresets] { event: 'load_success', presetCount: 1, migrated: false }
+                                                                                stdout | components/data-explorer/data-explorer-workspace.test.tsx > applying a 
+preset updates rendered usage metadata
+[DataExplorerPresets] { event: 'load_success', presetCount: 1, migrated: false }
+[DataExplorerPresets] { event: 'mark_used_success', presetId: 'preset-usage-update' }                                                                           
+stdout | components/data-explorer/data-explorer-workspace.test.tsx > presets wit
+hout usage history render usage metadata safely                                 [DataExplorerPresets] { event: 'load_success', presetCount: 1, migrated: true } 
+
+stdout | components/data-explorer/data-explorer-workspace.test.tsx > applying a 
+preset still works when usage tracking fails
+[DataExplorerPresets] { event: 'load_success', presetCount: 1, migrated: false }
+
+stdout | components/data-explorer/data-explorer-workspace.test.tsx > applying a 
+preset still works when usage tracking fails
+[DataExplorerPresets] { event: 'load_success', presetCount: 1, migrated: false }
+
+stdout | components/data-explorer/data-explorer-workspace.test.tsx > deleting a 
+preset removes it from storage and the preset list
+[DataExplorerPresets] { event: 'load_success', presetCount: 1, migrated: true } 
+
+stdout | components/data-explorer/data-explorer-workspace.test.tsx > deleting a 
+preset removes it from storage and the preset list
+[DataExplorerPresets] { event: 'load_success', presetCount: 1, migrated: false }
+[DataExplorerPresets] {                                                           event: 'delete_success',
+  presetCount: 0,
+  presetId: '0c7400d9-25dc-4e87-98cd-776baa8871c8'
+}
+
+stdout | components/data-explorer/data-explorer-workspace.test.tsx > corrupt pre
+set storage fails safely                                                        [DataExplorerPresets] { event: 'load_failed', reason: 'corrupt_json' }
+
+ ✓ components/data-explorer/data-explorer-workspace.test.tsx (22 tests) 17690ms 
+   ✓ applying filters triggers a dataset list refresh with the current query  19
+45ms                                                                               ✓ changing sort triggers a dataset list refresh  359ms
+   ✓ changing page triggers a dataset list refresh  620ms
+   ✓ selection is preserved when the selected dataset still exists after refresh
+  1579ms                                                                           ✓ selection resets to the first dataset when the previous selection is absent
+ after refresh  1803ms                                                             ✓ empty refresh results clear the selected detail and related-record panels s
+afely  714ms                                                                       ✓ list loading state appears during refresh  917ms
+   ✓ list errors preserve the last known good list and selection  2209ms        
+   ✓ changing related-record page triggers a related-record refresh  1067ms     
+   ✓ saving a preset stores the current control state  1253ms
+   ✓ updating a selected preset replaces its filter snapshot without creating a 
+duplicate  1312ms
+   ✓ applying a preset updates controls, triggers refresh, and resets page to 1 
+ 678ms
+   ✓ applying a preset updates rendered usage metadata  477ms
+   ✓ applying a preset still works when usage tracking fails  597ms
+   ✓ deleting a preset removes it from storage and the preset list  718ms       
+   ✓ corrupt preset storage fails safely  406ms
+ ✓ components/ocean-stations/ocean-station-security-console.test.tsx (22 tests) 
+20490ms
+   ✓ security console renders alerts, summary metrics, auth events, and active s
+essions  1115ms                                                                    ✓ security console export button downloads JSON payload  401ms
+   ✓ security console filter UI applies actor and ip investigation filters  2666
+ms                                                                                 ✓ security console updates URL query params when investigation filters change
+  1821ms                                                                           ✓ security console copies the current incident view URL without extra request
+s  3416ms                                                                          ✓ security console opens incident view in a new tab using current URL  1306ms
+   ✓ security console reset all URL filters clears params and restores default control values  2350ms                                                              ✓ security console requests operational alerts with updated filters  548ms   
+   ✓ security console updates URL query params when operational alert filters ch
+ange  505ms                                                                        ✓ security console handles revoke step-up challenge and retries revoke after 
+verification  646ms
+   ✓ security console step-up verification handles rate-limited responses  718ms
+   ✓ security console step-up verification handles locked_out responses  615ms     ✓ security console step-up verification handles expired responses  620ms     
+   ✓ security console step-up verification handles mfa_failed with attempts rema
+ining  606ms                                                                       ✓ security console saves current filter state as incident preset  1387ms     
+   ✓ security console deletes incident preset without affecting current filters 
+ 526ms
+   ✓ security console rejects duplicate or empty preset names safely  457ms     
+
+ Test Files  20 passed (20)
+      Tests  148 passed (148)
+   Start at  15:42:05
+   Duration  32.57s (transform 7.59s, setup 33.80s, import 13.42s, tests 75.26s,
+ environment 106.15s)                                                           

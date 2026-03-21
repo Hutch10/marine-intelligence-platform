@@ -1,0 +1,56 @@
+PS C:\Users\hetfw\marine> pnpm --filter web build
+
+> web@0.1.0 build C:\Users\hetfw\marine\apps\web
+> next build
+
+  ▲ Next.js 14.2.35
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully
+   Linting and checking validity of types  ... ⨯ ESLint: Converting circular structure to JSON     --> starting at object with constructor 'Object'     |     property 'configs' -> object with constructor 'Object'     |     property 'flat' -> object with constructor 'Object'     |     ...     |     property 'plugins' -> object with constructor 'Object'     --- property 'react' closes the circle Referenced from: C:\Users\hetfw\marine\apps\web\.eslintrc.json                      ✓ Linting and checking validity of types    
+ ✓ Collecting page data    
+ ✓ Generating static pages (21/21)
+ ✓ Collecting build traces
+ ✓ Finalizing page optimization
+
+Route (app)                                          Size     First Load JS     
+┌ ○ /                                                204 B           111 kB     
+├ ○ /_not-found                                      870 B          88.1 kB     
+├ ○ /ai-lab                                          3.66 kB         150 kB     
+├ ƒ /api/data-explorer                               0 B                0 B     
+├ ƒ /api/data-explorer/[id]                          0 B                0 B     
+├ ƒ /api/data-explorer/[id]/records                  0 B                0 B     
+├ ƒ /api/data-explorer/presets                       0 B                0 B     
+├ ƒ /api/data-explorer/presets/[presetId]            0 B                0 B     
+├ ƒ /api/data-explorer/presets/[presetId]/mark-used  0 B                0 B     
+├ ƒ /api/station-admin/login                         0 B                0 B     
+├ ƒ /api/station-admin/logout                        0 B                0 B     
+├ ƒ /api/station-admin/mfa/disable                   0 B                0 B     
+├ ƒ /api/station-admin/mfa/enroll/start              0 B                0 B     
+├ ƒ /api/station-admin/mfa/enroll/verify             0 B                0 B     
+├ ƒ /api/station-admin/mfa/recovery/regenerate       0 B                0 B     
+├ ƒ /api/station-admin/mfa/verify                    0 B                0 B     
+├ ƒ /api/station-admin/session/refresh               0 B                0 B     
+├ ƒ /api/station-admin/session/revoke                0 B                0 B     
+├ ƒ /api/stations/[id]/alerts/[alertId]/acknowledge  0 B                0 B     
+├ ƒ /api/stations/[id]/events/[eventId]/acknowledge  0 B                0 B     
+├ ƒ /data-explorer                                   11.1 kB         158 kB     
+├ ○ /investigations                                  204 B           111 kB     
+├ ○ /ocean-map                                       5.95 kB         117 kB     
+├ ○ /ocean-stations                                  3.62 kB         114 kB     
+├ ƒ /ocean-stations/[id]                             2.67 kB         113 kB     
+├ ƒ /ocean-stations/[id]/admin                       4.64 kB         115 kB     
+├ ƒ /ocean-stations/[id]/admin/events                861 B           112 kB     
+├ ƒ /ocean-stations/[id]/admin/login                 2.41 kB        89.7 kB     
+├ ƒ /ocean-stations/[id]/admin/security              12 kB           159 kB     
+├ ƒ /ocean-stations/[id]/exhibit                     4.81 kB         108 kB     
+├ ○ /species-database                                3.01 kB         150 kB     
+└ ƒ /station/[slug]                                  1.8 kB          105 kB     
++ First Load JS shared by all                        87.3 kB
+  ├ chunks/470-b2ad2c50e7af3869.js                   31.7 kB
+  ├ chunks/ba96a577-a68f5733ee226f9d.js              53.6 kB
+  └ other shared chunks (total)                      1.89 kB
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand

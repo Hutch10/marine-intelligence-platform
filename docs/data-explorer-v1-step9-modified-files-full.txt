@@ -1,0 +1,16 @@
+apps/web/app/api/data-explorer/presets/scope.ts
+apps/web/app/api/data-explorer/presets/route.ts
+apps/web/app/api/data-explorer/presets/route.test.ts
+apps/web/app/api/data-explorer/presets/[presetId]/route.ts
+apps/web/app/api/data-explorer/presets/[presetId]/route.test.ts
+apps/web/app/api/data-explorer/presets/[presetId]/mark-used/route.ts
+apps/web/app/api/data-explorer/presets/[presetId]/mark-used/route.test.ts
+apps/web/lib/api/client.ts
+apps/web/lib/api/client.data-explorer.test.ts
+apps/web/components/data-explorer/data-explorer-workspace.tsx
+apps/web/components/data-explorer/data-explorer-workspace.test.tsx
+apps/web/lib/server/data-explorer-preset-store.test.ts
+apps/web/lib/persistence/data-explorer-preset-owner.ts (deleted)
+docs/data-explorer-v1-step9-test-output.txt
+docs/data-explorer-v1-step9-build-output.txt
+docs/data-explorer-v1-step9-modified-files-full.txt

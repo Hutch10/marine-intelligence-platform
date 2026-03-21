@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "outDir": "dist",
+    "rootDir": "..",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["../web/*"]
+    },
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "../web/lib/api/**/*.ts"],
+  "exclude": ["dist", "node_modules"]
+}

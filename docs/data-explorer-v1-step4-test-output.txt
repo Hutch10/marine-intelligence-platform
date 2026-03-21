@@ -1,0 +1,468 @@
+
+> web@0.1.0 test C:\Users\hetfw\marine\apps\web
+> vitest run
+
+
+[1m[46m RUN [49m[22m [36mv4.1.0 [39m[90mC:/Users/hetfw/marine/apps/web[39m
+
+ [32mΓ£ô[39m app/ocean-stations/[id]/admin/page.test.tsx [2m([22m[2m12 tests[22m[2m)[22m[32m 48[2mms[22m[39m
+ [32mΓ£ô[39m app/page.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[33m 318[2mms[22m[39m
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2mapplying filters triggers a dataset list refresh with the current query
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+
+ [32mΓ£ô[39m app/species-database/page.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 146[2mms[22m[39m
+ [32mΓ£ô[39m components/signals/signal-center.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[33m 593[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m signal center ranks open signals by severity and confidence [33m 582[2mms[22m[39m
+ [32mΓ£ô[39m components/ocean-map/ocean-map-workspace.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[33m 1007[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m ocean map workspace toggles overlay layers locally [33m 609[2mms[22m[39m
+ [32mΓ£ô[39m components/ocean-stations/ocean-station-alert-activity.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[33m 1172[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m renders alert title, detail, and acknowledge button for unacknowledged alert [33m 414[2mms[22m[39m
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2mchanging sort triggers a dataset list refresh
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2mchanging page triggers a dataset list refresh
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2mselection is preserved when the selected dataset still exists after refresh
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+
+[90mstdout[2m | lib/persistence/incident-presets.test.ts[2m > [22m[2mloads empty when storage is empty
+[22m[39m[IncidentPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+
+[90mstdout[2m | lib/persistence/incident-presets.test.ts[2m > [22m[2mreturns empty on corrupt JSON
+[22m[39m[IncidentPresets] { event: [32m'load_failed'[39m, reason: [32m'corrupt_json'[39m }
+
+[90mstdout[2m | lib/persistence/incident-presets.test.ts[2m > [22m[2mreturns empty on invalid schema
+[22m[39m[IncidentPresets] { event: [32m'load_failed'[39m, reason: [32m'invalid_schema'[39m }
+
+[90mstdout[2m | lib/persistence/incident-presets.test.ts[2m > [22m[2mmigrates old v1 records into v2 shape and writes migrated records back
+[22m[39m[IncidentPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mtrue[39m }
+
+[90mstdout[2m | lib/persistence/incident-presets.test.ts[2m > [22m[2mmigration preserves usable data
+[22m[39m[IncidentPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mtrue[39m }
+
+[90mstdout[2m | lib/persistence/incident-presets.test.ts[2m > [22m[2mrejects duplicate names safely
+[22m[39m[IncidentPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+[IncidentPresets] {
+  event: [32m'upsert_success'[39m,
+  presetCount: [33m1[39m,
+  presetId: [32m'22b4c562-ead0-4f15-8a56-5bcf71e85219'[39m
+}
+[IncidentPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mfalse[39m }
+
+[90mstdout[2m | lib/persistence/incident-presets.test.ts[2m > [22m[2msave fails when storage is unavailable
+[22m[39m[IncidentPresets] { event: [32m'load_failed'[39m, reason: [32m'storage_unavailable'[39m }
+
+[90mstdout[2m | lib/persistence/incident-presets.test.ts[2m > [22m[2mdelete fails when storage is unavailable
+[22m[39m[IncidentPresets] { event: [32m'load_failed'[39m, reason: [32m'storage_unavailable'[39m }
+
+[90mstdout[2m | lib/persistence/incident-presets.test.ts[2m > [22m[2mdelete returns not_found when preset ID is missing
+[22m[39m[IncidentPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+[IncidentPresets] {
+  event: [32m'upsert_success'[39m,
+  presetCount: [33m1[39m,
+  presetId: [32m'd656e202-b162-4876-9447-2791869e20cb'[39m
+}
+[IncidentPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mfalse[39m }
+
+[90mstdout[2m | lib/persistence/incident-presets.test.ts[2m > [22m[2mmark-used increments useCount and sets lastUsedAt
+[22m[39m[IncidentPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+[IncidentPresets] {
+  event: [32m'upsert_success'[39m,
+  presetCount: [33m1[39m,
+  presetId: [32m'9d2d5631-75b8-4f8e-a2d0-aa5803c804a6'[39m
+}
+[IncidentPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mfalse[39m }
+[IncidentPresets] {
+  event: [32m'mark_used_success'[39m,
+  presetId: [32m'9d2d5631-75b8-4f8e-a2d0-aa5803c804a6'[39m
+}
+
+[90mstdout[2m | lib/persistence/incident-presets.test.ts[2m > [22m[2mmark-used returns not_found for missing preset
+[22m[39m[IncidentPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+[IncidentPresets] {
+  event: [32m'upsert_success'[39m,
+  presetCount: [33m1[39m,
+  presetId: [32m'fa5eb5c5-9826-4338-8f95-0e97fc470960'[39m
+}
+[IncidentPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mfalse[39m }
+
+[90mstdout[2m | lib/persistence/incident-presets.test.ts[2m > [22m[2mdelete by ID works
+[22m[39m[IncidentPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+[IncidentPresets] {
+  event: [32m'upsert_success'[39m,
+  presetCount: [33m1[39m,
+  presetId: [32m'237f517c-db5e-4eba-8296-2693e6807549'[39m
+}
+[IncidentPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mfalse[39m }
+[IncidentPresets] {
+  event: [32m'upsert_success'[39m,
+  presetCount: [33m2[39m,
+  presetId: [32m'b8c7e073-3e6c-4700-8fac-68e35ca37f4e'[39m
+}
+[IncidentPresets] { event: [32m'load_success'[39m, presetCount: [33m2[39m, migrated: [33mfalse[39m }
+[IncidentPresets] {
+  event: [32m'delete_success'[39m,
+  presetCount: [33m1[39m,
+  presetId: [32m'237f517c-db5e-4eba-8296-2693e6807549'[39m
+}
+
+[90mstdout[2m | lib/persistence/incident-presets.test.ts[2m > [22m[2mnew presets receive stable unique IDs
+[22m[39m[IncidentPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+[IncidentPresets] {
+  event: [32m'upsert_success'[39m,
+  presetCount: [33m1[39m,
+  presetId: [32m'e581d782-1297-4861-a816-aace8d0a24b7'[39m
+}
+[IncidentPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mfalse[39m }
+[IncidentPresets] {
+  event: [32m'upsert_success'[39m,
+  presetCount: [33m2[39m,
+  presetId: [32m'110553da-bb55-4c90-ae2f-432c3b298591'[39m
+}
+
+[90mstdout[2m | lib/persistence/incident-presets.test.ts[2m > [22m[2mgenerates a non-empty ID when crypto.randomUUID is unavailable
+[22m[39m[IncidentPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+[IncidentPresets] {
+  event: [32m'upsert_success'[39m,
+  presetCount: [33m1[39m,
+  presetId: [32m'preset-0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b'[39m
+}
+
+[90mstdout[2m | lib/persistence/incident-presets.test.ts[2m > [22m[2mrelative-time-capable structure does not break absolute presets
+[22m[39m[IncidentPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+[IncidentPresets] {
+  event: [32m'upsert_success'[39m,
+  presetCount: [33m1[39m,
+  presetId: [32m'7de209fc-8247-4b8f-8656-3e9908243709'[39m
+}
+[IncidentPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mfalse[39m }
+
+ [32mΓ£ô[39m lib/persistence/incident-presets.test.ts [2m([22m[2m15 tests[22m[2m)[22m[32m 39[2mms[22m[39m
+ [32mΓ£ô[39m app/ocean-stations/[id]/exhibit/page.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 38[2mms[22m[39m
+[90mstdout[2m | lib/persistence/data-explorer-presets.test.ts[2m > [22m[2mpreset save, load, and delete work through the persistence seam
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+[DataExplorerPresets] {
+  event: [32m'upsert_success'[39m,
+  presetCount: [33m1[39m,
+  presetId: [32m'9ee3b9e7-42ca-495d-8b78-07eb61fe16a8'[39m
+}
+[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mfalse[39m }
+[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mfalse[39m }
+[DataExplorerPresets] {
+  event: [32m'delete_success'[39m,
+  presetCount: [33m0[39m,
+  presetId: [32m'9ee3b9e7-42ca-495d-8b78-07eb61fe16a8'[39m
+}
+[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+
+[90mstdout[2m | lib/persistence/data-explorer-presets.test.ts[2m > [22m[2mexisting stored preset payloads are migrated into the typed schema
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mtrue[39m }
+
+[90mstdout[2m | lib/persistence/data-explorer-presets.test.ts[2m > [22m[2mcorrupt preset storage fails safely to an empty list
+[22m[39m[DataExplorerPresets] { event: [32m'load_failed'[39m, reason: [32m'corrupt_json'[39m }
+
+[90mstdout[2m | lib/persistence/data-explorer-presets.test.ts[2m > [22m[2mupsert updates an existing preset by ID
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+[DataExplorerPresets] {
+  event: [32m'upsert_success'[39m,
+  presetCount: [33m1[39m,
+  presetId: [32m'f6cf79bd-0b68-4863-b50f-91cf4a9928b7'[39m
+}
+[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mfalse[39m }
+[DataExplorerPresets] {
+  event: [32m'upsert_success'[39m,
+  presetCount: [33m1[39m,
+  presetId: [32m'f6cf79bd-0b68-4863-b50f-91cf4a9928b7'[39m
+}
+
+[90mstdout[2m | lib/persistence/data-explorer-presets.test.ts[2m > [22m[2mnew presets receive stable unique IDs
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+[DataExplorerPresets] {
+  event: [32m'upsert_success'[39m,
+  presetCount: [33m1[39m,
+  presetId: [32m'bfcbec4c-3d26-4f8d-ab0a-0fc2fdac78d8'[39m
+}
+[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mfalse[39m }
+[DataExplorerPresets] {
+  event: [32m'upsert_success'[39m,
+  presetCount: [33m2[39m,
+  presetId: [32m'33aa5432-975c-4ac9-861d-f5b91caeefaa'[39m
+}
+
+[90mstdout[2m | lib/persistence/data-explorer-presets.test.ts[2m > [22m[2mdelete by ID returns not_found and does not mutate storage when missing
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+[DataExplorerPresets] {
+  event: [32m'upsert_success'[39m,
+  presetCount: [33m1[39m,
+  presetId: [32m'89f1da82-62b6-4396-bbb1-d25c83732eeb'[39m
+}
+[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mfalse[39m }
+
+[90mstdout[2m | lib/persistence/data-explorer-presets.test.ts[2m > [22m[2mmark-used increments useCount and sets lastUsedAt
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+[DataExplorerPresets] {
+  event: [32m'upsert_success'[39m,
+  presetCount: [33m1[39m,
+  presetId: [32m'16e97600-d214-42b5-b94a-086d32f75e2d'[39m
+}
+[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mfalse[39m }
+[DataExplorerPresets] {
+  event: [32m'mark_used_success'[39m,
+  presetId: [32m'16e97600-d214-42b5-b94a-086d32f75e2d'[39m
+}
+
+[90mstdout[2m | lib/persistence/data-explorer-presets.test.ts[2m > [22m[2mmark-used returns not_found and does not mutate storage when preset is missing
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+[DataExplorerPresets] {
+  event: [32m'upsert_success'[39m,
+  presetCount: [33m1[39m,
+  presetId: [32m'0ad29cd9-fa93-44f2-9b29-9acac9b1febd'[39m
+}
+[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mfalse[39m }
+
+[90mstdout[2m | lib/persistence/data-explorer-presets.test.ts[2m > [22m[2mempty and duplicate preset names are rejected
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+[DataExplorerPresets] {
+  event: [32m'upsert_success'[39m,
+  presetCount: [33m1[39m,
+  presetId: [32m'420e28d9-15fd-49a6-9a02-e054d1a638ea'[39m
+}
+[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mfalse[39m }
+
+[90mstdout[2m | lib/persistence/data-explorer-presets.test.ts[2m > [22m[2mlegacy presets get IDs and can be deleted by ID
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mtrue[39m }
+[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mfalse[39m }
+[DataExplorerPresets] {
+  event: [32m'delete_success'[39m,
+  presetCount: [33m0[39m,
+  presetId: [32m'3a2a2eb6-d5a0-4532-951b-249626bddd3a'[39m
+}
+
+ [32mΓ£ô[39m lib/persistence/data-explorer-presets.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 39[2mms[22m[39m
+ [32mΓ£ô[39m app/station/[slug]/page.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 37[2mms[22m[39m
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2mselection resets to the first dataset when the previous selection is absent after refresh
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+
+ [32mΓ£ô[39m app/ocean-stations/[id]/page.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 36[2mms[22m[39m
+ [32mΓ£ô[39m app/ocean-stations/[id]/admin/security/page.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 30[2mms[22m[39m
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2mempty refresh results clear the selected detail and related-record panels safely
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2mlist loading state appears during refresh
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2minitial degraded workspace state is visible without becoming noisy
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2mempty and degraded states remain distinguishable
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+
+ [32mΓ£ô[39m app/investigations/page.test.tsx [2m([22m[2m1 test[22m[2m)[22m[32m 32[2mms[22m[39m
+ [32mΓ£ô[39m components/ocean-stations/mfa-management-panel.test.tsx [2m([22m[2m15 tests[22m[2m)[22m[33m 6888[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m MFA panel shows not-enrolled state when no mfa state is provided [33m 395[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m MFA panel enrollment verify success shows recovery codes [33m 506[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m MFA panel enrollment verify failure shows error message [33m 465[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m MFA panel disable success resets to not-enrolled state [33m 404[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m MFA panel disable with step-up required shows step-up challenge UI [33m 416[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m MFA panel regenerate flow completes after step-up verification [33m 396[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m MFA panel disable flow completes after step-up verification [33m 712[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m MFA panel step-up verification shows rate_limited cooldown [33m 783[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m MFA panel step-up verification shows locked_out state [33m 792[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m MFA panel step-up verification shows expired state [33m 669[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m MFA panel step-up verification shows mfa_failed attempts remaining [33m 665[2mms[22m[39m
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2mlist errors preserve the last known good list and selection
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+
+ [32mΓ£ô[39m components/data-explorer/preset-presentation.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 22[2mms[22m[39m
+[90mstdout[2m | lib/api/client.data-explorer.test.ts[2m > [22m[2mworkspace fetch uses network API boundary in browser mode when available
+[22m[39m[DataExplorer:workspace] {
+  section: [32m'workspace'[39m,
+  startedAt: [32m'2026-03-19T21:26:56.946Z'[39m,
+  finishedAt: [32m'2026-03-19T21:26:56.948Z'[39m,
+  durationMs: [33m2[39m,
+  state: [32m'success'[39m,
+  source: [32m'db'[39m,
+  fallbackReason: [90mundefined[39m
+}
+
+[90mstdout[2m | lib/api/client.data-explorer.test.ts[2m > [22m[2mdataset detail fetch maps network 404 to not_found
+[22m[39m[DataExplorer:detail] {
+  section: [32m'detail'[39m,
+  startedAt: [32m'2026-03-19T21:26:56.952Z'[39m,
+  finishedAt: [32m'2026-03-19T21:26:56.952Z'[39m,
+  durationMs: [33m0[39m,
+  state: [32m'not_found'[39m,
+  datasetId: [32m'DST-MISSING'[39m,
+  source: [32m'db'[39m,
+  fallbackReason: [90mundefined[39m
+}
+
+[90mstdout[2m | lib/api/client.data-explorer.test.ts[2m > [22m[2mworkspace fetch falls back through typed dataset route builder when route handler throws
+[22m[39m[DataExplorer:workspace] {
+  section: [32m'workspace'[39m,
+  startedAt: [32m'2026-03-19T21:26:56.953Z'[39m,
+  finishedAt: [32m'2026-03-19T21:26:56.953Z'[39m,
+  durationMs: [33m0[39m,
+  state: [32m'success'[39m,
+  source: [32m'db'[39m,
+  fallbackReason: [90mundefined[39m
+}
+
+[90mstdout[2m | lib/api/client.data-explorer.test.ts[2m > [22m[2mdataset detail fetch falls back through typed dataset detail route builder when route handler throws
+[22m[39m[DataExplorer:detail] {
+  section: [32m'detail'[39m,
+  startedAt: [32m'2026-03-19T21:26:56.954Z'[39m,
+  finishedAt: [32m'2026-03-19T21:26:56.954Z'[39m,
+  durationMs: [33m0[39m,
+  state: [32m'success'[39m,
+  datasetId: [32m'DST-104'[39m,
+  source: [32m'db'[39m,
+  fallbackReason: [90mundefined[39m
+}
+
+[90mstdout[2m | lib/api/client.data-explorer.test.ts[2m > [22m[2mdataset records fetch falls back through typed dataset records route builder when route handler throws
+[22m[39m[DataExplorer:records] {
+  section: [32m'records'[39m,
+  startedAt: [32m'2026-03-19T21:26:56.955Z'[39m,
+  finishedAt: [32m'2026-03-19T21:26:56.955Z'[39m,
+  durationMs: [33m0[39m,
+  state: [32m'success'[39m,
+  datasetId: [32m'DST-104'[39m,
+  source: [32m'db'[39m,
+  fallbackReason: [90mundefined[39m
+}
+
+ [32mΓ£ô[39m lib/api/client.data-explorer.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [32mΓ£ô[39m components/ocean-stations/ocean-station-admin-workspace.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[33m 7719[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m station admin workspace renders structured editors and validation guidance [33m 1379[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m station admin workspace supports add and remove row controls across editors [33m 5922[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m station admin workspace shows permission-limited read-only state [33m 375[2mms[22m[39m
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2mchanging related-record sort triggers a related-record refresh
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2mchanging related-record page triggers a related-record refresh
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+
+ [32mΓ£ô[39m components/ocean-stations/station-admin-login-panel.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[33m 8439[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m login form renders MFA challenge UI when login returns pending_mfa [33m 1502[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m successful MFA verification redirects to destination [33m 1314[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m failed MFA verification shows inline error [33m 1198[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m rate-limited MFA verification shows cooldown and disables submit [33m 1210[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m login panel MFA verification displays locked_out when challenge exhausted [33m 1131[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m login panel MFA verification displays expired state [33m 1095[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m login panel MFA verification shows attempts remaining on invalid code [33m 985[2mms[22m[39m
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2mempty related-record results render safely
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2mdegraded related-record responses render explicit degraded messaging
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2mrelated-record errors remain local and non-fatal
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2mdev-only debug info renders source and fallback metadata
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2msaved presets are sorted by recent usage and display usage metadata
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m4[39m, migrated: [33mfalse[39m }
+
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2msaving a preset stores the current control state
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2msaving a preset stores the current control state
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m0[39m, migrated: [33mfalse[39m }
+[DataExplorerPresets] {
+  event: [32m'upsert_success'[39m,
+  presetCount: [33m1[39m,
+  presetId: [32m'7f72f917-91a8-42ce-8976-0702c8332dff'[39m
+}
+
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2mupdating a selected preset replaces its filter snapshot without creating a duplicate
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mfalse[39m }
+
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2mupdating a selected preset replaces its filter snapshot without creating a duplicate
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mfalse[39m }
+[DataExplorerPresets] { event: [32m'upsert_success'[39m, presetCount: [33m1[39m, presetId: [32m'preset-update'[39m }
+
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2mapplying a preset updates controls, triggers refresh, and resets page to 1
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mtrue[39m }
+
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2mapplying a preset updates controls, triggers refresh, and resets page to 1
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mfalse[39m }
+[DataExplorerPresets] {
+  event: [32m'mark_used_success'[39m,
+  presetId: [32m'68a0317b-c259-4cba-a600-b2026f98e6f6'[39m
+}
+
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2mapplying a preset updates rendered usage metadata
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mfalse[39m }
+
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2mapplying a preset updates rendered usage metadata
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mfalse[39m }
+[DataExplorerPresets] { event: [32m'mark_used_success'[39m, presetId: [32m'preset-usage-update'[39m }
+
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2mpresets without usage history render usage metadata safely
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mtrue[39m }
+
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2mapplying a preset still works when usage tracking fails
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mfalse[39m }
+
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2mapplying a preset still works when usage tracking fails
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mfalse[39m }
+
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2mdeleting a preset removes it from storage and the preset list
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mtrue[39m }
+
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2mdeleting a preset removes it from storage and the preset list
+[22m[39m[DataExplorerPresets] { event: [32m'load_success'[39m, presetCount: [33m1[39m, migrated: [33mfalse[39m }
+[DataExplorerPresets] {
+  event: [32m'delete_success'[39m,
+  presetCount: [33m0[39m,
+  presetId: [32m'219fd967-7448-4965-a623-403d3e749a68'[39m
+}
+
+[90mstdout[2m | components/data-explorer/data-explorer-workspace.test.tsx[2m > [22m[2mcorrupt preset storage fails safely
+[22m[39m[DataExplorerPresets] { event: [32m'load_failed'[39m, reason: [32m'corrupt_json'[39m }
+
+ [32mΓ£ô[39m components/data-explorer/data-explorer-workspace.test.tsx [2m([22m[2m25 tests[22m[2m)[22m[33m 13212[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m applying filters triggers a dataset list refresh with the current query [33m 1629[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m changing page triggers a dataset list refresh [33m 462[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m selection is preserved when the selected dataset still exists after refresh [33m 1590[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m selection resets to the first dataset when the previous selection is absent after refresh [33m 1475[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m empty refresh results clear the selected detail and related-record panels safely [33m 481[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m list loading state appears during refresh [33m 507[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m list errors preserve the last known good list and selection [33m 1189[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m changing related-record page triggers a related-record refresh [33m 521[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m saving a preset stores the current control state [33m 1015[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m updating a selected preset replaces its filter snapshot without creating a duplicate [33m 1027[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m applying a preset updates controls, triggers refresh, and resets page to 1 [33m 514[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m applying a preset updates rendered usage metadata [33m 411[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m applying a preset still works when usage tracking fails [33m 514[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m deleting a preset removes it from storage and the preset list [33m 631[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m corrupt preset storage fails safely [33m 314[2mms[22m[39m
+ [32mΓ£ô[39m components/ocean-stations/ocean-station-security-console.test.tsx [2m([22m[2m22 tests[22m[2m)[22m[33m 16361[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m security console renders alerts, summary metrics, auth events, and active sessions [33m 870[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m security console export button downloads JSON payload [33m 362[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m security console filter UI applies actor and ip investigation filters [33m 1429[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m security console updates URL query params when investigation filters change [33m 1497[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m security console copies the current incident view URL without extra requests [33m 1815[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m security console opens incident view in a new tab using current URL [33m 1104[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m security console reset all URL filters clears params and restores default control values [33m 2117[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m security console requests operational alerts with updated filters [33m 618[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m security console updates URL query params when operational alert filters change [33m 506[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m security console handles revoke step-up challenge and retries revoke after verification [33m 508[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m security console step-up verification handles rate-limited responses [33m 601[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m security console step-up verification handles locked_out responses [33m 568[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m security console step-up verification handles expired responses [33m 573[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m security console step-up verification handles mfa_failed with attempts remaining [33m 541[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m security console saves current filter state as incident preset [33m 1377[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m security console deletes incident preset without affecting current filters [33m 611[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m security console rejects duplicate or empty preset names safely [33m 599[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m20 passed[39m[22m[90m (20)[39m
+[2m      Tests [22m [1m[32m153 passed[39m[22m[90m (153)[39m
+[2m   Start at [22m 16:26:44
+[2m   Duration [22m 21.51s[2m (transform 3.33s, setup 14.72s, import 6.46s, tests 56.19s, environment 50.77s)[22m
+

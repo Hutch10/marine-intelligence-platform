@@ -1,0 +1,31 @@
+[32mΓ£ö datasets route preserves the existing contract with no filters from DB [90m(2.6955ms)[39m[39m
+[32mΓ£ö datasets route returns DB-backed sorted results [90m(0.1794ms)[39m[39m
+[32mΓ£ö datasets route returns DB-backed paginated results [90m(0.1688ms)[39m[39m
+[32mΓ£ö datasets route returns DB-backed filtered, sorted, paginated results [90m(0.1758ms)[39m[39m
+[32mΓ£ö datasets route computes dynamic summary signals for mixed status results [90m(1.1102ms)[39m[39m
+[32mΓ£ö datasets route returns an empty real DB dataset list when filters match zero rows [90m(0.1665ms)[39m[39m
+[32mΓ£ö datasets route falls back to filtered, sorted, paginated mock results when the DB path is missing [90m(0.1402ms)[39m[39m
+[32mΓ£ö datasets route falls back to filtered mock results when DB open fails [90m(0.152ms)[39m[39m
+[32mΓ£ö datasets route falls back to filtered mock results when DB querying fails [90m(0.2209ms)[39m[39m
+[32mΓ£ö datasets route returns an unchanged contract with empty filtered mock results [90m(0.2984ms)[39m[39m
+[32mΓ£ö dataset detail route returns 200 from DB when the record is found [90m(0.1896ms)[39m[39m
+[32mΓ£ö dataset detail route returns 200 from DB with partial metadata when metadata is incomplete [90m(0.0983ms)[39m[39m
+[32mΓ£ö dataset detail route returns 404 from DB when no matching record exists [90m(0.085ms)[39m[39m
+[32mΓ£ö dataset detail route falls back to mock with db_path_missing when mock record exists [90m(0.2012ms)[39m[39m
+[32mΓ£ö dataset detail route falls back to mock with db_open_failed when mock record exists [90m(0.1116ms)[39m[39m
+[32mΓ£ö dataset detail route falls back to mock with db_query_failed when mock record exists [90m(0.0814ms)[39m[39m
+[32mΓ£ö dataset detail route returns 404 from mock fallback when no equivalent mock record exists [90m(0.0732ms)[39m[39m
+[32mΓ£ö dataset records route returns 200 from DB when records are found [90m(0.194ms)[39m[39m
+[32mΓ£ö dataset records route returns 200 with empty records when the dataset has no related records [90m(0.1174ms)[39m[39m
+[32mΓ£ö dataset records route returns 404 from DB when the dataset is absent [90m(0.0905ms)[39m[39m
+[32mΓ£ö dataset records route falls back to mock records when the DB path is missing [90m(0.1202ms)[39m[39m
+[32mΓ£ö dataset records route returns an empty mock record list when no safe mock records exist [90m(0.0917ms)[39m[39m
+[32mΓ£ö dataset records route returns 404 from mock fallback when no equivalent mock dataset exists [90m(0.0725ms)[39m[39m
+[34mΓä╣ tests 23[39m
+[34mΓä╣ suites 0[39m
+[34mΓä╣ pass 23[39m
+[34mΓä╣ fail 0[39m
+[34mΓä╣ cancelled 0[39m
+[34mΓä╣ skipped 0[39m
+[34mΓä╣ todo 0[39m
+[34mΓä╣ duration_ms 95.9281[39m
