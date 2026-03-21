@@ -1,5 +1,4 @@
 import { render, screen } from "@testing-library/react";
-import type { ReactNode } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 
 vi.mock("@/components/layout/sidebar", () => ({
