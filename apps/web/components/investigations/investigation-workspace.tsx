@@ -22,6 +22,7 @@ import { InvestigationSpeciesSummaryCard } from "@/components/investigations/inv
 import { StatusBadge } from "@/components/ui/status-badge";
 import { InvestigationTimeline } from "@/components/investigations/investigation-timeline";
 import { InvestigationOntologyNetwork } from "@/components/investigations/investigation-ontology-network";
+import { InvestigationExplainer } from "@/components/investigations/investigation-explainer";
 
 const FILTER_ACCENTS = {
   cyan: "border-cyan-500/25 bg-cyan-500/10 text-cyan-300",
@@ -260,7 +261,10 @@ export function InvestigationWorkspace({ data }: InvestigationWorkspaceProps) {
           <InvestigationSpeciesSummaryCard summary={speciesSummary} />
 
           {ontologyNetwork && (
-            <InvestigationOntologyNetwork network={ontologyNetwork} />
+            <>
+              <InvestigationOntologyNetwork network={ontologyNetwork} />
+              <InvestigationExplainer network={ontologyNetwork} />
+            </>
           )}
 
           <Panel
