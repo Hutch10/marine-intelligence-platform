@@ -2,7 +2,7 @@ import type {
   OceanStationAdminAuthContext,
   OceanStationAdminPermission,
   OceanStationAdminRole,
-} from "../../../web/lib/api/types";
+} from "@marine/shared";
 import {
   hasDatabasePath,
   openWritableDatabase,

@@ -4,7 +4,7 @@ import type {
   StationAdminAuthEventExportPayload,
   StationAdminAuthEventType,
   StationAdminRequestMetadata,
-} from "../../../web/lib/api/types";
+} from "@marine/shared";
 import {
   hasDatabasePath,
   openReadOnlyDatabase,

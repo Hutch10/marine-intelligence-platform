@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildDashboardRouteResponse } from "./dashboard";
-import type { DashboardSpeciesActivity } from "../../../web/lib/api/types";
+import type { DashboardSpeciesActivity } from "@marine/shared";
 
 const MOCK_COUNTS = { openAlertCount: 3, totalDatasets: 4, totalInvestigations: 3 };
 

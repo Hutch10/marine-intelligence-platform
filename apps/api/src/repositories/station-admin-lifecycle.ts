@@ -5,7 +5,7 @@ import type {
   OceanStationAdminPermission,
   OceanStationAdminRole,
   StationAdminRequestMetadata,
-} from "../../../web/lib/api/types";
+} from "@marine/shared";
 import { verifyTotpToken } from "../security/totp";
 import { resolveMfaSecret } from "../security/mfa-secret";
 import {

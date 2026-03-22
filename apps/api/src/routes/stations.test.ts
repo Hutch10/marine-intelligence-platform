@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { OceanStationAdminPermission, OceanStationDetail } from "../../../web/lib/api/types";
+import type { OceanStationAdminPermission, OceanStationDetail } from "@marine/shared";
 import {
   buildStationAdminAuditRouteResponse,
   buildStationAdminRouteResponse,

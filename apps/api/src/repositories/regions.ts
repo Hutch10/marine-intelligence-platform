@@ -9,7 +9,7 @@ import type {
   OceanMapSpatialOverlays,
   SpeciesMovementType,
   SpeciesSightingVerificationStatus,
-} from "../../../web/lib/api/types";
+} from "@marine/shared";
 import { buildOceanMapSpatialOverlays } from "./ocean-map-spatial-overlays";
 
 interface CountRow {

@@ -1,4 +1,4 @@
-import type { OceanStationAdminAuthContext } from "../../../web/lib/api/types";
+import type { OceanStationAdminAuthContext } from "@marine/shared";
 import type {
   RouteDefinition,
   StationAdminSecurityAlertsResponse,

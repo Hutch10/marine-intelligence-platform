@@ -13,7 +13,7 @@ import type {
   EventNoteItem,
   EventActionItem,
   EventHistoryItem,
-} from "../../../web/lib/api/types";
+} from "@marine/shared";
 import {
   hasDatabasePath,
   openReadOnlyDatabase,

@@ -12,7 +12,7 @@ import type {
   SpeciesMovementSignal,
   SpeciesProfile,
   SpeciesSighting,
-} from "../../../web/lib/api/types";
+} from "@marine/shared";
 
 const BASE_SPECIES: SpeciesProfile = {
   id: "SP-BLUE-WHALE",

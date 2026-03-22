@@ -6,7 +6,7 @@ import type {
   DataExplorerRelatedRecordsPageInfo,
   DataExplorerRelatedRecordSortBy,
   DataExplorerSortDirection,
-} from "../../../web/lib/api/types";
+} from "@marine/shared";
 import { dataExplorerWorkspaceData } from "../../../web/lib/api/mock-data";
 import {
   hasDatabasePath,

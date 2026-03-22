@@ -11,6 +11,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@marine/shared": "workspace:*",
     "clsx": "^2.1.1",
     "lucide-react": "^0.395.0",
     "next": "^14.2.0",

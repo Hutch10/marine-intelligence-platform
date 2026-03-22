@@ -7,7 +7,7 @@ import {
   buildSignalPromoteRouteResponse,
   buildSignalsListRouteResponse,
 } from "./signals";
-import type { SignalDetection } from "../../../web/lib/api/types";
+import type { SignalDetection } from "@marine/shared";
 
 const BASE_SIGNAL: SignalDetection = {
   id: "SIG-THERMAL-001",

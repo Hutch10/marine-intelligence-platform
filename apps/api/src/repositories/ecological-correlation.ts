@@ -9,7 +9,7 @@
 import type {
   EcologicalCorrelationReason,
   SpeciesMovementType,
-} from "../../../web/lib/api/types";
+} from "@marine/shared";
 
 export interface EcologicalCorrelationInput {
   recentSightingCount: number;

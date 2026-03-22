@@ -101,8 +101,8 @@ import {
   postStationEventAcknowledgeRoute,
 } from "../../../api/src/routes/station-events";
 import { postAiAnalyzeRoute } from "../../../api/src/routes/ai";
-import type { AnalyzeRequestBody } from "../../../api/src/types";
 import type {
+  AnalyzeRequestBody,
   InvestigationEventCreateResponse,
   InvestigationEventCreateTelemetry,
   InvestigationTimelineResponse,
@@ -186,7 +186,7 @@ import type {
   LiveConditionsTelemetry,
   ReefAlertsResponse,
   ReefAlertsTelemetry,
-} from "../../../api/src/types";
+} from "@marine/shared";
 import type {
   OceanStationAdminAuthContext,
   OceanStationAdminAuditEntry,

@@ -1,7 +1,7 @@
 import type {
   OceanStationAdminAuthContext,
   OceanStationAdminPermission,
-} from "../../../web/lib/api/types";
+} from "@marine/shared";
 import type {
   MarineWorkflowAlertActionRequest,
   MarineWorkflowAlertActionResponse,

@@ -20,7 +20,7 @@ import type {
   OceanStationThemeAccent,
   OceanStationTimelineItem,
   OceanStationViewType,
-} from "../../../web/lib/api/types";
+} from "@marine/shared";
 import {
   hasDatabasePath,
   openReadOnlyDatabase,

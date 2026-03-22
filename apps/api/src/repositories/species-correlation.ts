@@ -3,7 +3,7 @@ import type {
   InvestigationSpeciesResponseTier,
   InvestigationSpeciesSummaryEntry,
   SpeciesMovementType,
-} from "../../../web/lib/api/types";
+} from "@marine/shared";
 
 interface SpeciesCorrelationInput {
   speciesId: string;

@@ -7,7 +7,7 @@ import type {
 import type {
   InvestigationAnalysisTrack,
   InvestigationSpeciesSummary,
-} from "../../../web/lib/api/types";
+} from "@marine/shared";
 
 type InvestigationsReadResult =
   | { source: "db"; analysisTracks: InvestigationAnalysisTrack[] }

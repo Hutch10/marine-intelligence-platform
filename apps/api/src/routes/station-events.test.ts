@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { OceanStationAdminPermission, StationEventListItem } from "../../../web/lib/api/types";
+import type { OceanStationAdminPermission, StationEventListItem } from "@marine/shared";
 import { buildStationEventAcknowledgeRouteResponse } from "./station-events";
 
 const ADMIN_AUTH = {

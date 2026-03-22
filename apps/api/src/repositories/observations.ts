@@ -6,7 +6,7 @@ import {
   type SqliteStatementLike,
 } from "../db/client";
 import type { LiveConditionsFallbackReason } from "../types";
-import type { LiveMarineCondition } from "../../../web/lib/api/types";
+import type { LiveMarineCondition } from "@marine/shared";
 
 interface ObservationRow {
   station_id: string;

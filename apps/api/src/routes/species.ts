@@ -24,7 +24,7 @@ import type {
   SpeciesMovementType,
   SpeciesSighting,
   SpeciesSightingVerificationStatus,
-} from "../../../web/lib/api/types";
+} from "@marine/shared";
 import type {
   SpeciesByIdSightingsResult,
   SpeciesDetailResult,
@@ -937,7 +937,7 @@ export const getSpeciesMovementSignalsRoute: RouteDefinition<
 };
 
 export const getInvestigationSpeciesSummaryRoute: RouteDefinition<
-  { summary: import("../../../web/lib/api/types").InvestigationSpeciesSummary | null } | { message: string },
+  { summary: import("@marine/shared").InvestigationSpeciesSummary | null } | { message: string },
   { id: string }
 > = {
   method: "GET",
@@ -947,7 +947,7 @@ export const getInvestigationSpeciesSummaryRoute: RouteDefinition<
       const runtimeRequire = eval("require") as NodeRequire;
       const repository = runtimeRequire("../repositories/species") as {
         getInvestigationSpeciesSummary: (investigationId: string) =>
-          | { source: "db"; result: "found"; summary: import("../../../web/lib/api/types").InvestigationSpeciesSummary }
+          | { source: "db"; result: "found"; summary: import("@marine/shared").InvestigationSpeciesSummary }
           | { source: "db"; result: "not_found" }
           | { source: "mock"; fallbackReason: string };
       };

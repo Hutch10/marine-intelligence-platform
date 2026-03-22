@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildRegionsRouteResponse } from "./regions";
-import type { OceanMapSpatialOverlays } from "../../../web/lib/api/types";
+import type { OceanMapSpatialOverlays } from "@marine/shared";
 
 const DB_REGIONS = [
   {

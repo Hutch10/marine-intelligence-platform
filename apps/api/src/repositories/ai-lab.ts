@@ -4,7 +4,7 @@ import {
   resolveDatabasePath,
   type SqliteDatabaseLike,
 } from "../db/client";
-import type { AiLabSourceReference, AiLabSuggestedPrompt } from "../../../web/lib/api/types";
+import type { AiLabSourceReference, AiLabSuggestedPrompt } from "@marine/shared";
 import type { AiLabFallbackReason } from "../types";
 import type { RecordInvestigationEventInput } from "./investigation-events";
 

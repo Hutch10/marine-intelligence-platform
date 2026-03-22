@@ -18,7 +18,7 @@
  * and other destructive operations.
  */
 
-import type { StationAdminMfaChallengePurpose } from "../../../web/lib/api/types";
+import type { StationAdminMfaChallengePurpose } from "@marine/shared";
 
 // ---------------------------------------------------------------------------
 // Policy definition

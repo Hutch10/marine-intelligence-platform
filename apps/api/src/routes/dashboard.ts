@@ -1,5 +1,5 @@
 import { dashboardOverviewData } from "../../../web/lib/api/mock-data";
-import type { DashboardActivityItem, DashboardMetric, DashboardOverviewData } from "../../../web/lib/api/types";
+import type { DashboardActivityItem, DashboardMetric, DashboardOverviewData } from "@marine/shared";
 import type { DashboardFallbackReason, DashboardTelemetry, RouteDefinition } from "../types";
 import type { DashboardCounts, DashboardReadResult } from "../repositories/dashboard";
 

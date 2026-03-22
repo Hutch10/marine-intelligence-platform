@@ -1,4 +1,4 @@
-import type { DashboardActivityItem, DashboardSpeciesActivity, SpeciesMovementType } from "../../../web/lib/api/types";
+import type { DashboardActivityItem, DashboardSpeciesActivity, SpeciesMovementType } from "@marine/shared";
 import {
   hasDatabasePath,
   openReadOnlyDatabase,

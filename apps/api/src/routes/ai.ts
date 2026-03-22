@@ -1,5 +1,5 @@
 import { apiMockData } from "../data";
-import type { AiLabResultSection } from "../../../web/lib/api/types";
+import type { AiLabResultSection } from "@marine/shared";
 import type {
   AnalyzeRequestBody,
   AnalyzeResponse,

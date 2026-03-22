@@ -4,7 +4,7 @@ import type {
   SignalSeverity,
   SignalStatus,
   SignalType,
-} from "../../../web/lib/api/types";
+} from "@marine/shared";
 import {
   hasDatabasePath,
   openReadOnlyDatabase,

@@ -31,7 +31,7 @@ import type {
   MarineWorkflowEventStatus,
   MarineWorkflowInvestigationFilters,
   MarineWorkflowInvestigationItem,
-} from "../../../web/lib/api/types";
+} from "@marine/shared";
 
 const JOIN_LIMIT = 500;
 

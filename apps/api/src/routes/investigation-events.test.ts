@@ -4,7 +4,7 @@ import {
   buildInvestigationEventCreateRouteResponse,
   buildInvestigationTimelineRouteResponse,
 } from "./investigation-events";
-import type { InvestigationTimelineItem } from "../../../web/lib/api/types";
+import type { InvestigationTimelineItem } from "@marine/shared";
 
 const DB_TIMELINE: InvestigationTimelineItem[] = [
   {

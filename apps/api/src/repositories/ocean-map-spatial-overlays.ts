@@ -5,7 +5,7 @@ import type {
   OceanMapSpatialOverlays,
   OceanMapSightingOverlay,
   SpeciesMovementType,
-} from "../../../web/lib/api/types";
+} from "@marine/shared";
 
 export interface SpatialOverlaySightingInput {
   id: string;

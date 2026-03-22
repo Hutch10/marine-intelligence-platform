@@ -10,7 +10,8 @@
     "rootDir": "..",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["../web/*"]
+      "@/*": ["../web/*"],
+      "@marine/shared": ["../../packages/shared/src/index.ts"]
     },
     "types": ["node"]
   },

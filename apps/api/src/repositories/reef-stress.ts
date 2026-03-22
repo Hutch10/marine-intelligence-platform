@@ -6,7 +6,7 @@ import {
   resolveDatabasePath,
 } from "../db/client";
 import type { ReefAlertsFallbackReason } from "../types";
-import type { ReefStressWatchItem } from "../../../web/lib/api/types";
+import type { ReefStressWatchItem } from "@marine/shared";
 
 interface StationMetricRow {
   metric_type: string;

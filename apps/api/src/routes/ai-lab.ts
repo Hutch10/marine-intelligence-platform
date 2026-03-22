@@ -1,5 +1,5 @@
 import { apiMockData } from "../data";
-import type { AiLabWorkspaceData } from "../../../web/lib/api/types";
+import type { AiLabWorkspaceData } from "@marine/shared";
 import type { AiLabFallbackReason, AiLabTelemetry, RouteDefinition } from "../types";
 
 type AiLabSectionKey =

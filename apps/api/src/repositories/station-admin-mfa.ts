@@ -21,7 +21,7 @@ import type {
   StationAdminMfaEnrollmentState,
   StationAdminMfaChallenge,
   StationAdminRequestMetadata,
-} from "../../../web/lib/api/types";
+} from "@marine/shared";
 import {
   hasDatabasePath,
   openWritableDatabase,

@@ -1,7 +1,7 @@
 import type {
   InvestigationTimelineEventType,
   InvestigationTimelineItem,
-} from "../../../web/lib/api/types";
+} from "@marine/shared";
 import {
   hasDatabasePath,
   openReadOnlyDatabase,
