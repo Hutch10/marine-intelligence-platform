@@ -1,3 +1,71 @@
+/**
+ * Ontology-resolved related objects for the active investigation.
+ * Populated server-side via the ontology resolver layer.
+ *
+ * Field shapes mirror the OntologyObject types in @/lib/ontology/types —
+ * inlined here to avoid a cross-module import that breaks Vite's JSX
+ * transform pipeline for test files that import api/types indirectly.
+ */
+
+interface _OntologyBase {
+  readonly __type: string;
+  readonly __rid: string;
+  readonly __primaryKey: string;
+}
+
+interface _InvestigationNode extends _OntologyBase {
+  title: string;
+  summary: string;
+  confidence: number;
+  state: "Correlated" | "Watch" | "Escalated";
+}
+
+interface _SpeciesNode extends _OntologyBase {
+  commonName: string;
+  scientificName: string;
+  conservationStatus: string;
+  habitatRegion: string;
+  summary: string;
+}
+
+interface _StationNode extends _OntologyBase {
+  slug: string;
+  name: string;
+  region: string;
+  status: string;
+  summary: string;
+  locationLabel: string;
+  depthM: number | null;
+}
+
+interface _ObservationNode extends _OntologyBase {
+  stationId: string;
+  timestamp: string;
+  sstC: number | null;
+  waveHeightM: number | null;
+  windSpeedMps: number | null;
+  pressureHpa: number | null;
+}
+
+interface _AlertNode extends _OntologyBase {
+  title: string;
+  severity: string;
+  status: string;
+  detail: string | null;
+  stationId: string | null;
+  linkedInvestigationId: string | null;
+  detectedAt: string;
+}
+
+export interface InvestigationOntologyNetworkContext {
+  investigation: _InvestigationNode | null;
+  species: _SpeciesNode[];
+  stations: _StationNode[];
+  observations: _ObservationNode[];
+  alerts: _AlertNode[];
+  resolvedAt: string;
+}
+
 export type DataAccent = "cyan" | "emerald" | "amber" | "violet" | "rose";
 
 export type DashboardMetricIcon =
@@ -210,6 +278,7 @@ export interface InvestigationsWorkspaceData {
   evidenceItems: InvestigationEvidenceItem[];
   timeline: InvestigationTimelineItem[];
   speciesSummary: InvestigationSpeciesSummary | null;
+  ontologyNetwork?: InvestigationOntologyNetworkContext;
 }
 
 export type InvestigationTimelineEventType = "case_opened" | "signal_linked" | "hypothesis_tested" | "evidence_promoted" | "track_escalated" | "case_closed";

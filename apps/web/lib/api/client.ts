@@ -14,6 +14,20 @@ import {
   liveMarineConditionsData,
   reefStressWatchData,
 } from "@/lib/api/mock-data";
+import {
+  buildRid,
+  mapInvestigation,
+  mapObservation,
+  resolveInvestigationAlerts,
+  resolveInvestigationSpecies,
+  resolveInvestigationStations,
+  resolveSpeciesObservations,
+} from "@/lib/ontology/resolvers";
+import type {
+  SpeciesOntologyObject,
+  StationOntologyObject,
+} from "@/lib/ontology/types";
+import type { InvestigationOntologyNetworkContext, InvestigationsWorkspaceData } from "@/lib/api/types";
 import { getDashboardRoute } from "../../../api/src/routes/dashboard";
 import { getLiveConditionsRoute } from "../../../api/src/routes/live-conditions";
 import { getOperationalAlertsRoute } from "../../../api/src/routes/operational-alerts";
@@ -1002,6 +1016,84 @@ function normalizeDatasetFilters(filters: DataExplorerDatasetFilters = {}): Data
   };
 }
 
+// ─── Ontology network builder ─────────────────────────────────────────────────
+//
+// Resolves Species, Stations, Observations, and Alerts for the active
+// investigation using the ontology resolver layer. All calls are pure —
+// no DB access, deterministic output.
+
+function buildInvestigationOntologyNetwork(
+  workspace: Pick<InvestigationsWorkspaceData, "analysisTracks" | "speciesSummary">,
+): InvestigationOntologyNetworkContext {
+  const activeTrack = workspace.analysisTracks[0];
+
+  if (!activeTrack) {
+    return {
+      investigation: null,
+      species: [],
+      stations: [],
+      observations: [],
+      alerts: [],
+      resolvedAt: new Date().toISOString(),
+    };
+  }
+
+  const investigation = mapInvestigation(activeTrack);
+
+  // Map species from the investigation species summary entries
+  const entries = workspace.speciesSummary?.entries ?? [];
+  const allSpecies: SpeciesOntologyObject[] = entries.map((entry) => ({
+    __type: "Species" as const,
+    __rid: buildRid("Species", entry.speciesId),
+    __primaryKey: entry.speciesId,
+    commonName: entry.commonName,
+    scientificName: entry.scientificName,
+    conservationStatus: "data_deficient",
+    habitatRegion: "Active investigation zone",
+    summary: `${entry.movementSignalCount} movement signal(s) · ${entry.verifiedSightingCount} verified sighting(s)`,
+    createdAt: entry.lastObservedAt ?? new Date().toISOString(),
+    updatedAt: entry.lastObservedAt ?? new Date().toISOString(),
+  }));
+
+  const correlatedSpeciesIds = entries.map((e) => e.speciesId);
+  const species = resolveInvestigationSpecies(correlatedSpeciesIds, allSpecies);
+
+  // Derive stations from live marine conditions — active monitoring buoys
+  // reporting during the investigation window
+  const uniqueStationIds = [...new Set(liveMarineConditionsData.map((c) => c.stationId))];
+  const allStations: StationOntologyObject[] = uniqueStationIds.map((id) => ({
+    __type: "Station" as const,
+    __rid: buildRid("Station", id),
+    __primaryKey: id,
+    slug: `buoy-${id.toLowerCase()}`,
+    name: `NDBC Buoy ${id}`,
+    region: id === "46042" ? "North Pacific" : "South Atlantic",
+    status: "active",
+    summary: "Active monitoring buoy — reporting during investigation window",
+    locationLabel: id,
+    depthM: null,
+  }));
+
+  const stations = resolveInvestigationStations(uniqueStationIds, allStations);
+
+  // Resolve observations at the linked station IDs via the species sighting chain
+  const allObservations = liveMarineConditionsData.map(mapObservation);
+  const observations = resolveSpeciesObservations(uniqueStationIds, allObservations);
+
+  // Alerts linked to this investigation (empty until workspace exposes
+  // individual alert object IDs with linkedInvestigationId populated)
+  const alerts = resolveInvestigationAlerts(investigation.__primaryKey, []);
+
+  return {
+    investigation,
+    species,
+    stations,
+    observations,
+    alerts,
+    resolvedAt: new Date().toISOString(),
+  };
+}
+
 export const apiClient = {
   stationAdminAuth: {
     async getSession(sessionId: string): Promise<OceanStationAdminAuthContext | null> {
@@ -1533,6 +1625,7 @@ export const apiClient = {
           return {
             ...workspace,
             timeline: [],
+            ontologyNetwork: buildInvestigationOntologyNetwork(workspace),
           };
         }
 
@@ -1544,11 +1637,13 @@ export const apiClient = {
         return {
           ...workspace,
           timeline: timelineResponse.json.timeline,
+          ontologyNetwork: buildInvestigationOntologyNetwork(workspace),
         };
       } catch {
         return {
           ...investigationsWorkspaceData,
           timeline: investigationsTimelineFallbackData,
+          ontologyNetwork: buildInvestigationOntologyNetwork(investigationsWorkspaceData),
         };
       }
     },

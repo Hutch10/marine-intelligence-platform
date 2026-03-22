@@ -21,6 +21,7 @@ import { Panel } from "@/components/ui/panel";
 import { InvestigationSpeciesSummaryCard } from "@/components/investigations/investigation-species-summary";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { InvestigationTimeline } from "@/components/investigations/investigation-timeline";
+import { InvestigationOntologyNetwork } from "@/components/investigations/investigation-ontology-network";
 
 const FILTER_ACCENTS = {
   cyan: "border-cyan-500/25 bg-cyan-500/10 text-cyan-300",
@@ -103,7 +104,7 @@ interface InvestigationWorkspaceProps {
 }
 
 export function InvestigationWorkspace({ data }: InvestigationWorkspaceProps) {
-  const { filterGroups, signalMetrics, analysisTracks, hypothesisLog, evidenceItems, timeline, speciesSummary } = data;
+  const { filterGroups, signalMetrics, analysisTracks, hypothesisLog, evidenceItems, timeline, speciesSummary, ontologyNetwork } = data;
 
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-6 p-6">
@@ -257,6 +258,10 @@ export function InvestigationWorkspace({ data }: InvestigationWorkspaceProps) {
           </Panel>
 
           <InvestigationSpeciesSummaryCard summary={speciesSummary} />
+
+          {ontologyNetwork && (
+            <InvestigationOntologyNetwork network={ontologyNetwork} />
+          )}
 
           <Panel
             title="Hypothesis Log"
