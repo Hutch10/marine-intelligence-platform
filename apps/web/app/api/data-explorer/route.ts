@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDatasetsRoute } from "../../../../api/src/routes/datasets";
-import type { DatasetListQuery } from "../../../../api/src/types";
+import { apiClient } from "@/lib/api/client";
+import type {
+  DataExplorerDatasetFilters,
+  DataExplorerDatasetSortBy,
+  DataExplorerSortDirection,
+} from "@/lib/api/types";
 
 function toSourceHeader(value: unknown): string {
   return value === "db" || value === "mock" ? value : "mock";
@@ -21,30 +25,37 @@ function normalizeIntParam(value: string | null): number | undefined {
   return Number.isNaN(parsed) ? undefined : parsed;
 }
 
+function normalizeSortBy(value: string | null): DataExplorerDatasetSortBy | undefined {
+  return value === "name" || value === "updated" || value === "records" || value === "status"
+    ? value
+    : undefined;
+}
+
+function normalizeSortDir(value: string | null): DataExplorerSortDirection | undefined {
+  return value === "asc" || value === "desc" ? value : undefined;
+}
+
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
 
-  const query: DatasetListQuery = {
+  const query: DataExplorerDatasetFilters = {
     q: searchParams.get("q") ?? undefined,
     category: searchParams.get("category") ?? undefined,
     region: searchParams.get("region") ?? undefined,
     status: searchParams.get("status") ?? undefined,
-    sortBy: searchParams.get("sortBy") ?? undefined,
-    sortDir: searchParams.get("sortDir") ?? undefined,
+    sortBy: normalizeSortBy(searchParams.get("sortBy")),
+    sortDir: normalizeSortDir(searchParams.get("sortDir")),
     page: normalizeIntParam(searchParams.get("page")),
     pageSize: normalizeIntParam(searchParams.get("pageSize")),
   };
 
-  const response = getDatasetsRoute.handler({ body: undefined, query });
-  const telemetry = response.telemetry as
-    | { source?: unknown; fallbackReason?: unknown }
-    | undefined;
+  const response = await apiClient.dataExplorer.getWorkspace(query);
 
-  return NextResponse.json(response.json, {
-    status: response.status,
+  return NextResponse.json(response.data, {
+    status: 200,
     headers: {
-      "x-marine-data-source": toSourceHeader(telemetry?.source),
-      "x-marine-fallback-reason": toFallbackHeader(telemetry?.fallbackReason),
+      "x-marine-data-source": toSourceHeader(response.meta.source),
+      "x-marine-fallback-reason": toFallbackHeader(response.meta.fallbackReason),
     },
   });
 }

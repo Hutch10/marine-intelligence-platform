@@ -3,7 +3,11 @@ import {
   resolveDatabasePath,
   type SqliteDatabaseLike,
 } from "../../db/client";
-import { fetchCoralReefWatchData } from "../../connectors/coral-reef-watch/fetch";
+import {
+  fetchCoralReefWatchData,
+  buildCrwRegionalVirtualStationDataUrl,
+  resolveDefaultCrwSourceUrl,
+} from "../../connectors/coral-reef-watch/fetch";
 import {
   parseCoralReefWatchData,
   type CrwParsedRecord,
@@ -25,8 +29,9 @@ import {
   insertStationMetric,
   reefStressSnapshotExists,
 } from "../../repositories/reef-stress";
+import { CRW_SOURCE } from "../../connectors/coral-reef-watch/constants";
 
-const DEFAULT_STALE_AFTER_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_STALE_AFTER_MS = 72 * 60 * 60 * 1000;
 const REQUIRED_SCHEMA_FIELD_GROUPS = [
   ["sst_anomaly", "sst_anomaly_c", "ssta", "sstanomaly"],
   ["hotspot", "hotspot_c", "hot_spot", "hotspotc"],
@@ -54,6 +59,7 @@ export interface RunCrwIngestionResult {
   rejectedRows: number;
   rejectionReasons: Record<CrwRejectReason, number>;
   finishedAt: string;
+  error?: string | null;
 }
 
 interface RunCrwIngestionDependencies {
@@ -65,6 +71,7 @@ interface RunCrwIngestionDependencies {
   fetchData?: typeof fetchCoralReefWatchData;
   parseData?: typeof parseCoralReefWatchData;
   mapData?: typeof mapCrwRecords;
+  logLine?: (line: string) => void;
 }
 
 export function loadConfiguredCrwTargets(env = process.env): CrwTargetConfig[] {
@@ -72,8 +79,8 @@ export function loadConfiguredCrwTargets(env = process.env): CrwTargetConfig[] {
 
   if (!configured) {
     return [
-      { region: "Great Barrier Reef" },
-      { region: "Caribbean" },
+      { region: "Southeast Florida" },
+      { region: "Florida Keys" },
     ];
   }
 
@@ -96,6 +103,14 @@ function isImpossibleValue(value: number | null, min: number, max: number): bool
   }
 
   return value < min || value > max;
+}
+
+function logDiagnostic(writeLine: ((line: string) => void) | undefined, message: string) {
+  writeLine?.(`[run-crw] ${message}`);
+}
+
+function summarizeCrwBodyPreview(body: string): string {
+  return body.slice(0, 500);
 }
 
 function selectLatestTargetRecord(target: CrwTargetConfig, rows: CrwParsedRecord[]): CrwParsedRecord | null {
@@ -145,7 +160,7 @@ export function validateCrwRecord(
       record.stationId,
       record.region,
       record.observedAt,
-      "noaa_coral_reef_watch",
+      CRW_SOURCE,
     )
   ) {
     return "duplicate_record";
@@ -165,10 +180,15 @@ export async function runCrwIngestion(
   const fetchData = dependencies.fetchData ?? fetchCoralReefWatchData;
   const parseData = dependencies.parseData ?? parseCoralReefWatchData;
   const mapData = dependencies.mapData ?? mapCrwRecords;
+  const logLine = dependencies.logLine;
+  const configuredSourceOverride = process.env.CRW_SOURCE_URL?.trim() ?? "";
 
   const startedAt = nowFn();
   const dbPath = resolvePath();
+  logDiagnostic(logLine, `resolved DB path: ${dbPath}`);
   const db = openWritable(dbPath);
+
+  logDiagnostic(logLine, `configured target count: ${targets.length}`);
 
   ensureIngestionRunsTable(db);
   ensureProvenanceRecordsTable(db);
@@ -176,7 +196,7 @@ export async function runCrwIngestion(
   ensureDerivedSignalsTable(db);
 
   const runId = createIngestionRun(db, {
-    source: "noaa_coral_reef_watch",
+    source: CRW_SOURCE,
     startedAt,
     stationCount: targets.length,
   });
@@ -192,39 +212,35 @@ export async function runCrwIngestion(
   };
 
   try {
-    const fetched = await fetchData();
-    const parsed = parseData(fetched.body);
-
-    if (!includesRequiredSchemaFields(parsed.availableFields)) {
-      rejectedRows = targets.length;
-      rejectionReasons.schema_drift = targets.length;
-
-      const finishedAt = nowFn();
-      finalizeIngestionRun(db, {
-        runId,
-        status: "completed",
-        finishedAt,
-        insertedRows,
-        rejectedRows,
-      });
-
-      return {
-        runId,
-        status: "completed_with_rejections",
-        polledTargets: targets.length,
-        insertedRows,
-        rejectedRows,
-        rejectionReasons,
-        finishedAt: new Date(finishedAt).toISOString(),
-      };
+    if (targets.length === 0) {
+      throw new Error("CRW ingestion misconfigured: CRW_TARGET_REGIONS resolved to zero enabled targets.");
     }
 
     for (const target of targets) {
+      const sourceUrl = configuredSourceOverride
+        ? resolveDefaultCrwSourceUrl()
+        : buildCrwRegionalVirtualStationDataUrl(target.region);
+      logDiagnostic(logLine, `fetching source ${sourceUrl}`);
+      const fetched = await fetchData({ sourceUrl });
+      logDiagnostic(logLine, `fetched source ${fetched.sourceUrl}`);
+      logDiagnostic(logLine, `fetched HTTP status: ${fetched.statusCode}`);
+      logDiagnostic(logLine, `fetched content-type: ${fetched.contentType ?? "unknown"}`);
+      logDiagnostic(logLine, `fetched body length: ${fetched.body.length}`);
+      logDiagnostic(logLine, `fetched body preview:\n${summarizeCrwBodyPreview(fetched.body)}`);
+      const parsed = parseData(fetched.body);
+      logDiagnostic(logLine, `fetched record count before validation: ${parsed.records.length}`);
+
+      if (parsed.records.length === 0) {
+        throw new Error(`CRW fetch returned no usable records from ${fetched.sourceUrl}`);
+      }
+
+      if (!includesRequiredSchemaFields(parsed.availableFields)) {
+        throw new Error(`CRW schema drift: required fields missing from ${fetched.sourceUrl}`);
+      }
+
       const record = selectLatestTargetRecord(target, parsed.records);
       if (!record) {
-        rejectedRows += 1;
-        rejectionReasons.schema_drift += 1;
-        continue;
+        throw new Error(`CRW target "${target.region}" returned no usable records from ${fetched.sourceUrl}`);
       }
 
       const now = nowFn();
@@ -245,7 +261,7 @@ export async function runCrwIngestion(
           metricType: metric.metricType,
           metricValue: metric.metricValue,
           metricUnit: metric.metricUnit,
-          source: "noaa_coral_reef_watch",
+          source: CRW_SOURCE,
           observedAt: metric.observedAt,
           ingestionRunId: runId,
           sourceTimestamp: metric.sourceTimestamp,
@@ -255,7 +271,7 @@ export async function runCrwIngestion(
 
         insertProvenanceRecord(db, {
           ingestionRunId: runId,
-          source: "noaa_coral_reef_watch",
+          source: CRW_SOURCE,
           sourceStationId: metric.stationId ?? metric.region,
           sourceTimestamp: metric.sourceTimestamp,
           sourceReference: fetched.sourceUrl,
@@ -280,7 +296,7 @@ export async function runCrwIngestion(
           signalValue: signal.signalValue,
           signalLabel: signal.signalLabel,
           severity: signal.severity,
-          source: "noaa_coral_reef_watch",
+          source: CRW_SOURCE,
           observedAt: signal.observedAt,
           ingestionRunId: runId,
           sourceTimestamp: signal.sourceTimestamp,
@@ -290,7 +306,7 @@ export async function runCrwIngestion(
 
         insertProvenanceRecord(db, {
           ingestionRunId: runId,
-          source: "noaa_coral_reef_watch",
+          source: CRW_SOURCE,
           sourceStationId: signal.stationId ?? signal.region,
           sourceTimestamp: signal.sourceTimestamp,
           sourceReference: fetched.sourceUrl,
@@ -326,9 +342,12 @@ export async function runCrwIngestion(
       rejectedRows,
       rejectionReasons,
       finishedAt: new Date(finishedAt).toISOString(),
+      error: null,
     };
-  } catch {
+  } catch (error) {
     const failedAt = nowFn();
+    const message = error instanceof Error ? error.message : String(error);
+    logDiagnostic(logLine, `failed: ${message}`);
 
     finalizeIngestionRun(db, {
       runId,
@@ -346,6 +365,7 @@ export async function runCrwIngestion(
       rejectedRows,
       rejectionReasons,
       finishedAt: new Date(failedAt).toISOString(),
+      error: message,
     };
   } finally {
     db.close();

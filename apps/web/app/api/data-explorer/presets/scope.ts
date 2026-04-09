@@ -1,10 +1,17 @@
 import type { DataExplorerPresetScope } from "@/lib/persistence/types";
 import { apiClient } from "@/lib/api/client";
 import { getStationAdminSessionCookie } from "@/lib/api/session-cookies";
-import type {
-  DataExplorerPresetActorContext,
-  DataExplorerPresetScopeContext,
-} from "../../../../../api/src/repositories/data-explorer-presets";
+
+type DataExplorerPresetActorContext = {
+  actorId: string | null;
+  actorType: "station_admin" | "unknown";
+};
+
+type DataExplorerPresetScopeContext = {
+  scope?: DataExplorerPresetScope;
+  ownerId?: string;
+  actor?: DataExplorerPresetActorContext;
+};
 
 export const DATA_EXPLORER_PERSONAL_PRESET_AUTH_ERROR =
   "Personal preset scope requires an authenticated station admin session.";

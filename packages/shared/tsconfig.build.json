@@ -1,0 +1,15 @@
+{
+  // No extends; self-contained config
+  "compilerOptions": {
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "emitDeclarationOnly": false,
+    "outDir": "dist",
+    "rootDir": "src",
+    "module": "CommonJS",
+    "target": "ES2020",
+    "moduleResolution": "Node"
+  },
+  "include": ["src/**/*.ts"]
+}

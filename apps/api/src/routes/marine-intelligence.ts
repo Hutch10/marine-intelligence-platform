@@ -9,6 +9,14 @@ import type {
   MarineWorkflowAlertsResponse,
   MarineWorkflowAlertsTelemetry,
   MarineWorkflowAlertFilters,
+  MarineWorkflowDecisionRequest,
+  MarineWorkflowDecisionResponse,
+  MarineWorkflowDecisionSummaryResponse,
+  MarineWorkflowDecisionSummaryTelemetry,
+  MarineWorkflowDecisionTelemetry,
+  MarineWorkflowFeedbackRequest,
+  MarineWorkflowFeedbackResponse,
+  MarineWorkflowFeedbackTelemetry,
   MarineWorkflowCreateInvestigationRequest,
   MarineWorkflowCreateInvestigationResponse,
   MarineWorkflowCreateInvestigationTelemetry,
@@ -18,6 +26,9 @@ import type {
   MarineWorkflowInvestigationFilters,
   MarineWorkflowInvestigationsResponse,
   MarineWorkflowInvestigationsTelemetry,
+  MarineWorkflowTelemetryEventRequest,
+  MarineWorkflowTelemetryEventResponse,
+  MarineWorkflowTelemetryEventTelemetry,
   RouteDefinition,
 } from "../types";
 import {
@@ -28,6 +39,16 @@ import {
   type MarineWorkflowListEventsResult,
   type MarineWorkflowListInvestigationsResult,
 } from "../services/marine-intelligence-workflow";
+import {
+  getMarineIntelligenceDecisionSummary,
+  recordMarineIntelligenceDecision,
+  recordMarineIntelligenceFeedback,
+  recordMarineIntelligenceTelemetryEvent,
+  type MarineIntelligenceDecisionCreateResult,
+  type MarineIntelligenceDecisionSummaryResult,
+  type MarineIntelligenceFeedbackCreateResult,
+  type MarineIntelligenceTelemetryEventCreateResult,
+} from "../repositories/marine-intelligence-decisions";
 
 const workflowService = createMarineIntelligenceWorkflowService();
 
@@ -88,6 +109,255 @@ function alertsFiltersApplied(filters: MarineWorkflowAlertFilters | undefined): 
       || filters.ruleType
       || filters.limit,
   );
+}
+
+export function buildMarineWorkflowDecisionRouteResponse(
+  auth: OceanStationAdminAuthContext | undefined,
+  body: MarineWorkflowDecisionRequest,
+  createResult: MarineIntelligenceDecisionCreateResult = recordMarineIntelligenceDecision(body),
+): {
+  status: 200 | 400 | 403 | 404 | 503;
+  json: MarineWorkflowDecisionResponse | { message: string };
+  telemetry: MarineWorkflowDecisionTelemetry;
+} {
+  if (!hasViewAdminPermission(auth)) {
+    return {
+      status: 403,
+      json: { message: "Missing permission: station.view_admin" },
+      telemetry: {
+        route: "POST /marine-intelligence/decisions",
+        source: "db",
+        result: "forbidden",
+        investigationId: body.investigationId,
+        stationId: body.stationId,
+      },
+    };
+  }
+
+  if (createResult.source === "unavailable") {
+    return {
+      status: 503,
+      json: { message: "Marine decision storage unavailable" },
+      telemetry: {
+        route: "POST /marine-intelligence/decisions",
+        source: "unavailable",
+        result: "validation",
+        investigationId: body.investigationId,
+        stationId: body.stationId,
+        fallbackReason: createResult.fallbackReason,
+      },
+    };
+  }
+
+  if (!createResult.result.ok || !createResult.result.decision) {
+    return {
+      status: 400,
+      json: { message: createResult.result.error ?? "Unable to record marine decision" },
+      telemetry: {
+        route: "POST /marine-intelligence/decisions",
+        source: "db",
+        result: "validation",
+        investigationId: body.investigationId,
+        stationId: body.stationId,
+      },
+    };
+  }
+
+  return {
+    status: 200,
+    json: { decision: createResult.result.decision },
+    telemetry: {
+      route: "POST /marine-intelligence/decisions",
+      source: "db",
+      result: "created",
+      investigationId: body.investigationId,
+      stationId: body.stationId,
+    },
+  };
+}
+
+export function buildMarineWorkflowTelemetryRouteResponse(
+  auth: OceanStationAdminAuthContext | undefined,
+  body: MarineWorkflowTelemetryEventRequest,
+  createResult: MarineIntelligenceTelemetryEventCreateResult = recordMarineIntelligenceTelemetryEvent(body),
+): {
+  status: 200 | 400 | 403 | 503;
+  json: MarineWorkflowTelemetryEventResponse | { message: string };
+  telemetry: MarineWorkflowTelemetryEventTelemetry;
+} {
+  if (!hasViewAdminPermission(auth)) {
+    return {
+      status: 403,
+      json: { message: "Missing permission: station.view_admin" },
+      telemetry: {
+        route: "POST /marine-intelligence/telemetry",
+        source: "db",
+        result: "forbidden",
+        eventType: body.eventType,
+        investigationId: body.investigationId,
+        stationId: body.stationId,
+      },
+    };
+  }
+
+  if (createResult.source === "unavailable") {
+    return {
+      status: 503,
+      json: { message: "Marine telemetry storage unavailable" },
+      telemetry: {
+        route: "POST /marine-intelligence/telemetry",
+        source: "unavailable",
+        result: "validation",
+        eventType: body.eventType,
+        investigationId: body.investigationId,
+        stationId: body.stationId,
+        fallbackReason: createResult.fallbackReason,
+      },
+    };
+  }
+
+  if (!createResult.result.ok || !createResult.result.event) {
+    return {
+      status: 400,
+      json: { message: createResult.result.error ?? "Unable to record marine telemetry event" },
+      telemetry: {
+        route: "POST /marine-intelligence/telemetry",
+        source: "db",
+        result: "validation",
+        eventType: body.eventType,
+        investigationId: body.investigationId,
+        stationId: body.stationId,
+      },
+    };
+  }
+
+  return {
+    status: 200,
+    json: { event: createResult.result.event },
+    telemetry: {
+      route: "POST /marine-intelligence/telemetry",
+      source: "db",
+      result: "created",
+      eventType: body.eventType,
+      investigationId: body.investigationId,
+      stationId: body.stationId,
+    },
+  };
+}
+
+export function buildMarineWorkflowFeedbackRouteResponse(
+  auth: OceanStationAdminAuthContext | undefined,
+  body: MarineWorkflowFeedbackRequest,
+  createResult: MarineIntelligenceFeedbackCreateResult = recordMarineIntelligenceFeedback(body),
+): {
+  status: 200 | 400 | 403 | 503;
+  json: MarineWorkflowFeedbackResponse | { message: string };
+  telemetry: MarineWorkflowFeedbackTelemetry;
+} {
+  if (!hasViewAdminPermission(auth)) {
+    return {
+      status: 403,
+      json: { message: "Missing permission: station.view_admin" },
+      telemetry: {
+        route: "POST /marine-intelligence/feedback",
+        source: "db",
+        result: "forbidden",
+        investigationId: body.investigationId,
+        stationId: body.stationId,
+      },
+    };
+  }
+
+  if (createResult.source === "unavailable") {
+    return {
+      status: 503,
+      json: { message: "Marine feedback storage unavailable" },
+      telemetry: {
+        route: "POST /marine-intelligence/feedback",
+        source: "unavailable",
+        result: "validation",
+        investigationId: body.investigationId,
+        stationId: body.stationId,
+        fallbackReason: createResult.fallbackReason,
+      },
+    };
+  }
+
+  if (!createResult.result.ok || !createResult.result.feedback) {
+    return {
+      status: 400,
+      json: { message: createResult.result.error ?? "Unable to record marine feedback" },
+      telemetry: {
+        route: "POST /marine-intelligence/feedback",
+        source: "db",
+        result: "validation",
+        investigationId: body.investigationId,
+        stationId: body.stationId,
+      },
+    };
+  }
+
+  return {
+    status: 200,
+    json: { feedback: createResult.result.feedback },
+    telemetry: {
+      route: "POST /marine-intelligence/feedback",
+      source: "db",
+      result: "created",
+      investigationId: body.investigationId,
+      stationId: body.stationId,
+    },
+  };
+}
+
+export function buildMarineWorkflowSummaryRouteResponse(
+  auth: OceanStationAdminAuthContext | undefined,
+  summaryResult: MarineIntelligenceDecisionSummaryResult = getMarineIntelligenceDecisionSummary(),
+): {
+  status: 200 | 403 | 503;
+  json: MarineWorkflowDecisionSummaryResponse | { message: string };
+  telemetry: MarineWorkflowDecisionSummaryTelemetry;
+} {
+  if (!hasViewAdminPermission(auth)) {
+    return {
+      status: 403,
+      json: { message: "Missing permission: station.view_admin" },
+      telemetry: {
+        route: "GET /marine-intelligence/summary",
+        source: "db",
+        result: "forbidden",
+        decisionCount: 0,
+        telemetryEventCount: 0,
+      },
+    };
+  }
+
+  if (summaryResult.source === "unavailable") {
+    return {
+      status: 503,
+      json: { message: "Marine decision summary unavailable" },
+      telemetry: {
+        route: "GET /marine-intelligence/summary",
+        source: "unavailable",
+        result: "found",
+        decisionCount: 0,
+        telemetryEventCount: 0,
+        fallbackReason: summaryResult.fallbackReason,
+      },
+    };
+  }
+
+  return {
+    status: 200,
+    json: { summary: summaryResult.result.summary },
+    telemetry: {
+      route: "GET /marine-intelligence/summary",
+      source: "db",
+      result: "found",
+      decisionCount: summaryResult.result.summary.decisionCount,
+      telemetryEventCount: summaryResult.result.summary.telemetryEventCount,
+    },
+  };
 }
 
 export function buildMarineWorkflowEventsRouteResponse(
@@ -415,5 +685,49 @@ export const postMarineWorkflowResolveAlertRoute: RouteDefinition<
   path: "/marine-intelligence/alerts/:alertId/resolve",
   handler(request) {
     return buildMarineWorkflowResolveAlertRouteResponse(request.auth, request.body);
+  },
+};
+
+export const postMarineWorkflowDecisionRoute: RouteDefinition<
+  MarineWorkflowDecisionResponse | { message: string },
+  MarineWorkflowDecisionRequest
+> = {
+  method: "POST",
+  path: "/marine-intelligence/decisions",
+  handler(request) {
+    return buildMarineWorkflowDecisionRouteResponse(request.auth, request.body);
+  },
+};
+
+export const postMarineWorkflowFeedbackRoute: RouteDefinition<
+  MarineWorkflowFeedbackResponse | { message: string },
+  MarineWorkflowFeedbackRequest
+> = {
+  method: "POST",
+  path: "/marine-intelligence/feedback",
+  handler(request) {
+    return buildMarineWorkflowFeedbackRouteResponse(request.auth, request.body);
+  },
+};
+
+export const postMarineWorkflowTelemetryRoute: RouteDefinition<
+  MarineWorkflowTelemetryEventResponse | { message: string },
+  MarineWorkflowTelemetryEventRequest
+> = {
+  method: "POST",
+  path: "/marine-intelligence/telemetry",
+  handler(request) {
+    return buildMarineWorkflowTelemetryRouteResponse(request.auth, request.body);
+  },
+};
+
+export const getMarineWorkflowSummaryRoute: RouteDefinition<
+  MarineWorkflowDecisionSummaryResponse | { message: string },
+  undefined
+> = {
+  method: "GET",
+  path: "/marine-intelligence/summary",
+  handler(request) {
+    return buildMarineWorkflowSummaryRouteResponse(request.auth);
   },
 };

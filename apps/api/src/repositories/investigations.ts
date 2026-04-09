@@ -11,12 +11,14 @@ import {
 import type { InvestigationFallbackReason } from "../types";
 import type { RecordInvestigationEventInput } from "./investigation-events";
 
+
 interface InvestigationRow {
   id: string;
   title: string;
   summary: string;
   state: string;
   confidence: number | null;
+  outcome: "confirmed" | "false_positive" | "inconclusive" | null;
 }
 
 export type InvestigationListResult =
@@ -47,6 +49,7 @@ function toAnalysisTrack(row: InvestigationRow): InvestigationAnalysisTrack {
     summary: row.summary,
     confidence: row.confidence ?? DEFAULT_CONFIDENCE,
     state: normalizeTrackState(row.state),
+    outcome: row.outcome ?? null,
   };
 }
 
@@ -116,11 +119,28 @@ export function listInvestigations(
   try {
     const rows = db
       .prepare(
-        `SELECT id, title, summary, state, confidence
+        `SELECT id, title, summary, state, confidence, outcome
          FROM investigations
          ORDER BY updated_at DESC, created_at DESC, id ASC`,
       )
       .all() as InvestigationRow[];
+// Update the outcome for an investigation
+
+
+// Update the outcome for an investigation
+function updateInvestigationOutcome(
+  db: SqliteDatabaseLike,
+  investigationId: string,
+  outcome: "confirmed" | "false_positive" | "inconclusive" | null
+): void {
+  const stmt = db.prepare(
+    `UPDATE investigations SET outcome = ? WHERE id = ?`
+  );
+  if (!stmt || typeof stmt.run !== "function") throw new Error("Failed to prepare investigation outcome update statement or .run is not a function");
+  stmt.run(outcome, investigationId);
+}
+
+module.exports = { updateInvestigationOutcome };
 
     const analysisTracks = rows.map(toAnalysisTrack);
 
@@ -138,3 +158,5 @@ export function listInvestigations(
     db.close();
   }
 }
+
+

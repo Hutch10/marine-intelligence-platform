@@ -17,6 +17,17 @@ import type {
   ReefStressWatchItem,
 } from "@/lib/api/types";
 
+export const MOCK_METADATA = {
+  source: "Mock Ocean Systems Feed",
+  method: "simulated_model",
+  observedAt: "2026-03-13T10:00:00.000Z",
+  ingestedAt: "2026-03-13T10:05:00.000Z",
+  updatedAt: "2026-03-13T10:05:00.000Z",
+  confidenceScore: 85,
+  coverageScore: 90,
+  verificationState: "modeled" as const,
+};
+
 export const dashboardOverviewData: DashboardOverviewData = {
   metrics: [
     { label: "Species Tracked", value: "2,847", change: 12, icon: "fish", color: "cyan" },
@@ -41,10 +52,10 @@ export const dashboardOverviewData: DashboardOverviewData = {
     { type: "alert", text: "Oxygen depletion warning in monitoring zone Z-08", time: "2 hr ago" },
   ],
   quickAccess: [
-    { label: "Ocean Map", desc: "Live buoy & sensor grid", href: "/ocean-map", color: "cyan" },
-    { label: "Data Explorer", desc: "Query oceanographic data", href: "/data-explorer", color: "violet" },
+    { label: "Dashboard", desc: "Live marine overview and anomaly summary", href: "/", color: "cyan" },
     { label: "Investigations", desc: "Track active anomaly cases", href: "/investigations", color: "emerald" },
-    { label: "AI Research Lab", desc: "Models, reports, forecasts", href: "/ai-lab", color: "amber" },
+    { label: "Station 46042 Risk", desc: "Open the current station risk assessment", href: "/v1/risk/46042", color: "amber" },
+    { label: "Station 41009 Risk", desc: "Open the current station risk assessment", href: "/v1/risk/41009", color: "violet" },
   ],
   anomalySummary: {
     totalAnomalies: 7,
@@ -160,40 +171,7 @@ export const investigationsWorkspaceData: InvestigationsWorkspaceData = {
       notes: "Weak evidence so far; likely secondary to thermal and nutrient factors.",
     },
   ],
-  evidenceItems: [
-    {
-      id: "EV-811",
-      source: "NOAA polar composite",
-      kind: "Satellite",
-      timestamp: "03:14 UTC",
-      strength: "High",
-      detail: "Persistent heat band detected across 34.2N-35.0N with low cloud contamination.",
-    },
-    {
-      id: "EV-804",
-      source: "Buoy ATLAS-19",
-      kind: "Sensor",
-      timestamp: "03:22 UTC",
-      strength: "High",
-      detail: "Subsurface profile confirms warming down to 42 m and reduced nocturnal recovery.",
-    },
-    {
-      id: "EV-792",
-      source: "Reef Team Bravo",
-      kind: "Field Report",
-      timestamp: "02:48 UTC",
-      strength: "Medium",
-      detail: "Visual survey logged paling in two transects near the eastern shelf boundary.",
-    },
-    {
-      id: "EV-776",
-      source: "Coral stress ensemble v5",
-      kind: "Model",
-      timestamp: "01:55 UTC",
-      strength: "Emerging",
-      detail: "Forecast suggests the highest stress window lands within the next 36 hours.",
-    },
-  ],
+  evidenceItems: [],
   timeline: [],
   speciesSummary: {
     investigationId: "TRK-201",
@@ -275,27 +253,7 @@ export const investigationsWorkspaceData: InvestigationsWorkspaceData = {
 };
 
 export const investigationsTimelineFallbackData: InvestigationTimelineItem[] = [
-  {
-    id: "TL-001",
-    timestamp: "2026-03-17T03:22:00Z",
-    eventType: "case_opened",
-    source: "Automated detector",
-    summary: "Case opened: Thermal anomaly with reef impact likelihood",
-  },
-  {
-    id: "TL-002",
-    timestamp: "2026-03-17T04:15:00Z",
-    eventType: "signal_linked",
-    source: "Signal fusion engine",
-    summary: "Linked 4 satellite observations to the case",
-  },
-  {
-    id: "TL-003",
-    timestamp: "2026-03-17T05:30:00Z",
-    eventType: "signal_linked",
-    source: "Buoy ATLAS-19",
-    summary: "Buoy data confirms subsurface warming down to 42 m",
-  },
+  // Evidence-related fallback timeline events removed as part of ghost UI purge
   {
     id: "TL-004",
     timestamp: "2026-03-17T06:45:00Z",
@@ -364,7 +322,7 @@ function buildSignalFallbackData(): SignalDetection[] {
     detectedAt: new Date(now - 3 * 60_000).toISOString(),
     createdAt: new Date(now - 3 * 60_000).toISOString(),
     updatedAt: new Date(now - 3 * 60_000).toISOString(),
-    linkedInvestigationId: "TRK-201",
+    linkedInvestigationId: null,
   };
 
   const oxygenSignal: SignalDetection = {
@@ -400,6 +358,7 @@ export const speciesFallbackData: SpeciesProfile[] = [
     habitatRegion: "North Pacific",
     summary:
       "Large migratory baleen whale tracked for corridor stability, feeding-ground shifts, and route anomaly detection.",
+    ...MOCK_METADATA,
     createdAt: "2026-03-11T08:00:00.000Z",
     updatedAt: "2026-03-13T11:20:00.000Z",
   },
@@ -411,6 +370,7 @@ export const speciesFallbackData: SpeciesProfile[] = [
     habitatRegion: "Eastern Shelf",
     summary:
       "Tag-tracked turtle cohort used to monitor habitat fidelity and oxygen-stress related displacement.",
+    ...MOCK_METADATA,
     createdAt: "2026-03-10T07:00:00.000Z",
     updatedAt: "2026-03-13T10:45:00.000Z",
   },
@@ -422,6 +382,7 @@ export const speciesFallbackData: SpeciesProfile[] = [
     habitatRegion: "Great Barrier Reef",
     summary:
       "Predator indicator species used to detect unusual aggregation and reef-edge movement shifts.",
+    ...MOCK_METADATA,
     createdAt: "2026-03-09T12:00:00.000Z",
     updatedAt: "2026-03-13T09:10:00.000Z",
   },
@@ -439,6 +400,7 @@ export const speciesSightingsFallbackData: SpeciesSighting[] = [
     count: 2,
     source: "Acoustic buoy mesh",
     summary: "Two tagged whales exhibited widened spacing along the thermal corridor edge.",
+    ...MOCK_METADATA,
     verificationStatus: "verified",
     verifiedAt: "2026-03-13T11:12:00.000Z",
     verifiedBy: "ops.admin",
@@ -455,6 +417,7 @@ export const speciesSightingsFallbackData: SpeciesSighting[] = [
     count: 4,
     source: "ROV visual survey",
     summary: "Tagged turtles shifted downslope relative to the previous monitoring pass.",
+    ...MOCK_METADATA,
     verificationStatus: "pending",
     verifiedAt: null,
     verifiedBy: null,
@@ -471,6 +434,7 @@ export const speciesSightingsFallbackData: SpeciesSighting[] = [
     count: 7,
     source: "Autonomous drone transect",
     summary: "Higher-than-baseline shark aggregation observed in outer-arc hunting lanes.",
+    ...MOCK_METADATA,
     verificationStatus: "rejected",
     verifiedAt: null,
     verifiedBy: null,
@@ -486,6 +450,7 @@ export const speciesMovementSignalsFallbackData: SpeciesMovementSignal[] = [
     investigationId: "TRK-201",
     movementType: "route_deviation",
     confidence: 84,
+    ...MOCK_METADATA,
     summary:
       "Blue whale route deviated south of expected corridor while thermal anomaly pressure remained elevated.",
     createdAt: "2026-03-13T11:10:00.000Z",
@@ -497,6 +462,7 @@ export const speciesMovementSignalsFallbackData: SpeciesMovementSignal[] = [
     investigationId: "TRK-193",
     movementType: "habitat_exit",
     confidence: 73,
+    ...MOCK_METADATA,
     summary:
       "Green turtle cluster moved away from low oxygen shelf pockets aligned with oxygen depletion signals.",
     createdAt: "2026-03-13T10:48:00.000Z",
@@ -508,6 +474,7 @@ export const speciesMovementSignalsFallbackData: SpeciesMovementSignal[] = [
     investigationId: null,
     movementType: "aggregation_shift",
     confidence: 68,
+    ...MOCK_METADATA,
     summary:
       "Reef shark aggregation intensified near a station health variance zone and remains under watch.",
     createdAt: "2026-03-13T09:14:00.000Z",
@@ -1062,18 +1029,18 @@ export const oceanStationDetails: Record<string, OceanStationDetail> = {
       },
       {
         id: "CNT-002",
-        contentType: "dataset",
-        title: "Pacific Thermal Front Observations",
-        summary: "Primary thermal feed aligned to the active anomaly corridor.",
-        href: "/data-explorer",
+        contentType: "assessment",
+        title: "North Pacific Station Risk Assessment",
+        summary: "Current rule-based station risk view for the active anomaly corridor.",
+        href: "/v1/risk/STA-NPC-01",
         publishedAt: "42 min ago",
       },
       {
         id: "CNT-003",
-        contentType: "playbook",
-        title: "Rapid Oxygen Validation Playbook",
-        summary: "Checklist used when oxygen floors dip below advisory thresholds.",
-        href: "/ai-lab",
+        contentType: "brief",
+        title: "Linked Investigation Queue",
+        summary: "Open the active anomaly feed tied to this station's current risk signals.",
+        href: "/investigations",
         publishedAt: "1 hr ago",
       },
     ],
@@ -1191,18 +1158,18 @@ export const oceanStationDetails: Record<string, OceanStationDetail> = {
       },
       {
         id: "CNT-102",
-        contentType: "dataset",
-        title: "Outer Arc Reef Telemetry Feed",
-        summary: "Live sensor stream for surface temperature, irradiance, and oxygen.",
-        href: "/data-explorer",
+        contentType: "assessment",
+        title: "Great Barrier Reef Station Risk Assessment",
+        summary: "Current rule-based station risk view for the outer reef monitoring station.",
+        href: "/v1/risk/STA-GBR-02",
         publishedAt: "1 hr ago",
       },
       {
         id: "CNT-103",
-        contentType: "guide",
-        title: "Coral Resilience Field Guide",
-        summary: "Educational guide connecting live data to coral adaptation principles.",
-        href: "/ai-lab",
+        contentType: "brief",
+        title: "Linked Investigation Queue",
+        summary: "Open the anomaly feed for the current reef stress events and related evidence.",
+        href: "/investigations",
         publishedAt: "1 hr ago",
       },
     ],
@@ -1320,18 +1287,18 @@ export const oceanStationDetails: Record<string, OceanStationDetail> = {
       },
       {
         id: "CNT-202",
-        contentType: "dataset",
-        title: "Monterey Nearshore Upwelling Feed",
-        summary: "Integrated chemistry and current vectors for kelp forecasting.",
-        href: "/data-explorer",
+        contentType: "assessment",
+        title: "Monterey Bay Station Risk Assessment",
+        summary: "Current rule-based station risk view for the kelp forest monitoring station.",
+        href: "/v1/risk/STA-MBY-03",
         publishedAt: "59 min ago",
       },
       {
         id: "CNT-203",
-        contentType: "story",
-        title: "Kelp Forest Food-Web Explorer",
-        summary: "Educational content linking canopy shifts to predator-prey dynamics.",
-        href: "/ai-lab",
+        contentType: "brief",
+        title: "Linked Investigation Queue",
+        summary: "Open the anomaly feed for current kelp canopy and biodiversity signals.",
+        href: "/investigations",
         publishedAt: "1 hr ago",
       },
     ],
@@ -1449,18 +1416,18 @@ export const oceanStationDetails: Record<string, OceanStationDetail> = {
       },
       {
         id: "CNT-302",
-        contentType: "dataset",
-        title: "Ridge Plume Chemistry Stream",
-        summary: "Hydrothermal chemistry and turbidity telemetry for ridge modeling.",
-        href: "/data-explorer",
+        contentType: "assessment",
+        title: "Mid-Atlantic Ridge Station Risk Assessment",
+        summary: "Current rule-based station risk view for the vent field monitoring station.",
+        href: "/v1/risk/STA-MAR-04",
         publishedAt: "1 hr ago",
       },
       {
         id: "CNT-303",
-        contentType: "explainer",
-        title: "Life Without Sunlight",
-        summary: "Educational explainer on chemosynthetic ecosystems at deep-sea vents.",
-        href: "/ai-lab",
+        contentType: "brief",
+        title: "Linked Investigation Queue",
+        summary: "Open the anomaly feed for the current vent plume and chemistry events.",
+        href: "/investigations",
         publishedAt: "1 hr ago",
       },
     ],

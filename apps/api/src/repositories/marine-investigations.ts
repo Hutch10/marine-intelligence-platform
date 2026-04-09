@@ -293,6 +293,8 @@ export function getMarineInvestigation(
   }
 
   try {
+    ensureMarineInvestigationTables(db);
+
     const rows = db
       .prepare(
         "SELECT * FROM marine_intelligence_investigations WHERE id = ?",
@@ -329,6 +331,8 @@ export function listMarineInvestigations(
   }
 
   try {
+    ensureMarineInvestigationTables(db);
+
     const clauses: string[] = [];
     const params: unknown[] = [];
 

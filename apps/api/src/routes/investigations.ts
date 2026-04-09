@@ -71,14 +71,20 @@ export function buildInvestigationsRouteResponse(
     fallbackReason: readResult.source === "mock" ? readResult.fallbackReason : undefined,
   };
 
+  // Always preserve mock workspace fields alongside DB tracks
+  const mockWorkspace = apiMockData.investigationsWorkspaceData;
   return {
     status: 200,
     json: {
       workspace: {
-        ...apiMockData.investigationsWorkspaceData,
+        ...mockWorkspace,
         analysisTracks,
         timeline: [],
         speciesSummary,
+        filterGroups: mockWorkspace.filterGroups,
+        signalMetrics: mockWorkspace.signalMetrics,
+        hypothesisLog: mockWorkspace.hypothesisLog,
+        evidenceItems: mockWorkspace.evidenceItems,
       },
     },
     telemetry,

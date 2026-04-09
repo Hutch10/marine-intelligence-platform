@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildFeedHealthRouteResponse } from "./feed-health";
 import type { LiveIngestionHealthSnapshotReadResult } from "../repositories/live-ingestion-reports";
+import { CRW_SOURCE } from "../connectors/coral-reef-watch/constants";
 
 const DB_READ_RESULT: LiveIngestionHealthSnapshotReadResult = {
   source: "db",
@@ -21,7 +22,7 @@ const DB_READ_RESULT: LiveIngestionHealthSnapshotReadResult = {
     },
     latestBySource: [
       {
-        source: "noaa_coral_reef_watch",
+        source: CRW_SOURCE,
         workerRunId: "LWR-200",
         workerStatus: "success",
         status: "success",
@@ -35,6 +36,7 @@ const DB_READ_RESULT: LiveIngestionHealthSnapshotReadResult = {
         error: null,
         isStale: false,
         staleByMs: null,
+        stationDiagnostics: [],
       },
       {
         source: "noaa_ndbc",
@@ -53,6 +55,30 @@ const DB_READ_RESULT: LiveIngestionHealthSnapshotReadResult = {
         error: null,
         isStale: true,
         staleByMs: 14340000,
+        stationDiagnostics: [
+          {
+            stationId: "41009",
+            status: "degraded",
+            lastSuccessfulIngestionAt: "2026-03-18T08:01:00.000Z",
+            latestObservationTimestamp: "2026-03-18T07:50:00.000Z",
+            latestObservationAgeMs: 660000,
+            usableMetricCoverage: {
+              presentCount: 4,
+              totalCount: 4,
+              metricsPresent: ["seaSurfaceTempC", "waveHeightM", "windSpeedMps", "pressureHpa"],
+            },
+            missingFieldRates: {
+              seaSurfaceTempC: 0.1,
+              waveHeightM: 0.2,
+              windSpeedMps: 0,
+              pressureHpa: 0,
+            },
+            rejectionBreakdown: {
+              timestamp_stale: 1,
+            },
+            lastFetchUrl: "https://www.ndbc.noaa.gov/data/realtime2/41009.txt",
+          },
+        ],
       },
     ],
     recentHistory: [
@@ -72,11 +98,35 @@ const DB_READ_RESULT: LiveIngestionHealthSnapshotReadResult = {
         runId: "ING-NDBC-199",
         error: null,
         workerStatus: "partial",
+        stationDiagnostics: [
+          {
+            stationId: "41009",
+            status: "degraded",
+            lastSuccessfulIngestionAt: "2026-03-18T08:01:00.000Z",
+            latestObservationTimestamp: "2026-03-18T07:50:00.000Z",
+            latestObservationAgeMs: 660000,
+            usableMetricCoverage: {
+              presentCount: 4,
+              totalCount: 4,
+              metricsPresent: ["seaSurfaceTempC", "waveHeightM", "windSpeedMps", "pressureHpa"],
+            },
+            missingFieldRates: {
+              seaSurfaceTempC: 0.1,
+              waveHeightM: 0.2,
+              windSpeedMps: 0,
+              pressureHpa: 0,
+            },
+            rejectionBreakdown: {
+              timestamp_stale: 1,
+            },
+            lastFetchUrl: "https://www.ndbc.noaa.gov/data/realtime2/41009.txt",
+          },
+        ],
       },
       {
         reportId: "LRP-CRW-1",
         workerRunId: "LWR-200",
-        source: "noaa_coral_reef_watch",
+        source: CRW_SOURCE,
         startedAt: "2026-03-18T11:58:10.000Z",
         completedAt: "2026-03-18T12:00:00.000Z",
         durationMs: 110000,
@@ -87,6 +137,7 @@ const DB_READ_RESULT: LiveIngestionHealthSnapshotReadResult = {
         runId: "ING-CRW-200",
         error: null,
         workerStatus: "success",
+        stationDiagnostics: [],
       },
     ],
   },
@@ -98,13 +149,18 @@ test("feed-health route exposes latest status per source", () => {
   assert.equal(response.status, 200);
   assert.equal(response.json.source, "db");
   assert.equal(response.json.latest_status_by_source.length, 2);
-  assert.equal(response.json.latest_status_by_source[0]?.source, "noaa_coral_reef_watch");
+  assert.equal(response.json.latest_status_by_source[0]?.source, CRW_SOURCE);
   assert.equal(response.json.latest_status_by_source[1]?.worker_status, "partial");
   assert.equal(response.json.latest_status_by_source[1]?.inserted_count, 2);
   assert.equal(response.json.latest_status_by_source[1]?.rejected_count, 1);
   assert.equal(response.json.latest_status_by_source[1]?.run_id, "ING-NDBC-199");
   assert.equal(response.json.latest_status_by_source[1]?.worker_run_id, "LWR-199");
   assert.equal(response.json.latest_status_by_source[1]?.is_stale, true);
+  assert.equal(response.json.latest_status_by_source[1]?.station_diagnostics.length, 1);
+  assert.equal(response.json.latest_status_by_source[1]?.station_diagnostics[0]?.station_id, "41009");
+  assert.equal(response.json.latest_status_by_source[1]?.station_diagnostics[0]?.status, "degraded");
+  assert.equal(response.json.latest_status_by_source[1]?.station_diagnostics[0]?.usable_metric_coverage.present_count, 4);
+  assert.equal(response.json.latest_status_by_source[1]?.station_diagnostics[0]?.missing_field_rates.wave_height_m, 0.2);
 });
 
 test("feed-health route exposes recent history list", () => {

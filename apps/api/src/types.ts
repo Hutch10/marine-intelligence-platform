@@ -4,9 +4,10 @@ import type { OceanStationAdminAuthContext } from "@marine/shared";
 
 // ─── API-internal: Route infrastructure ──────────────────────────────────────
 
-export interface RouteRequest<TBody = undefined, TQuery = undefined> {
+export interface RouteRequest<TBody = any, TQuery = any> {
   body: TBody;
   query?: TQuery;
+  params: Record<string, string>;
   auth?: OceanStationAdminAuthContext;
 }
 
@@ -17,10 +18,10 @@ export interface RouteResponse<TData> {
   telemetry?: unknown;
 }
 
-export interface RouteDefinition<TResponse, TBody = undefined, TQuery = undefined> {
-  method: "GET" | "POST" | "PATCH";
+export interface RouteDefinition<TResponse, TBody = any, TQuery = any> {
+  method: "GET" | "POST" | "PATCH" | "PUT";
   path: string;
-  handler: (request: RouteRequest<TBody, TQuery>) => RouteResponse<TResponse>;
+  handler: (request: RouteRequest<TBody, TQuery>) => RouteResponse<TResponse> | Promise<RouteResponse<TResponse>>;
 }
 
 // ─── API-internal: Worker types ───────────────────────────────────────────────

@@ -1,4 +1,6 @@
 import { cn } from "@/lib/utils";
+import { getFeedHealth } from "@/lib/feed-health";
+import { FeedHealthBanner } from "@/components/layout/feed-health-banner";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -6,8 +8,6 @@ interface AppShellProps {
   pageTitle?: string;
   /** Sub-label shown below page title */
   pageSubtitle?: string;
-  /** Hide the right AI panel for pages that don't need it */
-  hideAIPanel?: boolean;
   className?: string;
 }
 
@@ -17,40 +17,43 @@ interface AppShellProps {
  * Structure:
  *  ┌─────────────────────────────────────────────────┐
  *  │                  TopBar (h-14)                  │
- *  ├──────────┬──────────────────────────┬───────────┤
- *  │          │                          │           │
- *  │ Sidebar  │    Main content area     │ AI Panel  │
- *  │  (flex)  │      (flex-1, scroll)    │  (w-72)   │
- *  │          │                          │           │
- *  └──────────┴──────────────────────────┴───────────┘
+ *  ├─────────────────────────────────────────────────┤
+ *  │              FeedHealthBanner                   │
+ *  ├──────────┬──────────────────────────────────────┤
+ *  │          │                                      │
+ *  │ Sidebar  │          Main content area          │
+ *  │  (flex)  │            (flex-1, scroll)         │
+ *  │          │                                      │
+ *  └──────────┴──────────────────────────────────────┘
  *
- * Sidebar and AI panel are rendered here via static imports so that routing
+ * Sidebar is rendered here via a static import so that routing
  * transitions only re-render `children`, keeping navigation state stable.
+ *
+ * FeedHealthBanner is rendered here — once per request — so that every page
+ * shows current ingestion status without each page having to fetch it.
  */
 
 // Lazy-loaded on the client to avoid SSR hydration mismatches for interactive panels
 import { Sidebar }     from "@/components/layout/sidebar";
 import { TopBar }      from "@/components/layout/topbar";
-import { RightAIPanel } from "@/components/ai/right-ai-panel";
-
 export function AppShell({
   children,
   pageTitle,
   pageSubtitle,
-  hideAIPanel = false,
   className,
 }: AppShellProps) {
+
+  const feedHealth = getFeedHealth();
+
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-ocean-950 text-slate-200">
-      {/* ── Top command bar ── */}
       <TopBar title={pageTitle} subtitle={pageSubtitle} />
 
-      {/* ── Body row ── */}
+      <FeedHealthBanner feedHealth={feedHealth} />
+
       <div className="flex flex-1 overflow-hidden">
-        {/* Left sidebar */}
         <Sidebar />
 
-        {/* Main content */}
         <main
           className={cn(
             "min-w-0 flex-1 overflow-y-auto grid-overlay",
@@ -60,9 +63,6 @@ export function AppShell({
         >
           {children}
         </main>
-
-        {/* Right AI insight panel */}
-        {!hideAIPanel && <RightAIPanel />}
       </div>
     </div>
   );

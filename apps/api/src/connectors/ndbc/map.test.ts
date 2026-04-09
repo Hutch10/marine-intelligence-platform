@@ -42,3 +42,26 @@ test("mapNdbcRowsToObservations handles MM values as null", () => {
   assert.equal(mapped[0]?.windSpeedMps, null);
   assert.equal(mapped[0]?.pressureHpa, null);
 });
+
+test("mapNdbcRowsToObservations backfills recent SST and wave height gaps from older rows", () => {
+  const mapped = mapNdbcRowsToObservations("41009", "https://example.test/41009.txt", [
+    {
+      timestamp: { year: 2026, month: 3, day: 25, hour: 18, minute: 30 },
+      fields: { WTMP: "MM", WVHT: "MM", WSPD: "5.0", PRES: "1019.7" },
+      rawLine: "2026 03 25 18 30 ...",
+    },
+    {
+      timestamp: { year: 2026, month: 3, day: 25, hour: 18, minute: 20 },
+      fields: { WTMP: "MM", WVHT: "2.1", WSPD: "5.0", PRES: "1019.8" },
+      rawLine: "2026 03 25 18 20 ...",
+    },
+    {
+      timestamp: { year: 2026, month: 3, day: 25, hour: 17, minute: 50 },
+      fields: { WTMP: "24.6", WVHT: "2.2", WSPD: "5.0", PRES: "1020.3" },
+      rawLine: "2026 03 25 17 50 ...",
+    },
+  ]);
+
+  assert.equal(mapped[0]?.seaSurfaceTempC, 24.6);
+  assert.equal(mapped[0]?.waveHeightM, 2.1);
+});

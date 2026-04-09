@@ -8,6 +8,10 @@ import {
   buildMarineWorkflowEventsRouteResponse,
   buildMarineWorkflowInvestigationsRouteResponse,
   buildMarineWorkflowResolveAlertRouteResponse,
+  buildMarineWorkflowDecisionRouteResponse,
+  buildMarineWorkflowFeedbackRouteResponse,
+  buildMarineWorkflowSummaryRouteResponse,
+  buildMarineWorkflowTelemetryRouteResponse,
 } from "./marine-intelligence";
 
 const ADMIN_AUTH = {
@@ -77,6 +81,41 @@ const ALERT = {
   resolvedAt: null,
   createdAt: "2026-03-20T11:07:00.000Z",
   updatedAt: "2026-03-20T11:07:00.000Z",
+};
+
+const DECISION = {
+  id: "MID-001",
+  investigationId: INVESTIGATION.id,
+  stationId: INVESTIGATION.stationId,
+  decision: "delay_operations",
+  rationale: "Conditions are too volatile for transit.",
+  timestamp: "2026-03-20T12:03:00.000Z",
+  createdAt: "2026-03-20T12:03:01.000Z",
+  updatedAt: "2026-03-20T12:03:01.000Z",
+};
+
+const TELEMETRY_EVENT = {
+  id: "MTL-001",
+  eventType: "submit_decision" as const,
+  investigationId: INVESTIGATION.id,
+  stationId: INVESTIGATION.stationId,
+  decisionId: DECISION.id,
+  timestamp: DECISION.timestamp,
+  details: DECISION.rationale,
+  createdAt: "2026-03-20T12:03:01.000Z",
+};
+
+const FEEDBACK = {
+  id: "MFB-001",
+  useful: true,
+  note: "Grounded recommendation matched the conditions on site.",
+  investigationId: INVESTIGATION.id,
+  stationId: INVESTIGATION.stationId,
+  decisionId: null,
+  evaluationId: null,
+  signalSnapshot: null,
+  timestamp: "2026-03-20T12:04:00.000Z",
+  createdAt: "2026-03-20T12:04:01.000Z",
 };
 
 test("marine workflow events route returns db payload and telemetry", () => {
@@ -203,4 +242,133 @@ test("marine workflow alert mutation routes enforce station.view_admin scope", (
 
   assert.equal(response.status, 403);
   assert.equal(response.telemetry.result, "forbidden");
+});
+
+test("marine workflow decision route returns created decision payload", () => {
+  const response = buildMarineWorkflowDecisionRouteResponse(
+    ADMIN_AUTH,
+    {
+      investigationId: INVESTIGATION.id,
+      stationId: INVESTIGATION.stationId,
+      decision: DECISION.decision,
+      rationale: DECISION.rationale,
+      timestamp: DECISION.timestamp,
+    },
+    {
+      source: "db",
+      result: {
+        ok: true,
+        decision: DECISION,
+        event: TELEMETRY_EVENT,
+      },
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.ok("decision" in response.json);
+  assert.equal(response.json.decision.id, DECISION.id);
+  assert.equal(response.telemetry.route, "POST /marine-intelligence/decisions");
+  assert.equal(response.telemetry.result, "created");
+});
+
+test("marine workflow telemetry route returns recorded event payload", () => {
+  const response = buildMarineWorkflowTelemetryRouteResponse(
+    ADMIN_AUTH,
+    {
+      eventType: "view",
+      investigationId: INVESTIGATION.id,
+      stationId: INVESTIGATION.stationId,
+      decisionId: DECISION.id,
+      timestamp: "2026-03-20T12:00:00.000Z",
+      details: "Opened the investigation panel",
+    },
+    {
+      source: "db",
+      result: {
+        ok: true,
+        event: {
+          id: "MTL-002",
+          eventType: "view",
+          investigationId: INVESTIGATION.id,
+          stationId: INVESTIGATION.stationId,
+          decisionId: DECISION.id,
+          timestamp: "2026-03-20T12:00:00.000Z",
+          details: "Opened the investigation panel",
+          createdAt: "2026-03-20T12:00:01.000Z",
+        },
+      },
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.ok("event" in response.json);
+  assert.equal(response.json.event.eventType, "view");
+  assert.equal(response.telemetry.route, "POST /marine-intelligence/telemetry");
+  assert.equal(response.telemetry.result, "created");
+});
+
+test("marine workflow feedback route returns recorded feedback payload", () => {
+  const response = buildMarineWorkflowFeedbackRouteResponse(
+    ADMIN_AUTH,
+    {
+      useful: true,
+      note: FEEDBACK.note,
+      investigationId: INVESTIGATION.id,
+      stationId: INVESTIGATION.stationId,
+      timestamp: FEEDBACK.timestamp,
+    },
+    {
+      source: "db",
+      result: {
+        ok: true,
+        feedback: FEEDBACK,
+      },
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.ok("feedback" in response.json);
+  assert.equal(response.json.feedback.id, FEEDBACK.id);
+  assert.equal(response.telemetry.route, "POST /marine-intelligence/feedback");
+  assert.equal(response.telemetry.result, "created");
+});
+
+test("marine workflow summary route returns decision and telemetry counts", () => {
+  const response = buildMarineWorkflowSummaryRouteResponse(
+    ADMIN_AUTH,
+    {
+      source: "db",
+      result: {
+        ok: true,
+        summary: {
+          decisionCount: 1,
+          telemetryEventCount: 3,
+          viewCount: 1,
+          clickCount: 1,
+          submitDecisionCount: 1,
+          feedbackCount: 1,
+          usefulFeedbackCount: 1,
+          notUsefulFeedbackCount: 0,
+          actionCounts: [{ decision: "delay_operations", count: 1 }],
+          decisionsPerWeek: [{ weekStart: "2026-03-16T00:00:00.000Z", count: 1 }],
+          feedbackPerWeek: [{ weekStart: "2026-03-16T00:00:00.000Z", count: 1 }],
+          latestDecision: DECISION,
+          latestTelemetryEvent: TELEMETRY_EVENT,
+          latestFeedback: FEEDBACK,
+        },
+      },
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.ok("summary" in response.json);
+  assert.equal(response.json.summary.decisionCount, 1);
+  assert.equal(response.json.summary.telemetryEventCount, 3);
+  assert.equal(response.json.summary.feedbackCount, 1);
+  assert.equal(response.json.summary.actionCounts[0]?.decision, "delay_operations");
+  assert.equal(response.json.summary.decisionsPerWeek[0]?.count, 1);
+  assert.equal(response.json.summary.feedbackPerWeek[0]?.count, 1);
+  assert.equal(response.telemetry.route, "GET /marine-intelligence/summary");
+  assert.equal(response.telemetry.decisionCount, 1);
+  assert.equal(response.telemetry.telemetryEventCount, 3);
 });

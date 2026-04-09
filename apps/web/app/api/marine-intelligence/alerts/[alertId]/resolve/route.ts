@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
-import { apiClient } from "@/lib/api/client";
-import { getStationAdminSessionCookie } from "@/lib/api/session-cookies";
+import type { MarineWorkflowAlertActionResponse } from "@marine/shared";
+import {
+  buildMarineIntelligenceProxyHeaders,
+  requireMarineIntelligenceAdminSession,
+  resolveMarineIntelligenceApiOrigin,
+} from "../../../_utils";
 
 interface RouteContext {
   params: {
@@ -9,27 +13,45 @@ interface RouteContext {
 }
 
 export async function POST(_request: Request, { params }: RouteContext) {
-  const sessionId = getStationAdminSessionCookie();
+  const authResult = await requireMarineIntelligenceAdminSession();
 
-  if (!sessionId) {
-    return NextResponse.json({ message: "Session required" }, { status: 401 });
+  if (!authResult.ok) {
+    return authResult.response;
   }
 
-  const auth = await apiClient.stationAdminAuth.getSession(sessionId);
+  const origin = resolveMarineIntelligenceApiOrigin(_request);
 
-  if (!auth) {
-    return NextResponse.json({ message: "Session required" }, { status: 401 });
+  if (!origin) {
+    return NextResponse.json({ message: "Marine intelligence API origin is not configured." }, { status: 503 });
   }
 
-  if (!auth.permissions.includes("station.view_admin")) {
-    return NextResponse.json({ message: "Missing permission: station.view_admin" }, { status: 403 });
+  try {
+    const response = await fetch(new URL(`/marine-intelligence/alerts/${encodeURIComponent(params.alertId)}/resolve`, origin), {
+      method: "POST",
+      headers: buildMarineIntelligenceProxyHeaders(authResult.auth, "application/json"),
+      body: JSON.stringify({ alertId: params.alertId }),
+      cache: "no-store",
+    });
+    const payload = await response.json() as MarineWorkflowAlertActionResponse | { message?: string };
+
+    if (!response.ok) {
+      return NextResponse.json(
+        {
+          message:
+            typeof payload === "object" && payload && "message" in payload && typeof payload.message === "string"
+              ? payload.message
+              : "Marine alert request failed.",
+        },
+        { status: response.status || 502 },
+      );
+    }
+
+    if (payload && typeof payload === "object" && "alert" in payload && payload.alert) {
+      return NextResponse.json({ ok: true, alert: payload.alert });
+    }
+  } catch {
+    return NextResponse.json({ message: "Marine alert request failed." }, { status: 502 });
   }
 
-  const result = await apiClient.marineIntelligence.resolveAlert(params.alertId, auth);
-
-  if (!result.ok) {
-    return NextResponse.json({ message: result.message }, { status: result.status });
-  }
-
-  return NextResponse.json({ ok: true, alert: result.alert });
+  return NextResponse.json({ message: "Marine alert service returned an invalid payload." }, { status: 502 });
 }

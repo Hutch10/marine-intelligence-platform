@@ -15,14 +15,24 @@ const DEFAULT_DB_PATH = resolve(process.cwd(), ".data", "marine.sqlite");
 
 export function resolveDatabasePath(): string {
   const configuredPath = process.env.MARINE_DB_PATH;
-  return configuredPath ? resolve(configuredPath) : DEFAULT_DB_PATH;
+  console.log("[db/client] env.MARINE_DB_PATH=", configuredPath);
+  const path = configuredPath ? resolve(configuredPath) : DEFAULT_DB_PATH;
+  console.log("[db/client] resolveDatabasePath:", path);
+  return path;
 }
 
 export function hasDatabasePath(path = resolveDatabasePath()): boolean {
-  return existsSync(path);
+  const exists = existsSync(path);
+  console.log("[db/client] hasDatabasePath:", path, "exists:", exists);
+  return exists;
 }
 
 export function openReadOnlyDatabase(path = resolveDatabasePath()): SqliteDatabaseLike {
+  console.log("[db/client] openReadOnlyDatabase path:", path);
+  if (typeof path !== "string" || !path) {
+    console.log("[db/client] openReadOnlyDatabase ERROR: path is not a valid string", path);
+    throw new Error("Invalid database path for openReadOnlyDatabase");
+  }
   const runtimeRequire = eval("require") as NodeRequire;
   const { DatabaseSync } = runtimeRequire("node:sqlite") as {
     DatabaseSync: new (

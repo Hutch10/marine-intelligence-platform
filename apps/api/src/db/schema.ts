@@ -15,9 +15,16 @@ export interface DatabaseColumnSchema {
   references?: DatabaseColumnReference;
 }
 
+export interface DatabaseIndexSchema {
+  name: string;
+  columns: string[];
+  unique?: boolean;
+}
+
 export interface DatabaseTableSchema {
   name: string;
   columns: DatabaseColumnSchema[];
+  indexes?: DatabaseIndexSchema[];
 }
 
 const timestampColumns = [
@@ -31,6 +38,18 @@ const timestampColumns = [
     type: "timestamp",
     defaultValue: "CURRENT_TIMESTAMP",
   },
+] as const satisfies DatabaseColumnSchema[];
+
+const biodiversityMetadataColumns = [
+  { name: "source", type: "text" },
+  { name: "source_url", type: "text", nullable: true },
+  { name: "method", type: "text" },
+  { name: "observed_at", type: "timestamp" },
+  { name: "ingested_at", type: "timestamp", defaultValue: "CURRENT_TIMESTAMP" },
+  { name: "updated_at", type: "timestamp", defaultValue: "CURRENT_TIMESTAMP" },
+  { name: "confidence_score", type: "real" },
+  { name: "coverage_score", type: "real" },
+  { name: "verification_state", type: "text" },
 ] as const satisfies DatabaseColumnSchema[];
 
 export const databaseSchema: DatabaseTableSchema[] = [
@@ -179,15 +198,22 @@ export const databaseSchema: DatabaseTableSchema[] = [
     columns: [
       { name: "id", type: "text", primaryKey: true },
       { name: "source", type: "text" },
+      { name: "station_id", type: "text", nullable: true, references: { table: "stations", column: "id" } },
       { name: "rule_type", type: "text" },
       { name: "severity", type: "text" },
       { name: "status", type: "text" },
+      { name: "lifecycle_status", type: "text" },
       { name: "title", type: "text" },
       { name: "detail", type: "text", nullable: true },
       { name: "metadata_json", type: "json", nullable: true },
       { name: "detected_at", type: "integer" },
       { name: "resolved_at", type: "integer", nullable: true },
-      ...timestampColumns,
+      { name: "occurrence_count", type: "integer" },
+      { name: "window_started_at", type: "integer" },
+      { name: "window_ends_at", type: "integer" },
+      { name: "created_at", type: "timestamp" },
+      { name: "updated_at", type: "timestamp" },
+      { name: "investigation_id", type: "text", nullable: true, references: { table: "investigations", column: "id" } },
     ],
   },
   {
@@ -309,8 +335,147 @@ export const databaseSchema: DatabaseTableSchema[] = [
       { name: "conservation_status", type: "text" },
       { name: "habitat_region", type: "text" },
       { name: "summary", type: "text" },
-      { name: "created_at", type: "integer" },
-      { name: "updated_at", type: "integer" },
+      ...biodiversityMetadataColumns,
+    ],
+  },
+  {
+    name: "species_population_estimates",
+    columns: [
+      { name: "id", type: "text", primaryKey: true },
+      { name: "species_id", type: "text", references: { table: "species", column: "id" } },
+      { name: "region_id", type: "text", nullable: true, references: { table: "regions", column: "id" } },
+      { name: "count", type: "integer" },
+      { name: "lower_bound", type: "integer", nullable: true },
+      { name: "upper_bound", type: "integer", nullable: true },
+      { name: "unit", type: "text" },
+      ...biodiversityMetadataColumns,
+    ],
+  },
+  {
+    name: "species_survey_counts",
+    columns: [
+      { name: "id", type: "text", primaryKey: true },
+      { name: "species_id", type: "text", references: { table: "species", column: "id" } },
+      { name: "region", type: "text" },
+      { name: "survey_id", type: "text" },
+      { name: "count", type: "integer" },
+      { name: "latitude", type: "real" },
+      { name: "longitude", type: "real" },
+      ...biodiversityMetadataColumns,
+    ],
+  },
+  {
+    name: "species_acoustic_detections",
+    columns: [
+      { name: "id", type: "text", primaryKey: true },
+      { name: "species_id", type: "text", references: { table: "species", column: "id" } },
+      { name: "station_id", type: "text", references: { table: "stations", column: "id" } },
+      { name: "frequency_hz", type: "real", nullable: true },
+      { name: "call_type", type: "text", nullable: true },
+      { name: "duration_ms", type: "integer", nullable: true },
+      ...biodiversityMetadataColumns,
+    ],
+  },
+  {
+    name: "species_tracks",
+    columns: [
+      { name: "id", type: "text", primaryKey: true },
+      { name: "species_id", type: "text", references: { table: "species", column: "id" } },
+      { name: "individual_id", type: "text", nullable: true },
+      ...biodiversityMetadataColumns,
+    ],
+  },
+  {
+    name: "species_track_points",
+    columns: [
+      { name: "id", type: "text", primaryKey: true },
+      { name: "track_id", type: "text", references: { table: "species_tracks", column: "id" } },
+      { name: "latitude", type: "real" },
+      { name: "longitude", type: "real" },
+      { name: "depth_m", type: "real", nullable: true },
+      ...biodiversityMetadataColumns,
+    ],
+  },
+  {
+    name: "species_stranding_events",
+    columns: [
+      { name: "id", type: "text", primaryKey: true },
+      { name: "species_id", type: "text", references: { table: "species", column: "id" } },
+      { name: "region", type: "text" },
+      { name: "latitude", type: "real" },
+      { name: "longitude", type: "real" },
+      { name: "condition", type: "text" },
+      { name: "outcome", type: "text" },
+      ...biodiversityMetadataColumns,
+    ],
+  },
+  {
+    name: "species_distribution_regions",
+    columns: [
+      { name: "id", type: "text", primaryKey: true },
+      { name: "species_id", type: "text", references: { table: "species", column: "id" } },
+      { name: "region_id", type: "text", references: { table: "regions", column: "id" } },
+      { name: "season", type: "text" },
+      { name: "geometry", type: "json" },
+      ...biodiversityMetadataColumns,
+    ],
+  },
+  {
+    name: "species_threat_profiles",
+    columns: [
+      { name: "id", type: "text", primaryKey: true },
+      { name: "species_id", type: "text", unique: true, references: { table: "species", column: "id" } },
+      { name: "primary_threats", type: "json" },
+      { name: "climate_vulnerability", type: "text" },
+      { name: "habitat_loss_risk", type: "real" },
+      ...biodiversityMetadataColumns,
+    ],
+  },
+  {
+    name: "species_anatomy",
+    columns: [
+      { name: "id", type: "text", primaryKey: true },
+      { name: "species_id", type: "text", references: { table: "species", column: "id" } },
+      { name: "part_name", type: "text" },
+      { name: "description", type: "text" },
+      { name: "image_url", type: "text", nullable: true },
+      ...biodiversityMetadataColumns,
+    ],
+  },
+  {
+    name: "species_fossils",
+    columns: [
+      { name: "id", type: "text", primaryKey: true },
+      { name: "species_id", type: "text", references: { table: "species", column: "id" } },
+      { name: "era", type: "text" },
+      { name: "location_found", type: "text" },
+      { name: "description", type: "text" },
+      ...biodiversityMetadataColumns,
+    ],
+  },
+  {
+    name: "species_ecosystems",
+    columns: [
+      { name: "id", type: "text", primaryKey: true },
+      { name: "species_id", type: "text", references: { table: "species", column: "id" } },
+      { name: "ecosystem_type", type: "text" },
+      { name: "role", type: "text" },
+      { name: "dependencies", type: "json" },
+      ...biodiversityMetadataColumns,
+    ],
+  },
+  {
+    name: "species_evidence_links",
+    columns: [
+      { name: "id", type: "text", primaryKey: true },
+      { name: "target_id", type: "text" }, // ID of the observation, track, etc.
+      { name: "target_table", type: "text" },
+      { name: "signal_type", type: "text" },
+      { name: "contribution", type: "text" },
+      { name: "confidence_contribution", type: "real" },
+      { name: "source", type: "text" },
+      { name: "source_url", type: "text", nullable: true },
+      ...timestampColumns,
     ],
   },
   {
@@ -519,6 +684,7 @@ export const databaseSchema: DatabaseTableSchema[] = [
       { name: "metadata", type: "json", nullable: true },
       ...timestampColumns,
     ],
+    indexes: [{ name: "idx_sessions_actor_expires", columns: ["actor_id", "expires_at"] }],
   },
   {
     name: "station_admin_credentials",
@@ -548,6 +714,7 @@ export const databaseSchema: DatabaseTableSchema[] = [
       { name: "metadata", type: "json", nullable: true },
       { name: "created_at", type: "timestamp", defaultValue: "CURRENT_TIMESTAMP" },
     ],
+    indexes: [{ name: "idx_mfa_challenges_actor", columns: ["actor_id", "consumed_at"] }],
   },
   {
     name: "station_admin_auth_events",
@@ -559,6 +726,10 @@ export const databaseSchema: DatabaseTableSchema[] = [
       { name: "occurred_at", type: "timestamp" },
       { name: "metadata", type: "json", nullable: true },
       { name: "created_at", type: "timestamp", defaultValue: "CURRENT_TIMESTAMP" },
+    ],
+    indexes: [
+      { name: "idx_auth_events_occurred_at", columns: ["occurred_at"] },
+      { name: "idx_auth_events_actor_occurred", columns: ["actor_id", "occurred_at"] },
     ],
   },
   {

@@ -5,7 +5,10 @@ import { AppShell } from "@/components/layout/app-shell";
 import { EventAcknowledgeButton } from "@/components/ocean-stations/event-acknowledge-button";
 import { MarineAlertStatusActions } from "@/components/ocean-stations/marine-alert-status-actions";
 import { MarineInvestigationCreateButton } from "@/components/ocean-stations/marine-investigation-create-button";
+// import Link from "next/link";
 import { apiClient } from "@/lib/api/client";
+import { InvestigationIdCell } from "@/components/ocean-stations/InvestigationIdCell";
+import { InvestigationIdPanel } from "@/components/ocean-stations/InvestigationIdPanel";
 import type {
   MarineWorkflowAlertStatus,
   MarineWorkflowEventSeverity,
@@ -417,7 +420,7 @@ export default async function OceanStationEventsPage({ params, searchParams }: O
                             {new Date(event.detectedAt).toLocaleString()}
                           </td>
                           <td className="px-4 py-3 text-[10px] text-slate-400">
-                            {event.investigationId ?? <span className="text-slate-600">—</span>}
+                            <InvestigationIdCell investigationId={event.investigationId} />
                           </td>
                         </tr>
                       );
@@ -555,12 +558,8 @@ export default async function OceanStationEventsPage({ params, searchParams }: O
                 ) : null}
 
                 {/* Linked investigation */}
-                {selectedEventDetail.investigationId ? (
-                  <div className="pt-3 border-t border-slate-700/50">
-                    <p className="text-xs text-slate-400 font-medium mb-2">Linked Investigation</p>
-                    <p className="text-xs text-slate-300">{selectedEventDetail.investigationId}</p>
-                  </div>
-                ) : null}
+                <InvestigationIdPanel investigationId={selectedEventDetail.investigationId} />
+                {/* Utility: InvestigationIdCell renders a link if the investigation exists, else renders nothing or plain text */}
 
                 {/* Acknowledge action */}
                 {selectedEventDetail.status === "new" ? (

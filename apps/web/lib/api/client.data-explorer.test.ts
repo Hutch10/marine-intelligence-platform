@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { apiClient } from "@/lib/api/client";
 import { dataExplorerWorkspaceData } from "@/lib/api/mock-data";
-import * as datasetsRoutes from "../../../api/src/routes/datasets";
 
 const fetchMock = vi.fn();
 
@@ -75,126 +74,25 @@ test("dataset detail fetch maps network 404 to not_found", async () => {
   expect(result.meta.source).toBe("db");
 });
 
-test("workspace fetch falls back through typed dataset route builder when route handler throws", async () => {
-  vi.spyOn(datasetsRoutes.getDatasetsRoute, "handler").mockImplementation(() => {
-    throw new Error("handler failed");
-  });
-
-  const buildSpy = vi.spyOn(datasetsRoutes, "buildDatasetsRouteResponse").mockReturnValue({
-    json: {
-      ...dataExplorerWorkspaceData,
-      datasets: [dataExplorerWorkspaceData.datasets[0]!],
-      pageInfo: {
-        page: 1,
-        pageSize: 25,
-        totalItems: 1,
-        totalPages: 1,
-        sortBy: "updated",
-        sortDir: "desc",
-      },
-    },
-    telemetry: {
-      route: "GET /datasets",
-      source: "db",
-      datasetCount: 1,
-      filtersApplied: true,
-      filterSummary: {
-        q: "thermal",
-      },
-      sortBy: "updated",
-      sortDir: "desc",
-      page: 1,
-      pageSize: 25,
-    },
-  });
-
+test("workspace fetch falls back to the local web data source when network is unavailable", async () => {
   const result = await apiClient.dataExplorer.getWorkspace({ q: "  thermal " });
 
-  expect(buildSpy).toHaveBeenCalledWith(
-    expect.objectContaining({
-      q: "thermal",
-    }),
-  );
   expect(result.data.datasets).toHaveLength(1);
   expect(result.meta.state).toBe("success");
-  expect(result.meta.source).toBe("db");
+  expect(result.meta.source).toBe("mock");
+  expect(result.meta.delivery).toBe("fallback_builder");
 });
 
-test("dataset detail fetch falls back through typed dataset detail route builder when route handler throws", async () => {
-  vi.spyOn(datasetsRoutes.getDatasetByIdRoute, "handler").mockImplementation(() => {
-    throw new Error("handler failed");
-  });
-
-  vi.spyOn(datasetsRoutes, "buildDatasetDetailRouteResponse").mockReturnValue({
-    status: 200,
-    json: {
-      id: "DST-104",
-      name: "Pacific Thermal Front Observations",
-      category: "Temperature",
-      region: "North Pacific",
-      updated: "5 min ago",
-      records: "1.2M",
-      status: "Live",
-      metadata: {
-        Owner: "Ocean Systems Lab",
-      },
-    },
-    telemetry: {
-      route: "GET /datasets/:id",
-      datasetId: "DST-104",
-      source: "db",
-      result: "found",
-      metadataSource: "db_full",
-    },
-  });
-
+test("dataset detail fetch falls back to the local web data source when network is unavailable", async () => {
   const result = await apiClient.dataExplorer.getDatasetDetail("DST-104");
 
   expect(result.meta.state).toBe("success");
-  expect(result.meta.source).toBe("db");
+  expect(result.meta.source).toBe("mock");
+  expect(result.meta.delivery).toBe("fallback_builder");
   expect(result.data?.id).toBe("DST-104");
 });
 
-test("dataset records fetch falls back through typed dataset records route builder when route handler throws", async () => {
-  vi.spyOn(datasetsRoutes.getDatasetRecordsRoute, "handler").mockImplementation(() => {
-    throw new Error("handler failed");
-  });
-
-  vi.spyOn(datasetsRoutes, "buildDatasetRecordsRouteResponse").mockReturnValue({
-    status: 200,
-    json: {
-      records: [
-        {
-          id: "ALT-214",
-          title: "Thermal spike detected in reef-edge grid",
-          type: "Alert",
-          status: "Open",
-          updated: "11 min ago",
-          summary: "Elevated surface temperature exceeded the seasonal envelope.",
-        },
-      ],
-      pageInfo: {
-        page: 1,
-        pageSize: 5,
-        totalItems: 1,
-        totalPages: 1,
-        sortBy: "updated",
-        sortDir: "desc",
-      },
-    },
-    telemetry: {
-      route: "GET /datasets/:id/records",
-      datasetId: "DST-104",
-      source: "db",
-      recordCount: 1,
-      result: "found",
-      sortBy: "updated",
-      sortDir: "desc",
-      page: 1,
-      pageSize: 5,
-    },
-  });
-
+test("dataset records fetch falls back to the local web data source when network is unavailable", async () => {
   const result = await apiClient.dataExplorer.getDatasetRecords("DST-104", {
     sortBy: "updated",
     sortDir: "desc",
@@ -203,8 +101,9 @@ test("dataset records fetch falls back through typed dataset records route build
   });
 
   expect(result.meta.state).toBe("success");
-  expect(result.meta.source).toBe("db");
-  expect(result.data?.records).toHaveLength(1);
+  expect(result.meta.source).toBe("mock");
+  expect(result.meta.delivery).toBe("fallback_builder");
+  expect(result.data?.records).toHaveLength(2);
 });
 
 test("listPresets fetches shared presets from browser API boundary", async () => {

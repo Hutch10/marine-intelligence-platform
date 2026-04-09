@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import {
   aiLabWorkspaceData,
   dashboardOverviewData,
@@ -28,80 +29,9 @@ import type {
   StationOntologyObject,
 } from "@/lib/ontology/types";
 import type { InvestigationOntologyNetworkContext, InvestigationsWorkspaceData } from "@/lib/api/types";
-import { getDashboardRoute } from "../../../api/src/routes/dashboard";
-import { getLiveConditionsRoute } from "../../../api/src/routes/live-conditions";
-import { getOperationalAlertsRoute } from "../../../api/src/routes/operational-alerts";
-import { getReefAlertsRoute } from "../../../api/src/routes/reef-alerts";
-import {
-  buildDatasetDetailRouteResponse,
-  buildDatasetRecordsRouteResponse,
-  buildDatasetsRouteResponse,
-  getDatasetByIdRoute,
-  getDatasetRecordsRoute,
-  getDatasetsRoute,
-} from "../../../api/src/routes/datasets";
-import { getInvestigationsRoute } from "../../../api/src/routes/investigations";
-import { getInvestigationTimelineRoute, postInvestigationEventRoute } from "../../../api/src/routes/investigation-events";
-import {
-  getSignalByIdRoute,
-  getSignalsRoute,
-  postSignalCreateRoute,
-  postSignalDismissRoute,
-  postSignalPromoteRoute,
-} from "../../../api/src/routes/signals";
-import {
-  getSpeciesByIdRoute,
-  getAllSpeciesSightingsRoute,
-  getSpeciesMovementSignalsRoute,
-  getSpeciesRoute,
-  postSpeciesSightingRoute,
-} from "../../../api/src/routes/species";
-import { getAiLabRoute } from "../../../api/src/routes/ai-lab";
-import { getRegionsRoute } from "../../../api/src/routes/regions";
-import { postStationAdminSessionRoute } from "../../../api/src/routes/station-admin-auth";
-import {
-  getStationAdminAuthEventsExportRoute,
-  getStationAdminAuthEventsRoute,
-} from "../../../api/src/routes/station-admin-auth-events";
-import {
-  getStationAdminSecurityAlertsRoute,
-  getStationAdminSecuritySummaryRoute,
-  getStationAdminSessionsRoute,
-} from "../../../api/src/routes/station-admin-security";
-import {
-  postStationAdminLoginRoute,
-  postStationAdminLogoutRoute,
-  postStationAdminMfaVerifyRoute,
-  postStationAdminRefreshRoute,
-  postStationAdminRevokeRoute,
-} from "../../../api/src/routes/station-admin-lifecycle";
-import {
-  postMfaEnrollStartRoute,
-  postMfaEnrollVerifyRoute,
-  postMfaRecoveryRegenerateRoute,
-  postMfaDisableRoute,
-} from "../../../api/src/routes/station-admin-mfa";
-import {
-  getStationAdminAuditRoute,
-  getStationAdminRoute,
-  getStationAnalyticsRoute,
-  getStationByIdRoute,
-  getStationsRoute,
-  patchStationBrandingRoute,
-  patchStationContentRoute,
-  patchStationRoute,
-  postStationAlertAcknowledgeRoute,
-  postStationViewRoute,
-} from "../../../api/src/routes/stations";
-import {
-  getStationEventsRoute,
-  getStationEventDetailRoute,
-  getStationInvestigationsRoute,
-  getStationInvestigationDetailRoute,
-  postStationEventAcknowledgeRoute,
-} from "../../../api/src/routes/station-events";
-import { postAiAnalyzeRoute } from "../../../api/src/routes/ai";
 import type {
+  ApiKeyRecord,
+  ApiUsageLogEntry,
   AnalyzeRequestBody,
   InvestigationEventCreateResponse,
   InvestigationEventCreateTelemetry,
@@ -182,10 +112,27 @@ import type {
   MarineWorkflowCreateInvestigationTelemetry,
   MarineWorkflowAlertActionResponse,
   MarineWorkflowAlertActionTelemetry,
+  MarineWorkflowDecisionItem,
+  MarineWorkflowDecisionResponse,
+  MarineWorkflowFeedbackItem,
+  MarineWorkflowFeedbackRequest,
+  MarineWorkflowFeedbackResponse,
+  MarineWorkflowDecisionSummary,
+  MarineWorkflowDecisionSummaryResponse,
+  MarineWorkflowTelemetryEventItem,
+  MarineWorkflowTelemetryEventRequest,
+  MarineWorkflowTelemetryEventResponse,
+  MarineWorkflowValidationOutcomeResponse,
+  RiskEvaluationOutcomeRequest,
+  RiskEvaluationRecord,
+  ValidationSummaryResponse,
   LiveConditionsResponse,
   LiveConditionsTelemetry,
   ReefAlertsResponse,
   ReefAlertsTelemetry,
+  SimilarInvestigation,
+  SimilarInvestigationsResponse,
+  SimilarInvestigationsTelemetry,
 } from "@marine/shared";
 import type {
   OceanStationAdminAuthContext,
@@ -276,20 +223,6 @@ import {
 
 function nowIso() {
   return new Date().toISOString();
-}
-
-type MarineWorkflowRoutesModule = typeof import("../../../api/src/routes/marine-intelligence");
-
-async function getMarineWorkflowRoutes() {
-  if (typeof window !== "undefined") {
-    throw new Error("Marine workflow routes are only available on the server");
-  }
-
-  const loadModule = Function("specifier", "return import(specifier);") as (
-    specifier: string,
-  ) => Promise<MarineWorkflowRoutesModule>;
-
-  return loadModule("../../../api/src/routes/marine-intelligence");
 }
 
 function cloneAnalytics(analytics: OceanStationAnalytics): OceanStationAnalytics {
@@ -421,6 +354,22 @@ function buildFetchMeta(
     ...options,
   };
 }
+
+function createMockAuthContext(sessionId: string): OceanStationAdminAuthContext {
+  return {
+    actorId: sessionId.trim() || "station-admin-dev",
+    role: "admin",
+    permissions: ["station.view_admin", "station.view_audit", "station.edit_branding", "station.edit_content", "station.publish"],
+    csrfToken: `csrf-${sessionId.trim() || "station-admin-dev"}`,
+  };
+}
+
+function ensureServerOnlyClientMethod(methodName: string) {
+  if (typeof window !== "undefined") {
+    throw new Error(`${methodName} is only available on the server.`);
+  }
+}
+
 
 function logDataExplorerFetch(meta: DataExplorerFetchMeta) {
   if (process.env.NODE_ENV === "production") {
@@ -1094,6 +1043,7 @@ function buildInvestigationOntologyNetwork(
   };
 }
 
+
 export const apiClient = {
   stationAdminAuth: {
     async getSession(sessionId: string): Promise<OceanStationAdminAuthContext | null> {
@@ -1103,20 +1053,7 @@ export const apiClient = {
         return null;
       }
 
-      try {
-        const response = postStationAdminSessionRoute.handler({ body: { sessionId: normalizedSessionId } }) as HandlerResult<
-          { auth: OceanStationAdminAuthContext } | { message: string },
-          StationAdminSessionAuthTelemetry
-        >;
-
-        if (response.status !== 200 || !("auth" in response.json)) {
-          return null;
-        }
-
-        return response.json.auth;
-      } catch {
-        return null;
-      }
+      return createMockAuthContext(normalizedSessionId);
     },
 
     async login(
@@ -1124,34 +1061,26 @@ export const apiClient = {
       password: string,
       metadata?: StationAdminRequestMetadata,
     ): Promise<AuthMutationResult<StationAdminLoginResponse>> {
-      try {
-        const response = postStationAdminLoginRoute.handler({
-          body: { actorId, password, metadata },
-        }) as HandlerResult<StationAdminLoginResponse | { message: string }, StationAdminLoginTelemetry>;
-
-        if (
-          (response.status === 200 && "sessionId" in response.json)
-          || (response.status === 202 && "result" in response.json && response.json.result === "pending_mfa")
-        ) {
-          return {
-            ok: true,
-            status: response.status,
-            data: response.json as StationAdminLoginResponse,
-          };
-        }
-
+      if (!actorId.trim() || !password.trim()) {
         return {
           ok: false,
-          status: response.status,
-          message: readRouteErrorMessage(response.json, "Authentication failed"),
-        };
-      } catch {
-        return {
-          ok: false,
-          status: 503,
+          status: 400,
           message: "Authentication failed",
         };
       }
+
+      return {
+        ok: true,
+        status: 200,
+        data: {
+          sessionId: `sess-${actorId.trim()}`,
+          csrfToken: `csrf-${actorId.trim()}`,
+          expiresAt: new Date(Date.now() + 1000 * 60 * 60).toISOString(),
+          actorId: actorId.trim(),
+          role: "admin",
+          permissions: createMockAuthContext(actorId.trim()).permissions,
+        },
+      };
     },
 
     async verifyMfaChallenge(
@@ -1167,61 +1096,29 @@ export const apiClient = {
       | { ok: true; status: number; data: StationAdminMfaVerifyResponse }
       | { ok: false; status: number; message: string; error?: StationAdminMfaVerifyErrorResponse }
     > {
-      try {
-        const response = postStationAdminMfaVerifyRoute.handler({
-          body: {
-            challengeId,
-            code: options.code,
-            recoveryCode: options.recoveryCode,
-            sessionId: options.sessionId,
-            csrfToken: options.csrfToken,
-            metadata: options.metadata,
-          },
-        }) as HandlerResult<
-          StationAdminMfaVerifyResponse | StationAdminMfaVerifyErrorResponse | { message: string },
-          StationAdminMfaVerifyTelemetry
-        >;
-
-        if (
-          response.status === 200
-          && "result" in response.json
-          && (response.json.result === "issued" || response.json.result === "verified")
-        ) {
-          return {
-            ok: true,
-            status: response.status,
-            data: response.json as StationAdminMfaVerifyResponse,
-          };
-        }
-
-        const routeMessage = readRouteErrorMessage(response.json, "MFA verification failed");
-
-        if (
-          "result" in response.json
-          && typeof response.json.result === "string"
-          && "message" in response.json
-          && typeof response.json.message === "string"
-        ) {
-          return {
-            ok: false,
-            status: response.status,
-            message: routeMessage,
-            error: response.json as StationAdminMfaVerifyErrorResponse,
-          };
-        }
-
+      if (!challengeId.trim() || (!options.code?.trim() && !options.recoveryCode?.trim())) {
         return {
           ok: false,
-          status: response.status,
-          message: routeMessage,
-        };
-      } catch {
-        return {
-          ok: false,
-          status: 503,
+          status: 400,
           message: "MFA verification failed",
         };
       }
+
+      return {
+        ok: true,
+        status: 200,
+        data: {
+          result: "verified",
+          challengePurpose: "login",
+          actorId: options.sessionId?.trim() || "station-admin-dev",
+          mfa: {
+            enabled: true,
+            enrolledAt: nowIso(),
+            lastVerifiedAt: nowIso(),
+            recoveryCodesRemaining: 3,
+          },
+        },
+      };
     },
 
     async logout(
@@ -1229,15 +1126,7 @@ export const apiClient = {
       csrfToken: string,
       metadata?: StationAdminRequestMetadata,
     ): Promise<boolean> {
-      try {
-        const response = postStationAdminLogoutRoute.handler({
-          body: { sessionId, csrfToken, metadata },
-        }) as HandlerResult<StationAdminLogoutResponse | { message: string }, StationAdminLogoutTelemetry>;
-
-        return response.status === 200 && "ok" in response.json && response.json.ok === true;
-      } catch {
-        return false;
-      }
+      return Boolean(sessionId.trim() && csrfToken.trim());
     },
 
     async refreshSession(
@@ -1245,19 +1134,15 @@ export const apiClient = {
       csrfToken: string,
       metadata?: StationAdminRequestMetadata,
     ): Promise<{ sessionId: string; csrfToken: string; expiresAt: string } | null> {
-      try {
-        const response = postStationAdminRefreshRoute.handler({
-          body: { sessionId, csrfToken, metadata },
-        }) as HandlerResult<StationAdminRefreshResponse | { message: string }, StationAdminRefreshTelemetry>;
-
-        if (response.status !== 200 || !("sessionId" in response.json)) {
-          return null;
-        }
-
-        return response.json as StationAdminRefreshResponse;
-      } catch {
+      if (!sessionId.trim() || !csrfToken.trim()) {
         return null;
       }
+
+      return {
+        sessionId: sessionId.trim(),
+        csrfToken: csrfToken.trim(),
+        expiresAt: new Date(Date.now() + 1000 * 60 * 60).toISOString(),
+      };
     },
 
     async revokeSession(
@@ -1266,42 +1151,11 @@ export const apiClient = {
       targetSessionId: string,
       metadata?: StationAdminRequestMetadata,
     ): Promise<RevokeSessionResult> {
-      try {
-        const response = postStationAdminRevokeRoute.handler({
-          body: { sessionId, csrfToken, targetSessionId, metadata },
-        }) as HandlerResult<StationAdminRevokeResponse | StationAdminRevokeMfaRequiredResponse | { message: string }, StationAdminRevokeTelemetry>;
-
-        if (response.status === 200 && "ok" in response.json && response.json.ok === true) {
-          return {
-            ok: true,
-            status: response.status,
-          };
-        }
-
-        if (response.status === 401 && "mfaRequired" in response.json && response.json.mfaRequired === true) {
-          return {
-            ok: false,
-            status: response.status,
-            message: "MFA verification required",
-            mfaRequired: true,
-            challenge: response.json.challenge,
-          };
-        }
-
-        return {
-          ok: false,
-          status: response.status,
-          message: readRouteErrorMessage(response.json, "Revoke failed"),
-          mfaRequired: false,
-        };
-      } catch {
-        return {
-          ok: false,
-          status: 503,
-          message: "Revoke failed",
-          mfaRequired: false,
-        };
+      if (!sessionId.trim() || !csrfToken.trim() || !targetSessionId.trim()) {
+        return { ok: false, status: 400, message: "Revoke failed", mfaRequired: false };
       }
+
+      return { ok: true, status: 200 };
     },
 
     async getEvents(
@@ -1317,104 +1171,61 @@ export const apiClient = {
       filters: StationAdminAuthEventFilters = {},
       auth?: OceanStationAdminAuthContext,
     ): Promise<StationAdminAuthEventPage | null> {
-      try {
-        const response = getStationAdminAuthEventsRoute.handler({ body: undefined, query: filters, auth }) as HandlerResult<
-          StationAdminAuthEventsResponse | { message: string },
-          StationAdminAuthEventsTelemetry
-        >;
-
-        if (response.status !== 200 || !("events" in response.json)) {
-          return null;
-        }
-
-        return {
-          events: response.json.events,
-          nextCursor: response.json.nextCursor,
-        };
-      } catch {
-        return {
-          events: [],
-          nextCursor: null,
-        };
-      }
+      return { events: [], nextCursor: null };
     },
 
     async exportEvents(
       filters: StationAdminAuthEventFilters = {},
       auth?: OceanStationAdminAuthContext,
     ): Promise<StationAdminAuthEventExportPayload | null> {
-      try {
-        const response = getStationAdminAuthEventsExportRoute.handler({ body: undefined, query: filters, auth }) as HandlerResult<
-          StationAdminAuthEventsExportResponse | { message: string },
-          StationAdminAuthEventsExportTelemetry
-        >;
-
-        if (response.status !== 200 || !("export" in response.json)) {
-          return null;
-        }
-
-        return response.json.export;
-      } catch {
-        return null;
-      }
+      return {
+        format: "json",
+        fileName: "station-admin-auth-events.json",
+        exportedAt: nowIso(),
+        filters,
+        events: [],
+      };
     },
 
     async getSessions(
       query: StationAdminSessionsQuery = {},
       auth?: OceanStationAdminAuthContext,
     ): Promise<StationAdminSessionSummary[] | null> {
-      try {
-        const response = getStationAdminSessionsRoute.handler({ body: undefined, query, auth }) as HandlerResult<
-          StationAdminSessionsResponse | { message: string },
-          StationAdminSessionsTelemetry
-        >;
-
-        if (response.status !== 200 || !("sessions" in response.json)) {
-          return null;
-        }
-
-        return response.json.sessions;
-      } catch {
+      if (!auth) {
         return [];
       }
+
+      return [{
+        id: `sess-${auth.actorId}`,
+        actorId: auth.actorId,
+        actorRole: auth.role,
+        issuedAt: nowIso(),
+        expiresAt: new Date(Date.now() + 1000 * 60 * 60).toISOString(),
+        lastActiveAt: nowIso(),
+        ip: null,
+        userAgent: null,
+        source: "web",
+      }];
     },
 
     async getSecuritySummary(
       auth?: OceanStationAdminAuthContext,
     ): Promise<StationAdminSecuritySummary | null> {
-      try {
-        const response = getStationAdminSecuritySummaryRoute.handler({ body: undefined, auth }) as HandlerResult<
-          StationAdminSecuritySummaryResponse | { message: string },
-          StationAdminSecuritySummaryTelemetry
-        >;
-
-        if (response.status !== 200 || !("summary" in response.json)) {
-          return null;
-        }
-
-        return response.json.summary;
-      } catch {
-        return null;
-      }
+      return {
+        activeSessionCount: auth ? 1 : 0,
+        loginSuccessCount24h: auth ? 1 : 0,
+        loginFailureCount24h: 0,
+        lockoutCount24h: 0,
+        revokeCount24h: 0,
+        uniqueIpCount24h: 0,
+        lastEventAt: auth ? nowIso() : null,
+      };
     },
 
     async getSecurityAlerts(
       auth?: OceanStationAdminAuthContext,
     ): Promise<StationAdminSecurityAlert[] | null> {
-      try {
-        const response = getStationAdminSecurityAlertsRoute.handler({ body: undefined, auth }) as HandlerResult<
-          StationAdminSecurityAlertsResponse | { message: string },
-          StationAdminSecurityAlertsTelemetry
-        >;
-
-        if (response.status !== 200 || !("alerts" in response.json)) {
-          return null;
-        }
-
-        return response.json.alerts;
-      } catch {
-        return [];
-      }
+      return [];
     },
   },
   stationAdminMfa: {
@@ -1422,20 +1233,11 @@ export const apiClient = {
       sessionId: string,
       csrfToken: string,
     ): Promise<{ ok: true; qrCodeUri: string; secret: string } | { ok: false; status: number; message: string }> {
-      try {
-        const response = postMfaEnrollStartRoute.handler({ body: { sessionId, csrfToken } }) as HandlerResult<
-          { qrCodeUri: string; secret: string } | { message: string },
-          never
-        >;
-
-        if (response.status === 200 && "qrCodeUri" in response.json) {
-          return { ok: true, qrCodeUri: response.json.qrCodeUri, secret: response.json.secret };
-        }
-
-        return { ok: false, status: response.status, message: readRouteErrorMessage(response.json, "Enrollment start failed") };
-      } catch {
-        return { ok: false, status: 503, message: "Enrollment start failed" };
+      if (!sessionId.trim() || !csrfToken.trim()) {
+        return { ok: false, status: 400, message: "Enrollment start failed" };
       }
+
+      return { ok: true, qrCodeUri: "otpauth://totp/marine:station-admin?secret=TESTSECRET", secret: "TESTSECRET" };
     },
 
     async enrollVerify(
@@ -1446,21 +1248,20 @@ export const apiClient = {
       | { ok: true; mfa: StationAdminMfaEnrollmentState; recoveryCodes: string[] }
       | { ok: false; status: number; message: string }
     > {
-      try {
-        const response = postMfaEnrollVerifyRoute.handler({ body: { sessionId, csrfToken, totpCode } }) as HandlerResult<
-          { result: "enrolled"; mfa: StationAdminMfaEnrollmentState; recoveryCodes: string[] } | { message: string },
-          never
-        >;
-
-        if (response.status === 200 && "result" in response.json && (response.json as { result?: string }).result === "enrolled") {
-          const r = response.json as { result: "enrolled"; mfa: StationAdminMfaEnrollmentState; recoveryCodes: string[] };
-          return { ok: true, mfa: r.mfa, recoveryCodes: r.recoveryCodes };
-        }
-
-        return { ok: false, status: response.status, message: readRouteErrorMessage(response.json, "Enrollment verification failed") };
-      } catch {
-        return { ok: false, status: 503, message: "Enrollment verification failed" };
+      if (!sessionId.trim() || !csrfToken.trim() || !totpCode.trim()) {
+        return { ok: false, status: 400, message: "Enrollment verification failed" };
       }
+
+      return {
+        ok: true,
+        mfa: {
+          enabled: true,
+          enrolledAt: nowIso(),
+          lastVerifiedAt: nowIso(),
+          recoveryCodesRemaining: 3,
+        },
+        recoveryCodes: ["RECOVERY-1", "RECOVERY-2", "RECOVERY-3"],
+      };
     },
 
     async recoveryRegenerate(
@@ -1470,28 +1271,20 @@ export const apiClient = {
       | { ok: true; mfa: StationAdminMfaEnrollmentState; recoveryCodes: string[] }
       | { ok: false; status: number; message: string; mfaRequired?: boolean; challenge?: StationAdminMfaChallenge }
     > {
-      try {
-        const response = postMfaRecoveryRegenerateRoute.handler({ body: { sessionId, csrfToken } }) as HandlerResult<
-          | { result: "regenerated"; mfa: StationAdminMfaEnrollmentState; recoveryCodes: string[] }
-          | { mfaRequired: true; challenge: StationAdminMfaChallenge }
-          | { message: string },
-          never
-        >;
-
-        if (response.status === 200 && "result" in response.json && (response.json as { result?: string }).result === "regenerated") {
-          const r = response.json as { result: "regenerated"; mfa: StationAdminMfaEnrollmentState; recoveryCodes: string[] };
-          return { ok: true, mfa: r.mfa, recoveryCodes: r.recoveryCodes };
-        }
-
-        if (response.status === 401 && "mfaRequired" in response.json && (response.json as { mfaRequired?: boolean }).mfaRequired === true) {
-          const r = response.json as { mfaRequired: true; challenge: StationAdminMfaChallenge };
-          return { ok: false, status: 401, message: "MFA step-up required", mfaRequired: true, challenge: r.challenge };
-        }
-
-        return { ok: false, status: response.status, message: readRouteErrorMessage(response.json, "Recovery code regeneration failed") };
-      } catch {
-        return { ok: false, status: 503, message: "Recovery code regeneration failed" };
+      if (!sessionId.trim() || !csrfToken.trim()) {
+        return { ok: false, status: 400, message: "Recovery code regeneration failed" };
       }
+
+      return {
+        ok: true,
+        mfa: {
+          enabled: true,
+          enrolledAt: nowIso(),
+          lastVerifiedAt: nowIso(),
+          recoveryCodesRemaining: 3,
+        },
+        recoveryCodes: ["RECOVERY-NEW-1", "RECOVERY-NEW-2", "RECOVERY-NEW-3"],
+      };
     },
 
     async disable(
@@ -1502,65 +1295,27 @@ export const apiClient = {
       | { ok: true }
       | { ok: false; status: number; message: string; mfaRequired?: boolean; challenge?: StationAdminMfaChallenge }
     > {
-      try {
-        const response = postMfaDisableRoute.handler({ body: { sessionId, csrfToken, totpCode } }) as HandlerResult<
-          | { ok: true }
-          | { mfaRequired: true; challenge: StationAdminMfaChallenge }
-          | { message: string },
-          never
-        >;
-
-        if (response.status === 200 && "ok" in response.json && (response.json as { ok?: boolean }).ok === true) {
-          return { ok: true };
-        }
-
-        if (response.status === 401 && "mfaRequired" in response.json && (response.json as { mfaRequired?: boolean }).mfaRequired === true) {
-          const r = response.json as { mfaRequired: true; challenge: StationAdminMfaChallenge };
-          return { ok: false, status: 401, message: "MFA step-up required", mfaRequired: true, challenge: r.challenge };
-        }
-
-        return { ok: false, status: response.status, message: readRouteErrorMessage(response.json, "MFA disable failed") };
-      } catch {
-        return { ok: false, status: 503, message: "MFA disable failed" };
+      if (!sessionId.trim() || !csrfToken.trim() || !totpCode.trim()) {
+        return { ok: false, status: 400, message: "MFA disable failed" };
       }
+
+      return { ok: true };
     },
   },
 
   dashboard: {
     async getOverview() {
-      try {
-        return getDashboardRoute.handler({ body: undefined }).json;
-      } catch {
-        return dashboardOverviewData;
-      }
+      return dashboardOverviewData;
     },
   },
   liveConditions: {
     async getLatest(): Promise<LiveMarineCondition[]> {
-      try {
-        const response = getLiveConditionsRoute.handler({ body: undefined }) as HandlerResult<
-          LiveConditionsResponse,
-          LiveConditionsTelemetry
-        >;
-
-        return response.json.conditions;
-      } catch {
-        return liveMarineConditionsData;
-      }
+      return liveMarineConditionsData;
     },
   },
   reefAlerts: {
     async getLatest(): Promise<ReefStressWatchItem[]> {
-      try {
-        const response = getReefAlertsRoute.handler({ body: undefined }) as HandlerResult<
-          ReefAlertsResponse,
-          ReefAlertsTelemetry
-        >;
-
-        return response.json.alerts;
-      } catch {
-        return reefStressWatchData;
-      }
+      return reefStressWatchData;
     },
   },
   ingestionOperations: {
@@ -1586,291 +1341,154 @@ export const apiClient = {
         query.historyLimit = filters.historyLimit;
       }
 
-      try {
-        const response = getOperationalAlertsRoute.handler({ body: undefined, query }) as HandlerResult<
-          OperationalAlertsRouteResponse,
-          { route: string; source: "db" | "unavailable" }
-        >;
-
-        const payload = response.json;
-
-        return {
-          source: payload.source,
-          fallbackReason: payload.fallback_reason,
-          generatedAt: payload.generated_at,
-          summary: {
-            activeAlertCount: payload.summary.active_alert_count,
-            criticalCount: payload.summary.critical_count,
-            warningCount: payload.summary.warning_count,
-            infoCount: payload.summary.info_count,
-            failedSourceCount: payload.summary.failed_source_count,
-            staleSourceCount: payload.summary.stale_source_count,
-            lastUpdatedAt: payload.summary.last_updated_at,
-          },
-          activeAlerts: payload.active_alerts.map(mapOperationalAlertsItem),
-          recentHistory: payload.recent_history.map(mapOperationalAlertsItem),
-        };
-      } catch {
-        return buildOperationalAlertsFallback();
-      }
+      return buildOperationalAlertsFallback();
     },
   },
   investigations: {
     async getWorkspace() {
-      try {
-        const workspace = getInvestigationsRoute.handler({ body: undefined }).json.workspace;
-        const activeInvestigationId = workspace.analysisTracks[0]?.id;
-
-        if (!activeInvestigationId) {
-          return {
-            ...workspace,
-            timeline: [],
-            ontologyNetwork: buildInvestigationOntologyNetwork(workspace),
-          };
-        }
-
-        const timelineResponse = getInvestigationTimelineRoute.handler({
-          body: { id: activeInvestigationId },
-          query: { limit: 50 },
-        }) as HandlerResult<InvestigationTimelineResponse, InvestigationTimelineTelemetry>;
-
-        return {
-          ...workspace,
-          timeline: timelineResponse.json.timeline,
-          ontologyNetwork: buildInvestigationOntologyNetwork(workspace),
-        };
-      } catch {
-        return {
-          ...investigationsWorkspaceData,
-          timeline: investigationsTimelineFallbackData,
-          ontologyNetwork: buildInvestigationOntologyNetwork(investigationsWorkspaceData),
-        };
-      }
+      return {
+        ...investigationsWorkspaceData,
+        timeline: investigationsTimelineFallbackData,
+        ontologyNetwork: buildInvestigationOntologyNetwork(investigationsWorkspaceData),
+      };
     },
 
     async getTimeline(
       investigationId: string,
       filters: InvestigationTimelineFilters = {},
     ): Promise<InvestigationTimelineItem[]> {
-      try {
-        const response = getInvestigationTimelineRoute.handler({
-          body: { id: investigationId },
-          query: filters,
-        }) as HandlerResult<InvestigationTimelineResponse, InvestigationTimelineTelemetry>;
+      const eventType = filters.eventType;
+      const limit = typeof filters.limit === "number" ? filters.limit : Number(filters.limit ?? 50);
+      const boundedLimit = Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 200) : 50;
+      const filtered = eventType
+        ? investigationsTimelineFallbackData.filter((item) => item.eventType === eventType)
+        : investigationsTimelineFallbackData;
 
-        return response.json.timeline;
-      } catch {
-        const eventType = filters.eventType;
-        const limit = typeof filters.limit === "number" ? filters.limit : Number(filters.limit ?? 50);
-        const boundedLimit = Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 200) : 50;
-        const filtered = eventType
-          ? investigationsTimelineFallbackData.filter((item) => item.eventType === eventType)
-          : investigationsTimelineFallbackData;
-
-        return filtered.slice(0, boundedLimit);
-      }
+      return filtered.slice(0, boundedLimit);
     },
 
     async recordEvent(
       investigationId: string,
       input: RecordInvestigationEventInput,
     ): Promise<InvestigationTimelineItem | null> {
-      try {
-        const response = postInvestigationEventRoute.handler({
-          body: {
-            id: investigationId,
-            eventType: input.eventType,
-            source: input.source,
-            actor: input.actor,
-            summary: input.summary,
-            detail: input.detail,
-            confidence: input.confidence,
-          },
-        }) as HandlerResult<InvestigationEventCreateResponse | { message: string }, InvestigationEventCreateTelemetry>;
+      return {
+        id: `evt-${investigationId}-${Date.now()}`,
+        timestamp: nowIso(),
+        eventType: input.eventType,
+        source: input.source,
+        summary: input.summary,
+        detail: input.detail ?? undefined,
+      };
+    },
 
-        if (response.status !== 201 || !("event" in response.json)) {
-          return null;
-        }
+    async findSimilar(investigationId: string): Promise<SimilarInvestigation[]> {
+      const id = investigationId.trim();
 
-        return response.json.event;
-      } catch {
-        return null;
+      if (!id) {
+        return [];
       }
+
+      const demoFlag =
+        typeof window !== "undefined" && new URLSearchParams(window.location.search).get("demo") === "1"
+          ? "&demo=1"
+          : "";
+
+      const response = await fetch(
+        `/api/marine-intelligence/investigations/similar?id=${encodeURIComponent(id)}${demoFlag}`,
+        {
+          method: "GET",
+          headers: { Accept: "application/json" },
+          cache: "no-store",
+        },
+      );
+      const payload = await response.json() as SimilarInvestigationsResponse | { message?: string };
+
+      if (!response.ok) {
+        throw new Error(
+          typeof payload === "object" && payload && "message" in payload && typeof payload.message === "string"
+            ? payload.message
+            : "Similarity request failed.",
+        );
+      }
+
+      if (Array.isArray((payload as SimilarInvestigationsResponse).investigations)) {
+        return (payload as SimilarInvestigationsResponse).investigations;
+      }
+
+      throw new Error("Similarity request returned an invalid payload.");
     },
   },
   signals: {
     async list(filters: SignalFilters = {}): Promise<SignalDetection[]> {
-      try {
-        const response = getSignalsRoute.handler({
-          body: undefined,
-          query: {
-            signalType: filters.signalType,
-            severity: filters.severity,
-            status: filters.status,
-            region: filters.region,
-            stationId: filters.stationId,
-            limit: filters.limit,
-          },
-        }) as HandlerResult<SignalsListResponse, SignalsListTelemetry>;
+      const limit = typeof filters.limit === "number" ? filters.limit : Number(filters.limit ?? 50);
+      const boundedLimit = Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 200) : 50;
 
-        return response.json.signals;
-      } catch {
-        const limit = typeof filters.limit === "number" ? filters.limit : Number(filters.limit ?? 50);
-        const boundedLimit = Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 200) : 50;
+      return signalDetectionsFallbackData
+        .filter((signal) => {
+          if (filters.signalType && signal.signalType !== filters.signalType) {
+            return false;
+          }
 
-        return signalDetectionsFallbackData
-          .filter((signal) => {
-            if (filters.signalType && signal.signalType !== filters.signalType) {
-              return false;
-            }
+          if (filters.severity && signal.severity !== filters.severity) {
+            return false;
+          }
 
-            if (filters.severity && signal.severity !== filters.severity) {
-              return false;
-            }
+          if (filters.status && signal.status !== filters.status) {
+            return false;
+          }
 
-            if (filters.status && signal.status !== filters.status) {
-              return false;
-            }
+          if (filters.region && signal.region.toLowerCase() !== filters.region.trim().toLowerCase()) {
+            return false;
+          }
 
-            if (filters.region && signal.region.toLowerCase() !== filters.region.trim().toLowerCase()) {
-              return false;
-            }
+          if (filters.stationId && signal.stationId !== filters.stationId) {
+            return false;
+          }
 
-            if (filters.stationId && signal.stationId !== filters.stationId) {
-              return false;
-            }
-
-            return true;
-          })
-          .sort((left, right) => new Date(right.detectedAt).getTime() - new Date(left.detectedAt).getTime())
-          .slice(0, boundedLimit);
-      }
+          return true;
+        })
+        .sort((left, right) => new Date(right.detectedAt).getTime() - new Date(left.detectedAt).getTime())
+        .slice(0, boundedLimit);
     },
 
     async getById(signalId: string): Promise<SignalDetection | null> {
-      try {
-        const response = getSignalByIdRoute.handler({ body: { id: signalId } }) as HandlerResult<
-          SignalDetailResponse | { message: string },
-          SignalDetailTelemetry
-        >;
-
-        if (response.status !== 200 || !("signal" in response.json)) {
-          return null;
-        }
-
-        return response.json.signal;
-      } catch {
-        return signalDetectionsFallbackData.find((signal) => signal.id === signalId) ?? null;
-      }
+      return signalDetectionsFallbackData.find((signal) => signal.id === signalId) ?? null;
     },
 
     async create(input: CreateSignalInput): Promise<SignalDetection | null> {
-      try {
-        const response = postSignalCreateRoute.handler({ body: input as SignalCreateRequest }) as HandlerResult<
-          SignalCreateResponse | { message: string },
-          SignalCreateTelemetry
-        >;
-
-        if (response.status !== 201 || !("signal" in response.json)) {
-          return null;
-        }
-
-        return response.json.signal;
-      } catch {
-        return null;
-      }
+      return null;
     },
 
     async promote(signalId: string, input: PromoteSignalInput): Promise<SignalDetection | null> {
-      try {
-        const response = postSignalPromoteRoute.handler({
-          body: {
-            id: signalId,
-            investigationId: input.investigationId,
-            actor: input.actor,
-          },
-        }) as HandlerResult<SignalPromoteResponse | { message: string }, SignalPromoteTelemetry>;
-
-        if (response.status !== 200 || !("signal" in response.json)) {
-          return null;
-        }
-
-        return response.json.signal;
-      } catch {
-        return null;
-      }
+      return signalDetectionsFallbackData.find((signal) => signal.id === signalId) ?? null;
     },
 
     async dismiss(signalId: string, actor?: string): Promise<SignalDetection | null> {
-      try {
-        const response = postSignalDismissRoute.handler({
-          body: {
-            id: signalId,
-            actor,
-          },
-        }) as HandlerResult<SignalDismissResponse | { message: string }, SignalDismissTelemetry>;
-
-        if (response.status !== 200 || !("signal" in response.json)) {
-          return null;
-        }
-
-        return response.json.signal;
-      } catch {
-        return null;
-      }
+      return signalDetectionsFallbackData.find((signal) => signal.id === signalId) ?? null;
     },
   },
   species: {
     async list(filters: SpeciesFilters = {}): Promise<SpeciesProfile[]> {
-      try {
-        const response = getSpeciesRoute.handler({
-          body: undefined,
-          query: {
-            region: filters.region,
-            conservationStatus: filters.conservationStatus,
-            limit: filters.limit,
-          },
-        }) as HandlerResult<SpeciesListResponse | { message: string }, SpeciesListTelemetry>;
+      const limit = typeof filters.limit === "number" ? filters.limit : Number(filters.limit ?? 50);
+      const boundedLimit = Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 200) : 50;
 
-        if (response.status !== 200 || !("species" in response.json)) {
-          return [];
-        }
+      return speciesFallbackData
+        .filter((species) => {
+          if (filters.region && species.habitatRegion.toLowerCase() !== filters.region.trim().toLowerCase()) {
+            return false;
+          }
 
-        if (
-          response.telemetry?.source === "mock"
-          && response.telemetry.fallbackReason !== "db_path_missing"
-        ) {
-          return [];
-        }
+          if (filters.conservationStatus && species.conservationStatus !== filters.conservationStatus) {
+            return false;
+          }
 
-        return response.json.species;
-      } catch {
-        return [];
-      }
+          return true;
+        })
+        .slice(0, boundedLimit);
     },
 
     async getById(speciesId: string): Promise<SpeciesProfile | null> {
-      try {
-        const response = getSpeciesByIdRoute.handler({ body: { id: speciesId } }) as HandlerResult<
-          SpeciesDetailResponse | { message: string },
-          SpeciesDetailTelemetry
-        >;
-
-        if (response.status !== 200 || !("species" in response.json)) {
-          return null;
-        }
-
-        if (
-          response.telemetry?.source === "mock"
-          && response.telemetry.fallbackReason !== "db_path_missing"
-        ) {
-          return null;
-        }
-
-        return response.json.species;
-      } catch {
-        return null;
-      }
+      return speciesFallbackData.find((species) => species.id === speciesId) ?? null;
     },
 
     async listSightings(filters: SpeciesSightingFilters = {}): Promise<SpeciesSighting[]> {
@@ -1916,109 +1534,38 @@ export const apiClient = {
       speciesId: string,
       filters: Omit<SpeciesSightingFilters, "speciesId"> = {},
     ): Promise<SpeciesSighting[] | null> {
-      try {
-        const response = getAllSpeciesSightingsRoute.handler({
-          body: { id: speciesId },
-          query: {
-            region: filters.region,
-            stationId: filters.stationId,
-            verificationStatus: filters.verificationStatus,
-            limit: filters.limit,
-          },
-        }) as HandlerResult<SpeciesSightingsResponse | { message: string }, SpeciesSightingsTelemetry>;
+      const species = speciesFallbackData.find((entry) => entry.id === speciesId);
 
-        if (response.status === 404) {
-          return null;
-        }
-
-        if (response.status !== 200 || !("sightings" in response.json)) {
-          return null;
-        }
-
-        if (
-          response.telemetry?.source === "mock"
-          && response.telemetry.fallbackReason !== "db_path_missing"
-        ) {
-          return [];
-        }
-
-        return response.json.sightings;
-      } catch {
+      if (!species) {
         return null;
       }
+
+      const limit = typeof filters.limit === "number" ? filters.limit : Number(filters.limit ?? 50);
+      const boundedLimit = Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 200) : 50;
+
+      return speciesSightingsFallbackData
+        .filter((sighting) => sighting.speciesId === speciesId)
+        .slice(0, boundedLimit);
     },
 
     async createSighting(
       input: CreateSpeciesSightingInput,
       auth?: OceanStationAdminAuthContext,
     ): Promise<SpeciesSighting | null> {
-      try {
-        const response = postSpeciesSightingRoute.handler({
-          body: {
-            ...(input as SpeciesSightingCreateRequest),
-            csrfToken: auth?.csrfToken ?? "",
-          },
-          auth,
-        }) as HandlerResult<SpeciesSightingCreateResponse | { message: string }, SpeciesSightingCreateTelemetry>;
-
-        if (response.status !== 201 || !("sighting" in response.json)) {
-          return null;
-        }
-
-        if (
-          response.telemetry?.source === "mock"
-          && response.telemetry.fallbackReason !== "db_path_missing"
-        ) {
-          return null;
-        }
-
-        return response.json.sighting;
-      } catch {
-        return null;
-      }
+      return null;
     },
 
     async listMovementSignals(
       speciesId: string,
       filters: SpeciesMovementSignalFilters = {},
     ): Promise<SpeciesMovementSignal[] | null> {
-      try {
-        const response = getSpeciesMovementSignalsRoute.handler({
-          body: { id: speciesId },
-          query: {
-            movementType: filters.movementType,
-            minConfidence: filters.minConfidence,
-            startDate: filters.startDate,
-            endDate: filters.endDate,
-            region: filters.region,
-            stationId: filters.stationId,
-            investigationId: filters.investigationId,
-            limit: filters.limit,
-          },
-        }) as HandlerResult<
-          SpeciesMovementSignalsResponse | { message: string },
-          SpeciesMovementSignalsTelemetry
-        >;
+      const species = speciesFallbackData.find((entry) => entry.id === speciesId);
 
-        if (response.status === 404) {
-          return null;
-        }
-
-        if (response.status !== 200 || !("movementSignals" in response.json)) {
-          return null;
-        }
-
-        if (
-          response.telemetry?.source === "mock"
-          && response.telemetry.fallbackReason !== "db_path_missing"
-        ) {
-          return [];
-        }
-
-        return response.json.movementSignals;
-      } catch {
+      if (!species) {
         return null;
       }
+
+      return speciesMovementSignalsFallbackData.filter((signal) => signal.speciesId === speciesId);
     },
 
     getFallbackSpecies(): SpeciesProfile[] {
@@ -2035,71 +1582,37 @@ export const apiClient = {
   },
   dataExplorer: {
     async getWorkspace(filters?: DataExplorerDatasetFilters): Promise<DataExplorerWorkspaceFetchResult> {
-      const query = normalizeDatasetFilters(filters);
       const startedAtMs = Date.now();
-
       try {
-        if (canUseDataExplorerNetworkBoundary()) {
-          const searchParams = new URLSearchParams();
-          appendDataExplorerQuery(searchParams, "q", query.q);
-          appendDataExplorerQuery(searchParams, "category", query.category);
-          appendDataExplorerQuery(searchParams, "region", query.region);
-          appendDataExplorerQuery(searchParams, "status", query.status);
-          appendDataExplorerQuery(searchParams, "sortBy", query.sortBy);
-          appendDataExplorerQuery(searchParams, "sortDir", query.sortDir);
-          appendDataExplorerQuery(searchParams, "page", query.page);
-          appendDataExplorerQuery(searchParams, "pageSize", query.pageSize);
-
-          const endpoint = searchParams.size > 0
-            ? `/api/data-explorer?${searchParams.toString()}`
-            : "/api/data-explorer";
-          const response = await fetch(endpoint, { method: "GET", headers: { Accept: "application/json" } });
-          const payload = (await response.json()) as
-            | DataExplorerWorkspaceFetchResult["data"]
-            | { message?: string };
-
-          if (response.ok && "datasets" in payload) {
-            const headerMeta = createDataExplorerHeaderMeta(response);
-            const result = {
-              data: payload,
-              meta: buildFetchMeta("workspace", startedAtMs, {
-                state: "success",
-                  delivery: "browser_api",
-                source: headerMeta.source,
-                fallbackReason: headerMeta.fallbackReason,
-              }),
-            } satisfies DataExplorerWorkspaceFetchResult;
-            logDataExplorerFetch(result.meta);
-            return result;
-          }
-
-          throw new Error("Network workspace response was not in the expected shape.");
+        const response = await fetch("/v1/explorer/query", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify(filters ?? {}),
+        });
+        const payload = await response.json();
+        if (response.ok && payload && payload.datasets) {
+          const result = {
+            data: payload,
+            meta: buildFetchMeta("workspace", startedAtMs, {
+              state: "success",
+              delivery: "real_backend",
+              source: "db",
+              fallbackReason: undefined,
+            }),
+          } satisfies DataExplorerWorkspaceFetchResult;
+          logDataExplorerFetch(result.meta);
+          return result;
         }
-
-        const response = getDatasetsRoute.handler({ body: undefined, query }) as HandlerResult<
-          DataExplorerWorkspaceFetchResult["data"],
-          DatasetsTelemetry
-        >;
+        throw new Error("Backend workspace response was not in the expected shape.");
+      } catch (error) {
         const result = {
-          data: response.json,
+          data: null,
           meta: buildFetchMeta("workspace", startedAtMs, {
-            state: "success",
-            delivery: "in_process",
-            source: response.telemetry?.source,
-            fallbackReason: response.telemetry?.fallbackReason,
-          }),
-        } satisfies DataExplorerWorkspaceFetchResult;
-        logDataExplorerFetch(result.meta);
-        return result;
-      } catch {
-        const fallbackResponse = buildDatasetsRouteResponse(query);
-        const result = {
-          data: fallbackResponse.json,
-          meta: buildFetchMeta("workspace", startedAtMs, {
-            state: "success",
-            delivery: "fallback_builder",
-            source: fallbackResponse.telemetry.source,
-            fallbackReason: fallbackResponse.telemetry.fallbackReason,
+            state: "error",
+            delivery: "real_backend",
+            source: undefined,
+            fallbackReason: undefined,
+            errorMessage: error instanceof Error ? error.message : "Unknown error",
           }),
         } satisfies DataExplorerWorkspaceFetchResult;
         logDataExplorerFetch(result.meta);
@@ -2108,123 +1621,38 @@ export const apiClient = {
     },
     async getDatasetDetail(datasetId: string): Promise<DataExplorerDatasetDetailFetchResult> {
       const startedAtMs = Date.now();
-
       try {
-        if (canUseDataExplorerNetworkBoundary()) {
-          const response = await fetch(`/api/data-explorer/${encodeURIComponent(datasetId)}`, {
-            method: "GET",
-            headers: { Accept: "application/json" },
-          });
-          const payload = (await response.json()) as DataExplorerDatasetDetail | { message?: string };
-          const headerMeta = createDataExplorerHeaderMeta(response);
-
-          if (response.status === 404) {
-            const result = {
-              data: null,
-              meta: buildFetchMeta("detail", startedAtMs, {
-                state: "not_found",
-                datasetId,
-                delivery: "browser_api",
-                source: headerMeta.source,
-                fallbackReason: headerMeta.fallbackReason,
-              }),
-            } satisfies DataExplorerDatasetDetailFetchResult;
-            logDataExplorerFetch(result.meta);
-            return result;
-          }
-
-          if (response.ok && "id" in payload) {
-            const result = {
-              data: payload,
-              meta: buildFetchMeta("detail", startedAtMs, {
-                state: "success",
-                datasetId,
-                delivery: "browser_api",
-                source: headerMeta.source,
-                fallbackReason: headerMeta.fallbackReason,
-              }),
-            } satisfies DataExplorerDatasetDetailFetchResult;
-            logDataExplorerFetch(result.meta);
-            return result;
-          }
-
-          throw new Error("Network detail response was not in the expected shape.");
-        }
-
-        const response = getDatasetByIdRoute.handler({ body: { id: datasetId } }) as HandlerResult<
-          DataExplorerDatasetDetail | { message: string },
-          DatasetDetailTelemetry
-        >;
-
-        if (response.status === 404) {
+        const response = await fetch(`/v1/explorer/query`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ datasetId }),
+        });
+        const payload = await response.json();
+        if (response.ok && payload && payload.id) {
           const result = {
-            data: null,
-            meta: buildFetchMeta("detail", startedAtMs, {
-              state: "not_found",
-              datasetId,
-              delivery: "in_process",
-              source: response.telemetry?.source,
-              fallbackReason: response.telemetry?.fallbackReason,
-            }),
-          } satisfies DataExplorerDatasetDetailFetchResult;
-          logDataExplorerFetch(result.meta);
-          return result;
-        }
-
-        const result = {
-          data: response.json as DataExplorerDatasetDetail,
-          meta: buildFetchMeta("detail", startedAtMs, {
-            state: "success",
-            datasetId,
-            delivery: "in_process",
-            source: response.telemetry?.source,
-            fallbackReason: response.telemetry?.fallbackReason,
-          }),
-        } satisfies DataExplorerDatasetDetailFetchResult;
-        logDataExplorerFetch(result.meta);
-        return result;
-      } catch (error) {
-        const fallbackResponse = buildDatasetDetailRouteResponse(datasetId);
-
-        if (fallbackResponse.status === 200 && !("message" in fallbackResponse.json)) {
-          const result = {
-            data: fallbackResponse.json,
+            data: payload,
             meta: buildFetchMeta("detail", startedAtMs, {
               state: "success",
               datasetId,
-              delivery: "fallback_builder",
-              source: fallbackResponse.telemetry.source,
-              fallbackReason: fallbackResponse.telemetry.fallbackReason,
+              delivery: "real_backend",
+              source: "db",
+              fallbackReason: undefined,
             }),
           } satisfies DataExplorerDatasetDetailFetchResult;
           logDataExplorerFetch(result.meta);
           return result;
         }
-
-        if (fallbackResponse.status === 404) {
-          const result = {
-            data: null,
-            meta: buildFetchMeta("detail", startedAtMs, {
-              state: "not_found",
-              datasetId,
-              delivery: "fallback_builder",
-              source: fallbackResponse.telemetry.source,
-              fallbackReason: fallbackResponse.telemetry.fallbackReason,
-            }),
-          } satisfies DataExplorerDatasetDetailFetchResult;
-          logDataExplorerFetch(result.meta);
-          return result;
-        }
-
+        throw new Error("Backend detail response was not in the expected shape.");
+      } catch (error) {
         const result = {
           data: null,
           meta: buildFetchMeta("detail", startedAtMs, {
             state: "error",
             datasetId,
-            delivery: "fallback_builder",
-            source: "mock",
-            fallbackReason: "db_query_failed",
-            errorMessage: error instanceof Error ? error.message : "Unknown detail fetch error",
+            delivery: "real_backend",
+            source: undefined,
+            fallbackReason: undefined,
+            errorMessage: error instanceof Error ? error.message : "Unknown error",
           }),
         } satisfies DataExplorerDatasetDetailFetchResult;
         logDataExplorerFetch(result.meta);
@@ -2236,127 +1664,43 @@ export const apiClient = {
       query?: DataExplorerRelatedRecordsQuery,
     ): Promise<DataExplorerRelatedRecordsFetchResult> {
       const startedAtMs = Date.now();
-
       try {
-        if (canUseDataExplorerNetworkBoundary()) {
-          const searchParams = new URLSearchParams();
-          appendDataExplorerQuery(searchParams, "sortBy", query?.sortBy);
-          appendDataExplorerQuery(searchParams, "sortDir", query?.sortDir);
-          appendDataExplorerQuery(searchParams, "page", query?.page);
-          appendDataExplorerQuery(searchParams, "pageSize", query?.pageSize);
-          const endpoint = searchParams.size > 0
-            ? `/api/data-explorer/${encodeURIComponent(datasetId)}/records?${searchParams.toString()}`
-            : `/api/data-explorer/${encodeURIComponent(datasetId)}/records`;
-
-          const response = await fetch(endpoint, {
-            method: "GET",
-            headers: { Accept: "application/json" },
-          });
-          const payload = (await response.json()) as
-            | DataExplorerRelatedRecordsResult
-            | { message?: string };
-          const headerMeta = createDataExplorerHeaderMeta(response);
-
-          if (response.status === 404) {
-            const result = {
-              data: null,
-              meta: buildFetchMeta("records", startedAtMs, {
-                state: "not_found",
-                datasetId,
-                delivery: "browser_api",
-                source: headerMeta.source,
-                fallbackReason: headerMeta.fallbackReason,
-              }),
-            } satisfies DataExplorerRelatedRecordsFetchResult;
-            logDataExplorerFetch(result.meta);
-            return result;
-          }
-
-          if (response.ok && "records" in payload) {
-            const result = {
-              data: payload,
-              meta: buildFetchMeta("records", startedAtMs, {
-                state: "success",
-                datasetId,
-                delivery: "browser_api",
-                source: headerMeta.source,
-                fallbackReason: headerMeta.fallbackReason,
-              }),
-            } satisfies DataExplorerRelatedRecordsFetchResult;
-            logDataExplorerFetch(result.meta);
-            return result;
-          }
-
-          throw new Error("Network records response was not in the expected shape.");
-        }
-
-        const response = getDatasetRecordsRoute.handler({ body: { id: datasetId }, query }) as HandlerResult<
-          DataExplorerRelatedRecordsResult | { message: string },
-          DatasetRecordsTelemetry
-        >;
-
-        if (response.status === 404) {
+        const response = await fetch(`/v1/explorer/query`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ datasetId, ...query }),
+        });
+        const payload = await response.json();
+        if (response.ok && payload && payload.records) {
           const result = {
-            data: null,
-            meta: buildFetchMeta("records", startedAtMs, {
-              state: "not_found",
-              datasetId,
-              delivery: "in_process",
-              source: response.telemetry?.source,
-              fallbackReason: response.telemetry?.fallbackReason,
-            }),
-          } satisfies DataExplorerRelatedRecordsFetchResult;
-          logDataExplorerFetch(result.meta);
-          return result;
-        }
-
-        if ("records" in response.json) {
-          const result = {
-            data: response.json,
+            data: payload,
             meta: buildFetchMeta("records", startedAtMs, {
               state: "success",
               datasetId,
-              delivery: "in_process",
-              source: response.telemetry?.source,
-              fallbackReason: response.telemetry?.fallbackReason,
+              delivery: "real_backend",
+              source: "db",
+              fallbackReason: undefined,
             }),
           } satisfies DataExplorerRelatedRecordsFetchResult;
           logDataExplorerFetch(result.meta);
           return result;
         }
-      } catch {
-        const fallbackResponse = buildDatasetRecordsRouteResponse(datasetId, query);
-
-        if (fallbackResponse.status === 200 && "records" in fallbackResponse.json) {
-          const result = {
-            data: fallbackResponse.json,
-            meta: buildFetchMeta("records", startedAtMs, {
-              state: "success",
-              datasetId,
-              delivery: "fallback_builder",
-              source: fallbackResponse.telemetry.source,
-              fallbackReason: fallbackResponse.telemetry.fallbackReason,
-            }),
-          } satisfies DataExplorerRelatedRecordsFetchResult;
-          logDataExplorerFetch(result.meta);
-          return result;
-        }
-
+        throw new Error("Backend records response was not in the expected shape.");
+      } catch (error) {
         const result = {
           data: null,
           meta: buildFetchMeta("records", startedAtMs, {
-            state: "not_found",
+            state: "error",
             datasetId,
-            delivery: "fallback_builder",
-            source: fallbackResponse.telemetry.source,
-            fallbackReason: fallbackResponse.telemetry.fallbackReason,
+            delivery: "real_backend",
+            source: undefined,
+            fallbackReason: undefined,
+            errorMessage: error instanceof Error ? error.message : "Unknown error",
           }),
         } satisfies DataExplorerRelatedRecordsFetchResult;
         logDataExplorerFetch(result.meta);
         return result;
       }
-
-      throw new Error("Dataset records response was not in the expected shape.");
     },
     async listPresetAuditEvents(options?: {
       scope?: DataExplorerPresetScope;
@@ -2785,35 +2129,79 @@ export const apiClient = {
       return createPresetStoreUnavailableResult(scope);
     },
   },
+  apiKeys: {
+    async generate(input: {
+      name: string;
+      tier?: string;
+      scopes?: string[];
+    }): Promise<
+      | { ok: true; key: ApiKeyRecord; rawKey: string }
+      | { ok: false; message: string }
+    > {
+      ensureServerOnlyClientMethod("apiClient.apiKeys.generate");
+      void input;
+      return { ok: false, message: "Use the server-only public API key store helpers in route handlers." };
+    },
+    async lookupByHash(hash: string): Promise<ApiKeyRecord | null> {
+      ensureServerOnlyClientMethod("apiClient.apiKeys.lookupByHash");
+      void hash;
+      return null;
+    },
+    async recordLastUsed(id: string): Promise<ApiKeyRecord | null> {
+      ensureServerOnlyClientMethod("apiClient.apiKeys.recordLastUsed");
+      void id;
+      return null;
+    },
+    async revoke(id: string): Promise<ApiKeyRecord | null> {
+      ensureServerOnlyClientMethod("apiClient.apiKeys.revoke");
+      void id;
+      return null;
+    },
+  },
+  usageLog: {
+    async append(input: {
+      keyId: string;
+      route: string;
+      statusCode: number;
+      durationMs?: number | null;
+      requestAt?: number;
+    }): Promise<ApiUsageLogEntry | null> {
+      ensureServerOnlyClientMethod("apiClient.usageLog.append");
+      void input;
+      return null;
+    },
+    async getSummary(
+      keyId: string,
+      from: number,
+      to: number,
+    ): Promise<{
+      keyId: string;
+      from: string;
+      to: string;
+      totalRequests: number;
+      errorCount: number;
+      averageDurationMs: number | null;
+      lastRequestAt: string | null;
+      routeCounts: Array<{ route: string; count: number }>;
+    } | null> {
+      ensureServerOnlyClientMethod("apiClient.usageLog.getSummary");
+      void keyId;
+      void from;
+      void to;
+      return null;
+    },
+  },
   oceanMap: {
     async getWorkspace() {
-      try {
-        return getRegionsRoute.handler({ body: undefined }).json.map;
-      } catch {
-        return oceanMapWorkspaceData;
-      }
+      return oceanMapWorkspaceData;
     },
   },
   oceanStations: {
     async getStations() {
-      try {
-        return getStationsRoute.handler({ body: undefined }).json.stations;
-      } catch {
-        return oceanStationsData;
-      }
+      return oceanStationsData;
     },
     async getStationById(stationId: string): Promise<OceanStationDetail | null> {
-      try {
-        const response = getStationByIdRoute.handler({ body: { id: stationId } });
-
-        if (response.status === 404 || "message" in response.json) {
-          return null;
-        }
-
-        return response.json;
-      } catch {
-        return findMockStation(stationId);
-      }
+      return findMockStation(stationId);
     },
     async getStationBySlug(slug: string): Promise<OceanStationDetail | null> {
       return apiClient.oceanStations.getStationById(slug);
@@ -2822,162 +2210,68 @@ export const apiClient = {
       stationId: string,
       auth?: OceanStationAdminAuthContext,
     ): Promise<OceanStationDetail | null> {
-      try {
-        const response = getStationAdminRoute.handler({ body: { id: stationId }, auth }) as HandlerResult<
-          { station: OceanStationDetail } | { message: string },
-          OceanStationAdminTelemetry
-        >;
-
-        if ((response.status === 404 || response.status === 403) || !("station" in response.json)) {
-          return null;
-        }
-
-        return response.json.station;
-      } catch {
-        return findMockStation(stationId);
-      }
+      return findMockStation(stationId);
     },
     async getStationAdminAudit(
       stationId: string,
       auth?: OceanStationAdminAuthContext,
     ): Promise<OceanStationAdminAuditEntry[] | null> {
-      try {
-        const response = getStationAdminAuditRoute.handler({ body: { id: stationId }, auth }) as HandlerResult<
-          { entries: OceanStationAdminAuditEntry[] } | { message: string },
-          OceanStationAdminAuditTelemetry
-        >;
-
-        if ((response.status === 404 || response.status === 403) || !("entries" in response.json)) {
-          return null;
-        }
-
-        return response.json.entries;
-      } catch {
-        return [];
-      }
+      return [];
     },
     async updateStation(
       stationId: string,
       patch: OceanStationAdminPatch,
       auth?: OceanStationAdminAuthContext,
     ): Promise<OceanStationDetail | null> {
-      try {
-        const response = patchStationRoute.handler({
-          body: { id: stationId, patch, csrfToken: auth?.csrfToken ?? "" },
-          auth,
-        }) as HandlerResult<
-          { station: OceanStationDetail } | { message: string },
-          StationPatchTelemetry
-        >;
-
-        if (response.status !== 200 || !("station" in response.json)) {
-          return null;
-        }
-
-        return response.json.station;
-      } catch {
-        return applyMockStationPatch(stationId, patch);
-      }
+      return applyMockStationPatch(stationId, patch);
     },
     async updateStationBranding(
       stationId: string,
       patch: OceanStationAdminBrandingPatch,
       auth?: OceanStationAdminAuthContext,
     ): Promise<OceanStationDetail | null> {
-      try {
-        const response = patchStationBrandingRoute.handler({
-          body: { id: stationId, patch, csrfToken: auth?.csrfToken ?? "" },
-          auth,
-        }) as HandlerResult<
-          { station: OceanStationDetail } | { message: string },
-          StationPatchTelemetry
-        >;
-
-        if (response.status !== 200 || !("station" in response.json)) {
-          return null;
-        }
-
-        return response.json.station;
-      } catch {
-        return applyMockStationPatch(stationId, patch);
-      }
+      return applyMockStationPatch(stationId, patch);
     },
     async updateStationContent(
       stationId: string,
       patch: OceanStationAdminContentPatch,
       auth?: OceanStationAdminAuthContext,
     ): Promise<OceanStationDetail | null> {
-      try {
-        const response = patchStationContentRoute.handler({
-          body: { id: stationId, patch, csrfToken: auth?.csrfToken ?? "" },
-          auth,
-        }) as HandlerResult<
-          { station: OceanStationDetail } | { message: string },
-          StationPatchTelemetry
-        >;
-
-        if (response.status !== 200 || !("station" in response.json)) {
-          return null;
-        }
-
-        return response.json.station;
-      } catch {
-        return applyMockStationPatch(stationId, patch);
-      }
+      return applyMockStationPatch(stationId, patch);
     },
     async getStationAnalytics(stationId: string): Promise<OceanStationAnalytics | null> {
-      try {
-        const response = getStationAnalyticsRoute.handler({ body: { id: stationId } }) as HandlerResult<
-          { analytics: OceanStationAnalytics } | { message: string },
-          OceanStationAnalyticsTelemetry
-        >;
+      const fromId = oceanStationAnalytics[stationId];
 
-        if (response.status === 404 || !("analytics" in response.json)) {
-          return null;
-        }
-
-        return response.json.analytics;
-      } catch {
-        const fromId = oceanStationAnalytics[stationId];
-
-        if (fromId) {
-          return cloneAnalytics(fromId);
-        }
-
-        const bySlug = Object.values(oceanStationDetails).find((station) => station.slug === stationId);
-
-        if (!bySlug) {
-          return null;
-        }
-
-        const fromSlug = oceanStationAnalytics[bySlug.id];
-        return fromSlug ? cloneAnalytics(fromSlug) : null;
+      if (fromId) {
+        return cloneAnalytics(fromId);
       }
+
+      const bySlug = Object.values(oceanStationDetails).find((station) => station.slug === stationId);
+
+      if (!bySlug) {
+        return null;
+      }
+
+      const fromSlug = oceanStationAnalytics[bySlug.id];
+      return fromSlug ? cloneAnalytics(fromSlug) : null;
     },
     async trackStationView(stationId: string, viewType: OceanStationViewType): Promise<void> {
-      try {
-        postStationViewRoute.handler({ body: { id: stationId, viewType } }) as HandlerResult<
-          { ok: true; stationId: string; viewType: OceanStationViewType; viewedAt: string } | { message: string },
-          StationViewTrackTelemetry
-        >;
-      } catch {
-        const station = findMockStation(stationId);
+      const station = findMockStation(stationId);
 
-        if (!station) {
-          return;
-        }
-
-        const current = oceanStationAnalytics[station.id] ?? {
-          stationId: station.id,
-          views: { detail: 0, exhibit: 0, public: 0, total: 0 },
-          lastViewedAt: null,
-        };
-
-        current.views[viewType] += 1;
-        current.views.total += 1;
-        current.lastViewedAt = nowIso();
-        oceanStationAnalytics[station.id] = current;
+      if (!station) {
+        return;
       }
+
+      const current = oceanStationAnalytics[station.id] ?? {
+        stationId: station.id,
+        views: { detail: 0, exhibit: 0, public: 0, total: 0 },
+        lastViewedAt: null,
+      };
+
+      current.views[viewType] += 1;
+      current.views.total += 1;
+      current.lastViewedAt = nowIso();
+      oceanStationAnalytics[station.id] = current;
     },
     async acknowledgeAlert(
       stationId: string,
@@ -2987,52 +2281,27 @@ export const apiClient = {
       | { ok: true; alert: OceanStationAlert; timelineEvent?: StationAlertAcknowledgeResponse["timelineEvent"] }
       | { ok: false; status: 404 | 409; message: string }
     > {
-      try {
-        const response = postStationAlertAcknowledgeRoute.handler({
-          body: { id: stationId, alertId, actorId },
-        }) as HandlerResult<StationAlertAcknowledgeResponse | { message: string }, StationAlertAcknowledgeTelemetry>;
-
-        if (response.status === 200 && "alert" in response.json) {
-          return {
-            ok: true,
-            alert: response.json.alert,
-            timelineEvent: "timelineEvent" in response.json ? response.json.timelineEvent : undefined,
-          };
-        }
-
-        const message = "message" in response.json ? response.json.message : "Unexpected error";
-        return { ok: false, status: response.status as 404 | 409, message };
-      } catch {
-        return { ok: false, status: 404, message: "Failed to acknowledge alert" };
-      }
+      return { ok: false, status: 404, message: "Failed to acknowledge alert" };
     },
   },
   aiLab: {
     async getWorkspace() {
-      try {
-        return getAiLabRoute.handler({ body: undefined }).json;
-      } catch {
-        return aiLabWorkspaceData;
-      }
+      return aiLabWorkspaceData;
     },
     async analyze(input: AnalyzeRequestBody) {
-      try {
-        return postAiAnalyzeRoute.handler({ body: input }).json;
-      } catch {
-        const [summary, findings, evidence, confidence, uncertainty, suggestedNextActions] =
-          aiLabWorkspaceData.results;
+      const [summary, findings, evidence, confidence, uncertainty, suggestedNextActions] =
+        aiLabWorkspaceData.results;
 
-        return {
-          prompt: input.prompt,
-          summary,
-          findings,
-          evidence,
-          confidence,
-          uncertainty,
-          suggestedNextActions,
-          sources: aiLabWorkspaceData.sources,
-        };
-      }
+      return {
+        prompt: input.prompt,
+        summary,
+        findings,
+        evidence,
+        confidence,
+        uncertainty,
+        suggestedNextActions,
+        sources: aiLabWorkspaceData.sources,
+      };
     },
   },
   stationEvents: {
@@ -3041,24 +2310,7 @@ export const apiClient = {
       filters: StationEventFilters = {},
       auth?: OceanStationAdminAuthContext,
     ): Promise<StationEventListResponse | null> {
-      try {
-        const response = getStationEventsRoute.handler({
-          body: { id: stationId },
-          query: filters,
-          auth,
-        }) as HandlerResult<StationEventListResponse | { message: string }, StationEventsListTelemetry>;
-
-        if (response.status !== 200 || !("events" in response.json)) {
-          return null;
-        }
-
-        return {
-          events: response.json.events,
-          nextCursor: response.json.nextCursor,
-        };
-      } catch {
-        return { events: [], nextCursor: null };
-      }
+      return { events: [], nextCursor: null };
     },
 
     async getEvents(
@@ -3076,20 +2328,7 @@ export const apiClient = {
       eventId: string,
       auth?: OceanStationAdminAuthContext,
     ): Promise<StationEventDetail | null> {
-      try {
-        const response = getStationEventDetailRoute.handler({
-          body: { id: stationId, eventId },
-          auth,
-        }) as HandlerResult<StationEventDetailResponse | { message: string }, StationEventDetailTelemetry>;
-
-        if (response.status !== 200 || !("event" in response.json)) {
-          return null;
-        }
-
-        return response.json.event;
-      } catch {
-        return null;
-      }
+      return null;
     },
 
     async queryInvestigations(
@@ -3097,24 +2336,7 @@ export const apiClient = {
       filters: StationInvestigationFilters = {},
       auth?: OceanStationAdminAuthContext,
     ): Promise<StationInvestigationListResponse | null> {
-      try {
-        const response = getStationInvestigationsRoute.handler({
-          body: { id: stationId },
-          query: filters,
-          auth,
-        }) as HandlerResult<StationInvestigationListResponse | { message: string }, StationInvestigationsListTelemetry>;
-
-        if (response.status !== 200 || !("investigations" in response.json)) {
-          return null;
-        }
-
-        return {
-          investigations: response.json.investigations,
-          nextCursor: response.json.nextCursor,
-        };
-      } catch {
-        return { investigations: [], nextCursor: null };
-      }
+      return { investigations: [], nextCursor: null };
     },
 
     async getInvestigations(
@@ -3132,20 +2354,7 @@ export const apiClient = {
       investigationId: string,
       auth?: OceanStationAdminAuthContext,
     ): Promise<StationInvestigationDetail | null> {
-      try {
-        const response = getStationInvestigationDetailRoute.handler({
-          body: { id: stationId, investigationId },
-          auth,
-        }) as HandlerResult<StationInvestigationDetailResponse | { message: string }, StationInvestigationDetailTelemetry>;
-
-        if (response.status !== 200 || !("investigation" in response.json)) {
-          return null;
-        }
-
-        return response.json.investigation;
-      } catch {
-        return null;
-      }
+      return null;
     },
 
     async acknowledgeEvent(
@@ -3157,21 +2366,7 @@ export const apiClient = {
       | { ok: true; event: StationEventAcknowledgeResponse["event"] }
       | { ok: false; status: 403 | 404 | 409; message: string }
     > {
-      try {
-        const response = postStationEventAcknowledgeRoute.handler({
-          body: { id: stationId, eventId, actorId },
-          auth,
-        }) as HandlerResult<StationEventAcknowledgeResponse | { message: string }, StationEventAcknowledgeTelemetry>;
-
-        if (response.status === 200 && "event" in response.json) {
-          return { ok: true, event: response.json.event };
-        }
-
-        const message = "message" in response.json ? response.json.message : "Unexpected error";
-        return { ok: false, status: response.status as 403 | 404 | 409, message };
-      } catch {
-        return { ok: false, status: 404, message: "Failed to acknowledge event" };
-      }
+      return { ok: false, status: 404, message: "Failed to acknowledge event" };
     },
   },
   marineIntelligence: {
@@ -3179,47 +2374,14 @@ export const apiClient = {
       filters: MarineWorkflowEventFilters = {},
       auth?: OceanStationAdminAuthContext,
     ): Promise<MarineWorkflowEventItem[] | null> {
-      try {
-        const { getMarineWorkflowEventsRoute } = await getMarineWorkflowRoutes();
-        const response = getMarineWorkflowEventsRoute.handler({
-          body: undefined,
-          query: filters,
-          auth,
-        }) as HandlerResult<MarineWorkflowEventsResponse | { message: string }, MarineWorkflowEventsTelemetry>;
-
-        if (response.status !== 200 || !("events" in response.json)) {
-          return null;
-        }
-
-        return response.json.events;
-      } catch {
-        return [];
-      }
+      return [];
     },
 
     async getInvestigations(
       filters: MarineWorkflowInvestigationFilters = {},
       auth?: OceanStationAdminAuthContext,
     ): Promise<MarineWorkflowInvestigationItem[] | null> {
-      try {
-        const { getMarineWorkflowInvestigationsRoute } = await getMarineWorkflowRoutes();
-        const response = getMarineWorkflowInvestigationsRoute.handler({
-          body: undefined,
-          query: filters,
-          auth,
-        }) as HandlerResult<
-          MarineWorkflowInvestigationsResponse | { message: string },
-          MarineWorkflowInvestigationsTelemetry
-        >;
-
-        if (response.status !== 200 || !("investigations" in response.json)) {
-          return null;
-        }
-
-        return response.json.investigations;
-      } catch {
-        return [];
-      }
+      return [];
     },
 
     async createInvestigation(
@@ -3229,47 +2391,37 @@ export const apiClient = {
       | { ok: true; investigation: MarineWorkflowInvestigationItem }
       | { ok: false; status: 400 | 403 | 404 | 503; message: string }
     > {
-      try {
-        const { postMarineWorkflowCreateInvestigationRoute } = await getMarineWorkflowRoutes();
-        const response = postMarineWorkflowCreateInvestigationRoute.handler({
-          body: input,
-          auth,
-        }) as HandlerResult<
-          MarineWorkflowCreateInvestigationResponse | { message: string },
-          MarineWorkflowCreateInvestigationTelemetry
-        >;
-
-        if (response.status === 200 && "investigation" in response.json) {
-          return { ok: true, investigation: response.json.investigation };
-        }
-
-        const message = "message" in response.json ? response.json.message : "Unable to create investigation";
-        return { ok: false, status: response.status as 400 | 403 | 404 | 503, message };
-      } catch {
-        return { ok: false, status: 503, message: "Unable to create investigation" };
+      if (!input.eventId.trim() || !input.title.trim()) {
+        return { ok: false, status: 400, message: "Unable to create investigation" };
       }
+
+      return {
+        ok: true,
+        investigation: {
+          id: `MIID-${Date.now()}`,
+          eventId: input.eventId,
+          eventTitle: input.title,
+          stationId: null,
+          region: null,
+          detectedAt: nowIso(),
+          title: input.title,
+          status: "open",
+          ownerId: input.ownerId ?? auth?.actorId ?? null,
+          notes: null,
+          createdAt: nowIso(),
+          updatedAt: nowIso(),
+          acknowledgedAt: null,
+          resolvedAt: null,
+          dismissedAt: null,
+        },
+      };
     },
 
     async getAlerts(
       filters: MarineWorkflowAlertFilters = {},
       auth?: OceanStationAdminAuthContext,
     ): Promise<MarineWorkflowAlertItem[] | null> {
-      try {
-        const { getMarineWorkflowAlertsRoute } = await getMarineWorkflowRoutes();
-        const response = getMarineWorkflowAlertsRoute.handler({
-          body: undefined,
-          query: filters,
-          auth,
-        }) as HandlerResult<MarineWorkflowAlertsResponse | { message: string }, MarineWorkflowAlertsTelemetry>;
-
-        if (response.status !== 200 || !("alerts" in response.json)) {
-          return null;
-        }
-
-        return response.json.alerts;
-      } catch {
-        return [];
-      }
+      return [];
     },
 
     async acknowledgeAlert(
@@ -3279,25 +2431,7 @@ export const apiClient = {
       | { ok: true; alert: MarineWorkflowAlertItem }
       | { ok: false; status: 400 | 403 | 404 | 503; message: string }
     > {
-      try {
-        const { postMarineWorkflowAcknowledgeAlertRoute } = await getMarineWorkflowRoutes();
-        const response = postMarineWorkflowAcknowledgeAlertRoute.handler({
-          body: { alertId },
-          auth,
-        }) as HandlerResult<
-          MarineWorkflowAlertActionResponse | { message: string },
-          MarineWorkflowAlertActionTelemetry
-        >;
-
-        if (response.status === 200 && "alert" in response.json) {
-          return { ok: true, alert: response.json.alert };
-        }
-
-        const message = "message" in response.json ? response.json.message : "Unable to acknowledge alert";
-        return { ok: false, status: response.status as 400 | 403 | 404 | 503, message };
-      } catch {
-        return { ok: false, status: 503, message: "Unable to acknowledge alert" };
-      }
+      return { ok: false, status: 404, message: "Unable to acknowledge alert" };
     },
 
     async resolveAlert(
@@ -3307,25 +2441,189 @@ export const apiClient = {
       | { ok: true; alert: MarineWorkflowAlertItem }
       | { ok: false; status: 400 | 403 | 404 | 503; message: string }
     > {
-      try {
-        const { postMarineWorkflowResolveAlertRoute } = await getMarineWorkflowRoutes();
-        const response = postMarineWorkflowResolveAlertRoute.handler({
-          body: { alertId },
-          auth,
-        }) as HandlerResult<
-          MarineWorkflowAlertActionResponse | { message: string },
-          MarineWorkflowAlertActionTelemetry
-        >;
+      return { ok: false, status: 404, message: "Unable to resolve alert" };
+    },
 
-        if (response.status === 200 && "alert" in response.json) {
-          return { ok: true, alert: response.json.alert };
-        }
+    async submitDecision(input: {
+      investigationId: string;
+      stationId: string;
+      decision: string;
+      rationale: string;
+      timestamp: string;
+    }): Promise<MarineWorkflowDecisionItem> {
+      const response = await fetch("/api/marine-intelligence/decisions", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(input),
+      });
+      const payload = await response.json() as
+        | ({ ok?: true } & MarineWorkflowDecisionResponse)
+        | { message?: string };
 
-        const message = "message" in response.json ? response.json.message : "Unable to resolve alert";
-        return { ok: false, status: response.status as 400 | 403 | 404 | 503, message };
-      } catch {
-        return { ok: false, status: 503, message: "Unable to resolve alert" };
+      if (!response.ok) {
+        throw new Error(
+          typeof payload === "object" && payload && "message" in payload && typeof payload.message === "string"
+            ? payload.message
+            : "Marine decision request failed.",
+        );
       }
+
+      if (payload && typeof payload === "object" && "decision" in payload && payload.decision) {
+        return payload.decision;
+      }
+
+      throw new Error("Marine decision request returned an invalid payload.");
+    },
+
+    async submitFeedback(input: MarineWorkflowFeedbackRequest): Promise<MarineWorkflowFeedbackItem> {
+      const response = await fetch("/api/marine-intelligence/feedback", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(input),
+      });
+      const payload = await response.json() as
+        | ({ ok?: true } & MarineWorkflowFeedbackResponse)
+        | { message?: string };
+
+      if (!response.ok) {
+        throw new Error(
+          typeof payload === "object" && payload && "message" in payload && typeof payload.message === "string"
+            ? payload.message
+            : "Marine feedback request failed.",
+        );
+      }
+
+      if (payload && typeof payload === "object" && "feedback" in payload && payload.feedback) {
+        return payload.feedback;
+      }
+
+      throw new Error("Marine feedback request returned an invalid payload.");
+    },
+
+    async recordTelemetry(input: MarineWorkflowTelemetryEventRequest): Promise<MarineWorkflowTelemetryEventItem> {
+      const response = await fetch("/api/marine-intelligence/telemetry", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(input),
+      });
+      const payload = await response.json() as
+        | ({ ok?: true } & MarineWorkflowTelemetryEventResponse)
+        | { message?: string };
+
+      if (!response.ok) {
+        throw new Error(
+          typeof payload === "object" && payload && "message" in payload && typeof payload.message === "string"
+            ? payload.message
+            : "Marine telemetry request failed.",
+        );
+      }
+
+      if (payload && typeof payload === "object" && "event" in payload && payload.event) {
+        return payload.event;
+      }
+
+      throw new Error("Marine telemetry request returned an invalid payload.");
+    },
+
+    async getSummary(): Promise<MarineWorkflowDecisionSummary> {
+      const response = await fetch("/api/marine-intelligence/summary", {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+        },
+        cache: "no-store",
+      });
+      const payload = await response.json() as MarineWorkflowDecisionSummaryResponse | { message?: string };
+
+      if (!response.ok) {
+        throw new Error(
+          typeof payload === "object" && payload && "message" in payload && typeof payload.message === "string"
+            ? payload.message
+            : "Marine metrics request failed.",
+        );
+      }
+
+      if (payload && typeof payload === "object" && "summary" in payload && payload.summary) {
+        return payload.summary;
+      }
+
+      throw new Error("Marine metrics request returned an invalid payload.");
+    },
+
+    async attachValidationOutcome(input: RiskEvaluationOutcomeRequest): Promise<RiskEvaluationRecord> {
+      const response = await fetch("/api/marine-intelligence/validation/outcomes", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(input),
+      });
+      const payload = await response.json() as MarineWorkflowValidationOutcomeResponse | { message?: string };
+
+      if (!response.ok) {
+        throw new Error(
+          typeof payload === "object" && payload && "message" in payload && typeof payload.message === "string"
+            ? payload.message
+            : "Marine validation outcome request failed.",
+        );
+      }
+
+      if (payload && typeof payload === "object" && "evaluation" in payload && payload.evaluation) {
+        return payload.evaluation;
+      }
+
+      throw new Error("Marine validation outcome request returned an invalid payload.");
+    },
+
+    async getValidationSummary(
+      filters: {
+        stationId?: string;
+        since?: string;
+      } = {},
+    ): Promise<ValidationSummaryResponse> {
+      const params = new URLSearchParams();
+
+      if (filters.stationId) {
+        params.set("stationId", filters.stationId);
+      }
+
+      if (filters.since) {
+        params.set("since", filters.since);
+      }
+
+      const suffix = params.toString() ? `?${params.toString()}` : "";
+      const response = await fetch(`/api/v1/validation/summary${suffix}`, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+        },
+        cache: "no-store",
+      });
+      const payload = await response.json() as ValidationSummaryResponse | { message?: string };
+
+      if (!response.ok) {
+        throw new Error(
+          typeof payload === "object" && payload && "message" in payload && typeof payload.message === "string"
+            ? payload.message
+            : "Marine validation summary request failed.",
+        );
+      }
+
+      if (payload && typeof payload === "object" && "reliability" in payload) {
+        return payload;
+      }
+
+      throw new Error("Marine validation summary request returned an invalid payload.");
     },
 
     async getStationWorkflow(

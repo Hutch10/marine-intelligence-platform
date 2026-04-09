@@ -5,6 +5,7 @@ import {
   type SqliteStatementLike,
   resolveDatabasePath,
 } from "../db/client";
+import { CRW_SOURCE } from "../connectors/coral-reef-watch/constants";
 import type { ReefAlertsFallbackReason } from "../types";
 import type { ReefStressWatchItem } from "@marine/shared";
 
@@ -17,7 +18,20 @@ interface DerivedSignalRow {
   station_id: string | null;
   region_key: string;
   signal_label: string | null;
+  signal_value: number | string | null;
   observed_at: number | string;
+  source_timestamp: string;
+}
+
+export interface CrwRiskHistoryItem {
+  stationId: string | null;
+  regionKey: string;
+  observedAt: number;
+  sourceTimestamp: string;
+  sstAnomalyC: number | null;
+  hotSpotC: number | null;
+  dhw: number | null;
+  stressLevel: string | null;
 }
 
 export interface StationMetricInsertInput {
@@ -101,6 +115,19 @@ function toTimestamp(value: number | string): number {
   }
 
   return Date.now();
+}
+
+function shouldExcludeSyntheticBaselineData(): boolean {
+  return process.env.NODE_ENV === "production"
+    && String(process.env.ALLOW_SYNTHETIC_BASELINE_IN_PRODUCTION ?? "false").trim().toLowerCase() !== "true";
+}
+
+function syntheticCrwPredicate(): string {
+  if (!shouldExcludeSyntheticBaselineData()) {
+    return "";
+  }
+
+  return " AND source_reference NOT LIKE 'synthetic://%'";
 }
 
 function signalKey(stationId: string | null, regionKey: string): string {
@@ -284,13 +311,14 @@ export function readLatestReefStressFromDb(
 ): ReefStressWatchItem[] {
   const rows = toStatement(
     db,
-    `SELECT station_id, region_key, signal_label, observed_at
+    `SELECT station_id, region_key, signal_label, signal_value, observed_at, source_timestamp
      FROM derived_signals
-     WHERE source = 'noaa_coral_reef_watch'
+     WHERE source = ?
        AND signal_type = 'reef_bleaching_alert_level'
+       ${syntheticCrwPredicate()}
      ORDER BY observed_at DESC
      LIMIT 200`,
-  ).all() as DerivedSignalRow[];
+  ).all(CRW_SOURCE) as DerivedSignalRow[];
 
   const latestByKey = new Map<string, DerivedSignalRow>();
 
@@ -307,7 +335,7 @@ export function readLatestReefStressFromDb(
     const observedAt = toTimestamp(row.observed_at);
     const metrics = readMetricsForSnapshot(
       db,
-      "noaa_coral_reef_watch",
+      CRW_SOURCE,
       row.region_key,
       row.station_id,
       observedAt,
@@ -321,10 +349,80 @@ export function readLatestReefStressFromDb(
       hotSpotC: metrics.hotspot_c ?? null,
       dhw: metrics.dhw ?? null,
       stressLevel: row.signal_label,
-      source: "noaa_coral_reef_watch",
+      source: CRW_SOURCE,
       outputClass: "derived" as const,
     };
   });
+}
+
+function readCrwHistoryRows(
+  db: SqliteDatabaseLike,
+  sinceObservedAt: number,
+  limit: number,
+): DerivedSignalRow[] {
+  return toStatement(
+    db,
+    `SELECT station_id, region_key, signal_label, signal_value, observed_at, source_timestamp
+     FROM derived_signals
+     WHERE source = ?
+       AND signal_type = 'reef_bleaching_alert_level'
+       AND observed_at >= ?
+       ${syntheticCrwPredicate()}
+     ORDER BY observed_at DESC
+     LIMIT ?`,
+  ).all(CRW_SOURCE, sinceObservedAt, limit) as DerivedSignalRow[];
+}
+
+function toCrwRiskHistoryItem(
+  db: SqliteDatabaseLike,
+  row: DerivedSignalRow,
+): CrwRiskHistoryItem {
+  const observedAt = toTimestamp(row.observed_at);
+  const metrics = readMetricsForSnapshot(
+    db,
+    CRW_SOURCE,
+    row.region_key,
+    row.station_id,
+    observedAt,
+  );
+
+  return {
+    stationId: row.station_id,
+    regionKey: row.region_key,
+    observedAt,
+    sourceTimestamp: row.source_timestamp,
+    sstAnomalyC: metrics.sst_anomaly_c ?? null,
+    hotSpotC: metrics.hotspot_c ?? null,
+    dhw: metrics.dhw ?? null,
+    stressLevel: row.signal_label,
+  };
+}
+
+export function readRecentCrwRiskHistoryFromDb(
+  db: SqliteDatabaseLike,
+  sinceObservedAt: number,
+  limit = 120,
+): CrwRiskHistoryItem[] {
+  const rows = readCrwHistoryRows(db, sinceObservedAt, limit * 4);
+  const latestByKey = new Map<string, DerivedSignalRow>();
+
+  for (const row of rows) {
+    const key = `${signalKey(row.station_id, row.region_key)}:${toTimestamp(row.observed_at)}`;
+    if (!latestByKey.has(key)) {
+      latestByKey.set(key, row);
+    }
+  }
+
+  return [...latestByKey.values()]
+    .slice(0, limit)
+    .map((row) => toCrwRiskHistoryItem(db, row));
+}
+
+export function readLatestCrwRiskSnapshotFromDb(
+  db: SqliteDatabaseLike,
+): CrwRiskHistoryItem | null {
+  const history = readRecentCrwRiskHistoryFromDb(db, 0, 1);
+  return history[0] ?? null;
 }
 
 export function listLatestReefStress(

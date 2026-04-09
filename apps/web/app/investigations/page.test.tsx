@@ -2,83 +2,82 @@ import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { vi } from "vitest";
 import InvestigationsPage from "@/app/investigations/page";
-import type { InvestigationsWorkspaceData } from "@/lib/api/types";
+import type { InvestigationAnalysisTrack } from "@marine/shared";
 
-const WORKSPACE: InvestigationsWorkspaceData = {
-  filterGroups: [],
-  signalMetrics: [],
-  analysisTracks: [
-    {
-      id: "TRK-201",
-      title: "Surface temperature acceleration",
-      summary: "Elevated SST continues to widen eastward.",
-      confidence: 86,
-      state: "Escalated",
-    },
-  ],
-  hypothesisLog: [],
-  evidenceItems: [],
-  timeline: [],
-  speciesSummary: {
-    investigationId: "TRK-201",
-    generatedAt: "2026-03-17T12:00:00.000Z",
-    speciesCount: 1,
-    linkedMovementSignalCount: 1,
-    verifiedSightingCount: 1,
-    pendingVerificationCount: 0,
-    entries: [
-      {
-        speciesId: "SP-BLUE-WHALE",
-        commonName: "Blue Whale",
-        scientificName: "Balaenoptera musculus",
-        movementSignalCount: 1,
-        verifiedSightingCount: 1,
-        pendingVerificationCount: 0,
-        matchedStationCount: 1,
-        lastObservedAt: "2026-03-13T11:04:00.000Z",
-        maxMovementConfidence: 84,
-        relevanceScore: 75,
-        responseTier: "priority",
-        reasonTrail: [],
-      },
-    ],
-    explainabilityNote: "deterministic",
-  },
+const INV_A: InvestigationAnalysisTrack = {
+  id: "INV-001",
+  title: "Thermal anomaly at station 46042",
+  summary: "SST spike detected above 45-day baseline.",
+  state: "Escalated",
+  confidence: 82,
+  outcome: null,
 };
 
-const { mockApiClient } = vi.hoisted(() => ({
-  mockApiClient: {
-    investigations: {
-      getWorkspace: vi.fn(),
-    },
-  },
+const INV_B: InvestigationAnalysisTrack = {
+  id: "INV-002",
+  title: "Salinity anomaly — North Pacific sector",
+  summary: "Salinity drop consistent with freshwater intrusion.",
+  state: "Watch",
+  confidence: 55,
+  outcome: "inconclusive",
+};
+
+const { mockListInvestigations } = vi.hoisted(() => ({
+  mockListInvestigations: vi.fn(),
 }));
 
-vi.mock("@/lib/api/client", () => ({
-  apiClient: mockApiClient,
+vi.mock("@/lib/server/investigations", () => ({
+  listInvestigations: mockListInvestigations,
 }));
 
 vi.mock("@/components/layout/app-shell", () => ({
   AppShell: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
 
-vi.mock("@/components/investigations/investigation-workspace", () => ({
-  InvestigationWorkspace: ({ data }: { data: InvestigationsWorkspaceData }) => (
-    <div data-testid="investigation-workspace">
-      {data.analysisTracks[0]?.id}:{data.speciesSummary?.speciesCount ?? 0}
-    </div>
-  ),
-}));
-
 beforeEach(() => {
-  mockApiClient.investigations.getWorkspace.mockReset();
-  mockApiClient.investigations.getWorkspace.mockResolvedValue(WORKSPACE);
+  mockListInvestigations.mockReset();
 });
 
-test("investigations page loads workspace with species summary", async () => {
+test("renders investigation rows with clickable IDs and titles", async () => {
+  mockListInvestigations.mockResolvedValue([INV_A, INV_B]);
   const page = await InvestigationsPage();
   render(page);
 
-  expect(mockApiClient.investigations.getWorkspace).toHaveBeenCalled();
-  expect(screen.getByTestId("investigation-workspace")).toHaveTextContent("TRK-201:1");
+  const idLink = screen.getByRole("link", { name: "INV-001" });
+  expect(idLink).toHaveAttribute("href", "/investigations/INV-001");
+
+  const titleLink = screen.getByRole("link", { name: "Thermal anomaly at station 46042" });
+  expect(titleLink).toHaveAttribute("href", "/investigations/INV-001");
+
+  expect(screen.getAllByText("Escalated").length).toBeGreaterThanOrEqual(1);
+  expect(screen.getByText("82%")).toBeInTheDocument();
+});
+
+test("renders outcome label when set", async () => {
+  mockListInvestigations.mockResolvedValue([INV_B]);
+  const page = await InvestigationsPage();
+  render(page);
+
+  expect(screen.getByText("Inconclusive")).toBeInTheDocument();
+});
+
+test("renders empty state when no investigations returned", async () => {
+  mockListInvestigations.mockResolvedValue([]);
+  const page = await InvestigationsPage();
+  render(page);
+
+  expect(screen.getByText("No investigations found")).toBeInTheDocument();
+  expect(screen.queryByRole("table")).not.toBeInTheDocument();
+});
+
+test("stats bar shows correct counts", async () => {
+  mockListInvestigations.mockResolvedValue([INV_A, INV_B]);
+  const page = await InvestigationsPage();
+  render(page);
+
+  // Total = 2
+  const cells = screen.getAllByText("2");
+  expect(cells.length).toBeGreaterThanOrEqual(1);
+  // Escalated = 1
+  expect(screen.getByText("1")).toBeInTheDocument();
 });

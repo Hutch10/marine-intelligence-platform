@@ -143,6 +143,17 @@ function createMockDb(options: MockDbOptions) {
           }
 
           if (sql.includes("FROM station_admin_mfa_challenges")) {
+            if (sql.includes("challenge_purpose = ?")) {
+              const actorId = typeof params[0] === "string" ? params[0] : "";
+              const sessionId = typeof params[1] === "string" ? params[1] : "";
+              const purpose = typeof params[2] === "string" ? params[2] : "";
+
+              if (challengeRow && challengeRow.actor_id === actorId && challengeRow.session_id === sessionId && challengeRow.challenge_purpose === purpose) {
+                return [challengeRow];
+              }
+              return [];
+            }
+
             const challengeId = typeof params[0] === "string" ? params[0] : "";
             const mapped = challengeId && options.challengeRowsById
               ? options.challengeRowsById[challengeId]
@@ -1301,13 +1312,16 @@ test("revokeStationAdminSession accepts recent successful step-up event for same
         mfa_secret: MFA_TEST_SECRET,
       },
     },
-    authEventRows: [
-      {
-        event_type: "mfa_challenge_success",
-        occurred_at: new Date(NOW - 30_000).toISOString(),
-        metadata: JSON.stringify({ challengePurpose: "session_revoke" }),
-      },
-    ],
+    challengeRow: {
+      id: "test-challenge-id",
+      actor_id: adminSession.actor_id,
+      challenge_purpose: "session_revoke",
+      session_id: adminSession.id,
+      expires_at: new Date(NOW + 600_000).toISOString(),
+      attempts_remaining: 4,
+      consumed_at: new Date(NOW - 30_000).toISOString(),
+      metadata: null,
+    },
     inserts,
   });
 

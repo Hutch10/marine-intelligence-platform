@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 import { StationAdminLoginPanel } from "@/components/ocean-stations/station-admin-login-panel";
@@ -19,6 +19,10 @@ function mockJsonResponse(status: number, payload: unknown) {
     status,
     json: async () => payload,
   } as Response;
+}
+
+function setInputValue(label: string, value: string) {
+  fireEvent.change(screen.getByLabelText(label), { target: { value } });
 }
 
 beforeEach(() => {
@@ -57,8 +61,8 @@ test("login form renders MFA challenge UI when login returns pending_mfa", async
     />,
   );
 
-  await user.type(screen.getByLabelText("Actor ID"), "ops.lead@marine.local");
-  await user.type(screen.getByLabelText("Password"), "marine-admin-2026");
+  setInputValue("Actor ID", "ops.lead@marine.local");
+  setInputValue("Password", "marine-admin-2026");
   await user.click(screen.getByRole("button", { name: "Sign in" }));
 
   expect(await screen.findByText("MFA Challenge")).toBeInTheDocument();
@@ -113,11 +117,11 @@ test("successful MFA verification redirects to destination", async () => {
     />,
   );
 
-  await user.type(screen.getByLabelText("Actor ID"), "ops.lead@marine.local");
-  await user.type(screen.getByLabelText("Password"), "marine-admin-2026");
+  setInputValue("Actor ID", "ops.lead@marine.local");
+  setInputValue("Password", "marine-admin-2026");
   await user.click(screen.getByRole("button", { name: "Sign in" }));
 
-  await user.type(await screen.findByLabelText("Authenticator code"), "246810");
+  fireEvent.change(await screen.findByLabelText("Authenticator code"), { target: { value: "246810" } });
   await user.click(screen.getByRole("button", { name: "Verify challenge" }));
 
   expect(routerMock.push).toHaveBeenCalledWith("/ocean-stations/STA-NPC-01/admin");
@@ -160,11 +164,11 @@ test("failed MFA verification shows inline error", async () => {
     />,
   );
 
-  await user.type(screen.getByLabelText("Actor ID"), "ops.lead@marine.local");
-  await user.type(screen.getByLabelText("Password"), "marine-admin-2026");
+  setInputValue("Actor ID", "ops.lead@marine.local");
+  setInputValue("Password", "marine-admin-2026");
   await user.click(screen.getByRole("button", { name: "Sign in" }));
 
-  await user.type(await screen.findByLabelText("Authenticator code"), "000000");
+  fireEvent.change(await screen.findByLabelText("Authenticator code"), { target: { value: "000000" } });
   await user.click(screen.getByRole("button", { name: "Verify challenge" }));
 
   expect(await screen.findByText("MFA code invalid")).toBeInTheDocument();
@@ -210,11 +214,11 @@ test("rate-limited MFA verification shows cooldown and disables submit", async (
     />,
   );
 
-  await user.type(screen.getByLabelText("Actor ID"), "ops.lead@marine.local");
-  await user.type(screen.getByLabelText("Password"), "marine-admin-2026");
+  setInputValue("Actor ID", "ops.lead@marine.local");
+  setInputValue("Password", "marine-admin-2026");
   await user.click(screen.getByRole("button", { name: "Sign in" }));
 
-  await user.type(await screen.findByLabelText("Authenticator code"), "111111");
+  fireEvent.change(await screen.findByLabelText("Authenticator code"), { target: { value: "111111" } });
   await user.click(screen.getByRole("button", { name: "Verify challenge" }));
 
   expect(await screen.findByText(/MFA verification rate-limited\. Try again in \d+s\./)).toBeInTheDocument();
@@ -260,11 +264,11 @@ test("login panel MFA verification displays locked_out when challenge exhausted"
     />,
   );
 
-  await user.type(screen.getByLabelText("Actor ID"), "ops.lead@marine.local");
-  await user.type(screen.getByLabelText("Password"), "marine-admin-2026");
+  setInputValue("Actor ID", "ops.lead@marine.local");
+  setInputValue("Password", "marine-admin-2026");
   await user.click(screen.getByRole("button", { name: "Sign in" }));
 
-  await user.type(await screen.findByLabelText("Authenticator code"), "000000");
+  fireEvent.change(await screen.findByLabelText("Authenticator code"), { target: { value: "000000" } });
   await user.click(screen.getByRole("button", { name: "Verify challenge" }));
 
   expect(
@@ -309,11 +313,11 @@ test("login panel MFA verification displays expired state", async () => {
     />,
   );
 
-  await user.type(screen.getByLabelText("Actor ID"), "ops.lead@marine.local");
-  await user.type(screen.getByLabelText("Password"), "marine-admin-2026");
+  setInputValue("Actor ID", "ops.lead@marine.local");
+  setInputValue("Password", "marine-admin-2026");
   await user.click(screen.getByRole("button", { name: "Sign in" }));
 
-  await user.type(await screen.findByLabelText("Authenticator code"), "123456");
+  fireEvent.change(await screen.findByLabelText("Authenticator code"), { target: { value: "123456" } });
   await user.click(screen.getByRole("button", { name: "Verify challenge" }));
 
   expect(
@@ -359,11 +363,11 @@ test("login panel MFA verification shows attempts remaining on invalid code", as
     />,
   );
 
-  await user.type(screen.getByLabelText("Actor ID"), "ops.lead@marine.local");
-  await user.type(screen.getByLabelText("Password"), "marine-admin-2026");
+  setInputValue("Actor ID", "ops.lead@marine.local");
+  setInputValue("Password", "marine-admin-2026");
   await user.click(screen.getByRole("button", { name: "Sign in" }));
 
-  await user.type(await screen.findByLabelText("Authenticator code"), "999999");
+  fireEvent.change(await screen.findByLabelText("Authenticator code"), { target: { value: "999999" } });
   await user.click(screen.getByRole("button", { name: "Verify challenge" }));
 
   expect(

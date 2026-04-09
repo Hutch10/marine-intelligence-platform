@@ -11,6 +11,7 @@ interface InvestigationTestRow {
   confidence: number | null;
   created_at: string;
   updated_at: string;
+  outcome: string | null;
 }
 
 const INVESTIGATION_ROWS: InvestigationTestRow[] = [
@@ -22,6 +23,7 @@ const INVESTIGATION_ROWS: InvestigationTestRow[] = [
     confidence: 86,
     created_at: "2026-03-13T10:00:00.000Z",
     updated_at: "2026-03-13T12:00:00.000Z",
+    outcome: "confirmed",
   },
   {
     id: "TRK-187",
@@ -31,6 +33,7 @@ const INVESTIGATION_ROWS: InvestigationTestRow[] = [
     confidence: 72,
     created_at: "2026-03-13T09:00:00.000Z",
     updated_at: "2026-03-13T11:00:00.000Z",
+    outcome: "false_positive",
   },
   {
     id: "TRK-193",
@@ -40,6 +43,7 @@ const INVESTIGATION_ROWS: InvestigationTestRow[] = [
     confidence: 61,
     created_at: "2026-03-13T09:30:00.000Z",
     updated_at: "2026-03-13T10:30:00.000Z",
+    outcome: "inconclusive",
   },
 ];
 
@@ -196,4 +200,61 @@ test("investigation repository falls back with db_query_failed when querying thr
     source: "mock",
     fallbackReason: "db_query_failed",
   });
+});
+
+test("investigation repository maps outcome field (all values)", () => {
+  const rows: InvestigationTestRow[] = [
+    { ...INVESTIGATION_ROWS[0], id: "TRK-OUT1", outcome: "confirmed" },
+    { ...INVESTIGATION_ROWS[1], id: "TRK-OUT2", outcome: "false_positive" },
+    { ...INVESTIGATION_ROWS[2], id: "TRK-OUT3", outcome: "inconclusive" },
+    { ...INVESTIGATION_ROWS[2], id: "TRK-OUT4", outcome: null },
+  ];
+  const result = listInvestigations({
+    resolvePath: () => "test.sqlite",
+    hasPath: () => true,
+    openDatabase: () => createDatabase(rows),
+  });
+  assert.equal(result.source, "db");
+  if (result.source === "db") {
+    assert.equal(result.analysisTracks[0]?.outcome, "confirmed");
+    assert.equal(result.analysisTracks[1]?.outcome, "false_positive");
+    assert.equal(result.analysisTracks[2]?.outcome, "inconclusive");
+    assert.equal(result.analysisTracks[3]?.outcome, null);
+  }
+});
+
+test("investigation repository updateInvestigationOutcome persists outcome", () => {
+  // Simulate a DB with a single investigation
+  let outcomeValue: string | null = null;
+  const db = {
+    prepare(sql: string) {
+      return {
+        run(val: string | null, id: string) {
+          if (sql.includes("UPDATE investigations SET outcome")) {
+            outcomeValue = val;
+            return;
+          }
+          throw new Error("Unexpected SQL");
+        },
+      };
+    },
+  } as unknown as SqliteDatabaseLike;
+  const { updateInvestigationOutcome } = require("./investigations");
+  updateInvestigationOutcome(db, "INV-1", "confirmed");
+  assert.equal(outcomeValue, "confirmed");
+  updateInvestigationOutcome(db, "INV-1", null);
+  assert.equal(outcomeValue, null);
+});
+
+test("investigation repository returns null outcome by default if missing", () => {
+  const row: InvestigationTestRow = { ...INVESTIGATION_ROWS[0], id: "TRK-NOOUT", outcome: null };
+  const result = listInvestigations({
+    resolvePath: () => "test.sqlite",
+    hasPath: () => true,
+    openDatabase: () => createDatabase([row]),
+  });
+  assert.equal(result.source, "db");
+  if (result.source === "db") {
+    assert.equal(result.analysisTracks[0]?.outcome, null);
+  }
 });

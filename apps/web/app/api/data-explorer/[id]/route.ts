@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getDatasetByIdRoute } from "../../../../../api/src/routes/datasets";
+import { apiClient } from "@/lib/api/client";
 
 function toSourceHeader(value: unknown): string {
   return value === "db" || value === "mock" ? value : "mock";
@@ -19,16 +19,13 @@ interface DatasetRouteContext {
 
 export async function GET(_request: Request, context: DatasetRouteContext) {
   const datasetId = context.params.id;
-  const response = getDatasetByIdRoute.handler({ body: { id: datasetId } });
-  const telemetry = response.telemetry as
-    | { source?: unknown; fallbackReason?: unknown }
-    | undefined;
+  const response = await apiClient.dataExplorer.getDatasetDetail(datasetId);
 
-  return NextResponse.json(response.json, {
-    status: response.status,
+  return NextResponse.json(response.data ?? { message: "Dataset not found" }, {
+    status: response.meta.state === "not_found" ? 404 : 200,
     headers: {
-      "x-marine-data-source": toSourceHeader(telemetry?.source),
-      "x-marine-fallback-reason": toFallbackHeader(telemetry?.fallbackReason),
+      "x-marine-data-source": toSourceHeader(response.meta.source),
+      "x-marine-fallback-reason": toFallbackHeader(response.meta.fallbackReason),
     },
   });
 }

@@ -1,3 +1,17 @@
+// ─── Marine region config ───────────────────────────────────────────────────
+
+export interface MarineRegionConfig {
+  id: string;
+  name: string;
+  stationIds: string[];
+  minimumHealthyStationRequirement: number;
+  crwRegionKey?: string;
+}
+// ─── Multi-source fusion types ─────────────────────────────────────────────
+
+export type FusionState = "single" | "agreement" | "conflict";
+export type FusionSummary = "single" | "agreement" | "mixed";
+
 /**
  * @marine/shared — canonical shared type definitions
  *
@@ -91,6 +105,12 @@ export interface LiveMarineCondition {
   waveHeightM: number | null;
   windSpeedMps: number | null;
   pressureHpa: number | null;
+  /** Data source identifier, e.g. "noaa_ndbc" */
+  source?: string;
+  /** Feed URL or reference the observation was ingested from */
+  sourceFeed?: string;
+  /** ISO timestamp of when this observation was ingested */
+  ingestedAt?: string;
 }
 
 export interface ReefStressWatchItem {
@@ -103,6 +123,456 @@ export interface ReefStressWatchItem {
   stressLevel: string | null;
   source: string;
   outputClass: "observed" | "derived" | "inferred";
+}
+
+// ─── Public Marine API ───────────────────────────────────────────────────────
+
+export interface ApiKeyRecord {
+  id: string;
+  prefix: string;
+  name: string;
+  tier: string;
+  scopes: string[];
+  billingAccountId?: string | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+}
+
+export interface ApiUsageLogEntry {
+  id: string;
+  keyId: string;
+  route: string;
+  statusCode: number;
+  durationMs: number | null;
+  requestAt: string;
+}
+
+export interface PublicApiRateLimitStatus {
+  tier: string;
+  limit: number;
+  remaining: number;
+  requestsUsed: number;
+  windowSeconds: number;
+  resetAt: string;
+}
+
+export interface PublicApiQuotaStatus {
+  tier: string;
+  monthlyQuota: number;
+  remainingQuota: number;
+  requestsUsed: number;
+  billingMonth: string;
+}
+
+export interface BillingAccountRecord {
+  id: string;
+  provider: string;
+  externalCustomerId: string | null;
+  name: string;
+  email: string | null;
+  tier: string;
+  status: "active" | "inactive";
+  monthlyQuota: number;
+  costPerRequestCents: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BillingUsageRecord {
+  id: string;
+  keyId: string;
+  billingAccountId: string | null;
+  route: string;
+  statusCode: number;
+  requestAt: string;
+  units: number;
+  costCents: number;
+  billingMonth: string;
+}
+
+export interface BillingUsageSummary {
+  provider: string;
+  keyId: string;
+  billingAccountId: string | null;
+  billingMonth: string;
+  billableRequests: number;
+  estimatedCostCents: number;
+  estimatedCostUsd: number;
+  costPerRequestCents: number;
+  remainingQuota: number;
+}
+
+export interface PublicApiErrorResponse {
+  message: string;
+  code: string;
+  retryable: boolean;
+  rateLimit?: PublicApiRateLimitStatus;
+  quota?: PublicApiQuotaStatus;
+}
+
+export type RiskBaselineQuality = "high" | "medium" | "low";
+
+export interface RiskSignalSummary {
+  field:
+    | "seaSurfaceTempC"
+    | "waveHeightM"
+    | "windSpeedMps"
+    | "pressureHpa"
+    | "crwSstAnomalyC"
+    | "salinityPsu"
+    | "dissolvedOxygenMgL";
+  value: number | null;
+  mean: number | null;
+  stdDev: number | null;
+  zScore: number | null;
+  sampleCount: number;
+  neighborMean: number | null;
+  neighborDelta: number | null;
+  sources: string[];
+  fusionState: FusionState;
+}
+
+export interface RiskAppliedThreshold {
+  metric: "seaSurfaceTempC" | "waveHeightM" | "windSpeedMps" | "pressureHpa";
+  thresholdValue: number;
+  comparator: "above" | "below";
+  source: "default" | "station_override";
+}
+
+export interface RiskTriggeredRule {
+  ruleType: string;
+  severity: string;
+  title: string;
+  detail: string | null;
+}
+
+export interface RiskRecommendationSignal {
+  kind: "observation" | "alert" | "explanation";
+  label: string;
+  source: string;
+  timestamp: string | null;
+  detail: string;
+}
+
+export interface RiskRecommendation {
+  action: string;
+  rationale: string;
+  rationalePoints: string[];
+  urgency: "low" | "medium" | "high";
+  confidenceScore: number;
+  siteSwitchSuggestion: string | null;
+  supportingSignals: RiskRecommendationSignal[];
+  contributingSignals: RiskRecommendationSignal[];
+  generatedAt: string;
+}
+
+export interface RiskEvaluateHistoryPoint {
+  observedAt: string;
+  seaSurfaceTempC?: number | null;
+  waveHeightM?: number | null;
+  windSpeedMps?: number | null;
+  pressureHpa?: number | null;
+}
+
+export interface RiskEvaluateRequest {
+  stationId: string;
+  observedAt: string;
+  seaSurfaceTempC?: number | null;
+  waveHeightM?: number | null;
+  windSpeedMps?: number | null;
+  pressureHpa?: number | null;
+  history?: RiskEvaluateHistoryPoint[];
+}
+
+export interface RiskScoreResponse {
+  stationId: string;
+  window: number;
+  computedAt: string;
+  signals: RiskSignalSummary[];
+  overallRisk: "low" | "medium" | "high" | "critical" | "unknown";
+  triggeredRules: RiskTriggeredRule[];
+  appliedThresholds?: RiskAppliedThreshold[];
+  confidenceScore: number;
+  baselineQuality: RiskBaselineQuality;
+  sampleSize: number;
+  sampleSufficiency: boolean;
+  warningMessages: string[];
+  operatorSummary: string;
+  calibrationAdjustedConfidenceScore?: number | null;
+  evaluationId?: string | null;
+  recommendation?: RiskRecommendation | null;
+}
+
+export interface RiskEvaluateResponse {
+  stationId: string;
+  triggeredRules: RiskTriggeredRule[];
+  baselineStats: RiskSignalSummary[];
+  riskLevel: "low" | "medium" | "high" | "critical";
+  evaluatedAt: string;
+  appliedThresholds?: RiskAppliedThreshold[];
+  confidenceScore: number;
+  baselineQuality: RiskBaselineQuality;
+  sampleSize: number;
+  sampleSufficiency: boolean;
+  warningMessages: string[];
+  operatorSummary: string;
+  calibrationAdjustedConfidenceScore?: number | null;
+  evaluationId?: string | null;
+  recommendation?: RiskRecommendation | null;
+}
+
+export interface PublicListPagination {
+  limit: number;
+  returned: number;
+  total: number;
+  hasMore: boolean;
+  maxLimit: number;
+  defaultsApplied: string[];
+}
+
+export interface AnomalyAppliedFilters {
+  stationId: string | null;
+  since: string;
+  limit: number;
+}
+
+export interface AnomalyProvenance {
+  sourceObservationTimestamps: string[];
+  sourceMetrics: Array<
+    | "seaSurfaceTempC"
+    | "waveHeightM"
+    | "windSpeedMps"
+    | "pressureHpa"
+    | "salinityPsu"
+    | "dissolvedOxygenMgL"
+  >;
+  sourceRecordIds: string[];
+  evidenceSummary: string;
+  sources?: string[];
+}
+
+export interface PublicAnomalyItem {
+  id: string;
+  stationId: string | null;
+  signalType: string;
+  severity: string;
+  status: string;
+  title: string;
+  summary: string;
+  detectedAt: string;
+  provenance?: AnomalyProvenance;
+  sources: string[];
+  fusionState: FusionState;
+}
+
+export interface AnomalyListResponse {
+  anomalies: PublicAnomalyItem[];
+  total: number;
+  stationId: string | null;
+  since: string;
+  appliedFilters: AnomalyAppliedFilters;
+  pagination: PublicListPagination;
+}
+
+export interface AlertsAppliedFilters {
+  stationId: string | null;
+  severity: "low" | "medium" | "high" | "critical" | null;
+  status: "active" | "acknowledged" | "resolved" | null;
+  limit: number;
+}
+
+export interface PublicAlertsListResponse {
+  alerts: MarineWorkflowAlertItem[];
+  total: number;
+  appliedFilters: AlertsAppliedFilters;
+  pagination: PublicListPagination;
+}
+
+export interface PublicApiUsageSummaryResponse {
+  keyId: string;
+  tier: string;
+  billingAccountId: string | null;
+  window: {
+    from: string;
+    to: string;
+  };
+  summary: {
+    totalRequests: number;
+    errorCount: number;
+    averageDurationMs: number | null;
+    lastRequestAt: string | null;
+  };
+  recentRouteUsage: Array<{
+    route: string;
+    count: number;
+  }>;
+  recentRequests: ApiUsageLogEntry[];
+  rateLimit: PublicApiRateLimitStatus;
+  quota: PublicApiQuotaStatus;
+  billing: BillingUsageSummary;
+}
+
+export interface PublicApiRouteCatalogItem {
+  route: string;
+  method: "GET" | "POST";
+  requiredAuth: "apiKey" | "adminSession";
+  request: string;
+  response: string;
+  summary: string;
+}
+
+export interface PublicApiRouteCatalogResponse {
+  version: string;
+  generatedAt: string;
+  routes: PublicApiRouteCatalogItem[];
+}
+
+export interface BillingAccountCreateRequest {
+  name: string;
+  email?: string | null;
+  tier: "free" | "pro" | "enterprise";
+  externalCustomerId?: string | null;
+}
+
+export interface BillingAccountPlanUpdateRequest {
+  billingAccountId: string;
+  tier: "free" | "pro" | "enterprise";
+}
+
+export type ValidationOutcomeClassification = "correct" | "partial" | "incorrect";
+export type ValidationOutcomeSource = "manual" | "simulated";
+
+export interface RiskEvaluationOutcome {
+  observedAt: string;
+  actualRiskLevel: "low" | "medium" | "high" | "critical";
+  classification: ValidationOutcomeClassification;
+  summary: string;
+  source: ValidationOutcomeSource;
+  notes?: string | null;
+}
+
+export interface RiskEvaluationRecord {
+  id: string;
+  stationId: string;
+  route: string;
+  apiKeyId: string | null;
+  predictedAt: string;
+  predictedRiskLevel: "low" | "medium" | "high" | "critical";
+  recommendationAction: string | null;
+  recommendationUrgency: "low" | "medium" | "high" | null;
+  confidenceScore: number;
+  calibrationAdjustedConfidenceScore: number | null;
+  operatorSummary: string;
+  warningMessages: string[];
+  contributingSignals: RiskRecommendationSignal[];
+  triggeredRules: RiskTriggeredRule[];
+  feedbackUseful: boolean | null;
+  feedbackNote: string | null;
+  feedbackCount: number;
+  actualOutcome: RiskEvaluationOutcome | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RiskEvaluationPredictionRequest {
+  stationId: string;
+  route: string;
+  apiKeyId?: string | null;
+  predictedAt: string;
+  predictedRiskLevel: "low" | "medium" | "high" | "critical";
+  recommendationAction?: string | null;
+  recommendationUrgency?: "low" | "medium" | "high" | null;
+  confidenceScore: number;
+  calibrationAdjustedConfidenceScore?: number | null;
+  operatorSummary: string;
+  warningMessages?: string[];
+  contributingSignals: RiskRecommendationSignal[];
+  triggeredRules: RiskTriggeredRule[];
+}
+
+export interface RiskEvaluationOutcomeRequest {
+  evaluationId: string;
+  observedAt: string;
+  actualRiskLevel: "low" | "medium" | "high" | "critical";
+  classification: ValidationOutcomeClassification;
+  summary: string;
+  source: ValidationOutcomeSource;
+  notes?: string | null;
+}
+
+export interface RiskEvaluationFeedbackRequest {
+  evaluationId: string;
+  useful: boolean;
+  note?: string | null;
+}
+
+export interface ValidationConfidenceBandSummary {
+  label: string;
+  minConfidence: number;
+  maxConfidence: number;
+  evaluationCount: number;
+  correctCount: number;
+  partialCount: number;
+  incorrectCount: number;
+  empiricalAccuracy: number | null;
+  averagePredictedConfidence: number | null;
+  averageAdjustedConfidence: number | null;
+  calibrationGap: number | null;
+  confidenceState: "well_calibrated" | "overconfident" | "underconfident" | "insufficient_data";
+}
+
+export interface ValidationCalibrationCurvePoint {
+  bandLabel: string;
+  bandMidpoint: number;
+  averagePredictedConfidence: number | null;
+  empiricalAccuracy: number | null;
+  calibrationGap: number | null;
+  evaluationCount: number;
+}
+
+export interface ValidationFailureModeSummary {
+  code:
+    | "false_positive_high_risk"
+    | "false_negative_high_outcome"
+    | "missed_multi_factor_interaction"
+    | "overconfident_prediction"
+    | "negative_operator_feedback";
+  label: string;
+  count: number;
+  share: number;
+}
+
+export interface ValidationFeedbackTrendFlag {
+  signalLabel: string;
+  negativeFeedbackRate: number;
+  feedbackCount: number;
+  recommendationCount: number;
+}
+
+export interface ValidationReliabilityStats {
+  totalEvaluations: number;
+  completedEvaluations: number;
+  outcomeCoverage: number;
+  empiricalAccuracy: number | null;
+  averagePredictedConfidence: number | null;
+  averageAdjustedConfidence: number | null;
+  overallCalibrationGap: number | null;
+  overconfidentBands: number;
+  underconfidentBands: number;
+}
+
+export interface ValidationSummaryResponse {
+  generatedAt: string;
+  summaryWindow: {
+    since: string | null;
+    stationId: string | null;
+  };
+  reliability: ValidationReliabilityStats;
+  confidenceBands: ValidationConfidenceBandSummary[];
+  calibrationCurve: ValidationCalibrationCurvePoint[];
+  topFailureModes: ValidationFailureModeSummary[];
+  feedbackTrendFlags: ValidationFeedbackTrendFlag[];
 }
 
 // ─── Investigations ───────────────────────────────────────────────────────────
@@ -128,6 +598,16 @@ export interface InvestigationAnalysisTrack {
   summary: string;
   confidence: number;
   state: InvestigationTrackState;
+  outcome?: "confirmed" | "false_positive" | "inconclusive" | null;
+  signals?: Array<{
+    id: string;
+    type: string;
+    confidence: number | null;
+    timestamp: string;
+    stationId: string | null;
+    source: string;
+  }>;
+  lastUpdated?: string | null;
 }
 
 export type InvestigationHypothesisStatus = "Supported" | "Testing" | "Needs Review";
@@ -297,7 +777,7 @@ export interface PromoteSignalInput {
   actor?: string;
 }
 
-// ─── Species ──────────────────────────────────────────────────────────────────
+// ─── Species & Biodiversity Intelligence ──────────────────────────────────────
 
 export type SpeciesConservationStatus =
   | "least_concern"
@@ -307,7 +787,23 @@ export type SpeciesConservationStatus =
   | "critically_endangered"
   | "data_deficient";
 
-export interface SpeciesProfile {
+export type VerificationState = "observed" | "estimated" | "modeled" | "unknown";
+
+
+
+export interface BiodiversityMetadata {
+  source: string;
+  sourceUrl?: string;
+  method: string;
+  observedAt: string;
+  ingestedAt: string;
+  updatedAt: string;
+  confidenceScore: number;
+  coverageScore: number;
+  verificationState: VerificationState;
+}
+
+export interface SpeciesProfile extends BiodiversityMetadata {
   id: string;
   commonName: string;
   scientificName: string;
@@ -316,6 +812,116 @@ export interface SpeciesProfile {
   summary: string;
   createdAt: string;
   updatedAt: string;
+  threatProfile?: SpeciesThreatProfile;
+}
+
+export interface SpeciesPopulationEstimate extends BiodiversityMetadata {
+  id: string;
+  speciesId: string;
+  regionId: string | null;
+  count: number;
+  lowerBound: number | null;
+  upperBound: number | null;
+  unit: string;
+}
+
+export interface SpeciesTrendPoint extends BiodiversityMetadata {
+  speciesId: string;
+  regionId?: string;
+  value: number;
+  trend: "increasing" | "decreasing" | "stable" | "unknown";
+}
+
+export interface SpeciesObservation extends BiodiversityMetadata {
+  id: string;
+  speciesId: string;
+  stationId: string | null;
+  region: string;
+  latitude: number;
+  longitude: number;
+  count: number;
+  summary: string;
+}
+
+export interface SpeciesSurveyCount extends BiodiversityMetadata {
+  id: string;
+  speciesId: string;
+  surveyId: string;
+  region: string;
+  count: number;
+  latitude: number;
+  longitude: number;
+}
+
+export interface SpeciesAcousticDetection extends BiodiversityMetadata {
+  id: string;
+  speciesId: string;
+  stationId: string;
+  frequencyHz: number | null;
+  callType: string | null;
+  durationMs: number | null;
+}
+
+export interface SpeciesTrack extends BiodiversityMetadata {
+  id: string;
+  speciesId: string;
+  individualId?: string;
+  points: SpeciesTrackPoint[];
+}
+
+export interface SpeciesTrackPoint extends BiodiversityMetadata {
+  id: string;
+  trackId: string;
+  latitude: number;
+  longitude: number;
+  depthM: number | null;
+}
+
+export interface SpeciesStrandingEvent extends BiodiversityMetadata {
+  id: string;
+  speciesId: string;
+  region: string;
+  latitude: number;
+  longitude: number;
+  condition: string;
+  outcome: string;
+}
+
+export interface SpeciesDistributionRegion extends BiodiversityMetadata {
+  id: string;
+  speciesId: string;
+  regionId: string;
+  season: "breeding" | "non_breeding" | "migration" | "year_round";
+  geometry: any; // GeoJSON
+}
+
+export interface SpeciesThreatProfile extends BiodiversityMetadata {
+  id: string;
+  speciesId: string;
+  primaryThreats: string[];
+  climateVulnerability: string;
+  habitatLossRisk: number;
+}
+
+export interface SpeciesEvidenceItem {
+  id: string;
+  targetId: string; // The ID of the observation, track, etc.
+  signalType: string;
+  contribution: string;
+  confidenceContribution: number;
+  source: string;
+  sourceUrl?: string;
+}
+
+export interface SpeciesConfidence {
+  overall: number;
+  factors: Array<{ label: string; value: number }>;
+}
+
+export interface SpeciesCoverage {
+  spatial: number;
+  temporal: number;
+  taxonomic: number;
 }
 
 export interface SpeciesFilters {
@@ -326,17 +932,7 @@ export interface SpeciesFilters {
 
 export type SpeciesSightingVerificationStatus = "pending" | "verified" | "rejected";
 
-export interface SpeciesSighting {
-  id: string;
-  speciesId: string;
-  stationId: string | null;
-  region: string;
-  observedAt: string;
-  latitude: number;
-  longitude: number;
-  count: number;
-  source: string;
-  summary: string;
+export interface SpeciesSighting extends SpeciesObservation {
   verificationStatus: SpeciesSightingVerificationStatus;
   verifiedAt: string | null;
   verifiedBy: string | null;
@@ -371,7 +967,7 @@ export type SpeciesMovementType =
   | "unusual_presence"
   | "seasonal_mismatch";
 
-export interface SpeciesMovementSignal {
+export interface SpeciesMovementSignal extends BiodiversityMetadata {
   id: string;
   speciesId: string;
   signalId: string | null;
@@ -956,7 +1552,11 @@ export type OperationalAlertRuleType =
   | "source_failed"
   | "source_stale"
   | "repeated_degraded"
-  | "persistence_failure";
+  | "persistence_failure"
+  | "high_sea_temperature"
+  | "high_wave_height"
+  | "high_wind_speed"
+  | "low_pressure_system";
 export type OperationalAlertSeverity = "critical" | "warning" | "info";
 export type OperationalAlertsFallbackReason = "db_path_missing" | "db_open_failed" | "db_query_failed";
 
@@ -1318,6 +1918,117 @@ export interface MarineWorkflowAlertActionResponse {
   alert: MarineWorkflowAlertItem;
 }
 
+export interface MarineWorkflowDecisionItem {
+  id: string;
+  investigationId: string;
+  stationId: string;
+  decision: string;
+  rationale: string;
+  timestamp: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MarineWorkflowTelemetryEventItem {
+  id: string;
+  eventType: MarineWorkflowTelemetryEventType;
+  investigationId: string | null;
+  stationId: string | null;
+  decisionId: string | null;
+  timestamp: string;
+  details: string | null;
+  createdAt: string;
+}
+
+export interface MarineWorkflowFeedbackItem {
+  id: string;
+  useful: boolean;
+  note: string | null;
+  investigationId: string | null;
+  stationId: string | null;
+  decisionId: string | null;
+  evaluationId: string | null;
+  signalSnapshot: string[] | null;
+  timestamp: string;
+  createdAt: string;
+}
+
+export interface MarineWorkflowDecisionSummary {
+  decisionCount: number;
+  telemetryEventCount: number;
+  viewCount: number;
+  clickCount: number;
+  submitDecisionCount: number;
+  feedbackCount: number;
+  usefulFeedbackCount: number;
+  notUsefulFeedbackCount: number;
+  actionCounts: Array<{
+    decision: string;
+    count: number;
+  }>;
+  decisionsPerWeek: Array<{
+    weekStart: string;
+    count: number;
+  }>;
+  feedbackPerWeek: Array<{
+    weekStart: string;
+    count: number;
+  }>;
+  latestDecision: MarineWorkflowDecisionItem | null;
+  latestTelemetryEvent: MarineWorkflowTelemetryEventItem | null;
+  latestFeedback: MarineWorkflowFeedbackItem | null;
+}
+
+export interface MarineWorkflowDecisionRequest {
+  investigationId: string;
+  stationId: string;
+  decision: string;
+  rationale: string;
+  timestamp: string;
+}
+
+export interface MarineWorkflowDecisionResponse {
+  decision: MarineWorkflowDecisionItem;
+}
+
+export interface MarineWorkflowFeedbackRequest {
+  useful: boolean;
+  note?: string;
+  investigationId?: string;
+  stationId?: string;
+  decisionId?: string;
+  evaluationId?: string;
+  signalSnapshot?: string[];
+  timestamp: string;
+}
+
+export interface MarineWorkflowFeedbackResponse {
+  feedback: MarineWorkflowFeedbackItem;
+}
+
+export type MarineWorkflowTelemetryEventType = "view" | "click" | "submit_decision";
+
+export interface MarineWorkflowTelemetryEventRequest {
+  eventType: MarineWorkflowTelemetryEventType;
+  investigationId?: string;
+  stationId?: string;
+  decisionId?: string;
+  timestamp: string;
+  details?: string;
+}
+
+export interface MarineWorkflowTelemetryEventResponse {
+  event: MarineWorkflowTelemetryEventItem;
+}
+
+export interface MarineWorkflowDecisionSummaryResponse {
+  summary: MarineWorkflowDecisionSummary;
+}
+
+export interface MarineWorkflowValidationOutcomeResponse {
+  evaluation: RiskEvaluationRecord;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Route boundary types (request/response/telemetry shapes used by both
 // the API route handlers and the web client).
@@ -1442,6 +2153,46 @@ export interface InvestigationsTelemetry {
   source: "db" | "mock";
   trackCount: number;
   fallbackReason?: InvestigationFallbackReason;
+}
+
+// ─── Vector memory / similar events ──────────────────────────────────────────
+
+export interface SimilarInvestigation {
+  investigationId: string;
+  title: string;
+  summary: string;
+  /**
+   * Final composite score 0–1.
+   * Weighted: 60% embedding similarity + 20% same-station boost
+   * + 10% recency decay + 10% severity weight.
+   */
+  similarity: number;
+  /** Raw cosine similarity before composite weighting */
+  embeddingSimilarity: number;
+  /** Which text fields contributed to the embedding */
+  matchedOn: Array<"title" | "summary" | "explanation">;
+  /** Station ID shared with the query investigation, if any */
+  matchedStation?: string | null;
+  /** Severity level stored at index time (e.g. "high", "critical") */
+  severity?: string | null;
+  /** Human-readable age of this indexed record, e.g. "this week" */
+  timeframeLabel?: string;
+  indexedAt: string;
+}
+
+export interface SimilarInvestigationsResponse {
+  investigations: SimilarInvestigation[];
+  /** The query investigation ID */
+  queryId: string;
+  generatedAt: string;
+}
+
+export interface SimilarInvestigationsTelemetry {
+  route: "GET /investigations/similar";
+  queryId: string;
+  resultCount: number;
+  rankingMode?: "vector" | "keyword";
+  fallbackReason?: "db_path_missing" | "db_open_failed" | "query_failed" | "not_indexed" | "keyword_fallback";
 }
 
 export interface InvestigationTimelineResponse {
@@ -2204,6 +2955,43 @@ export interface MarineWorkflowAlertActionTelemetry {
   fallbackReason?: "db_path_missing" | "db_open_failed" | "db_query_failed";
 }
 
+export interface MarineWorkflowDecisionTelemetry {
+  route: "POST /marine-intelligence/decisions";
+  source: "db" | "unavailable";
+  result: "created" | "forbidden" | "validation" | "not_found";
+  investigationId: string;
+  stationId: string;
+  fallbackReason?: "db_path_missing" | "db_open_failed" | "db_query_failed";
+}
+
+export interface MarineWorkflowFeedbackTelemetry {
+  route: "POST /marine-intelligence/feedback";
+  source: "db" | "unavailable";
+  result: "created" | "forbidden" | "validation";
+  investigationId?: string;
+  stationId?: string;
+  fallbackReason?: "db_path_missing" | "db_open_failed" | "db_query_failed";
+}
+
+export interface MarineWorkflowTelemetryEventTelemetry {
+  route: "POST /marine-intelligence/telemetry";
+  source: "db" | "unavailable";
+  result: "created" | "forbidden" | "validation";
+  eventType: MarineWorkflowTelemetryEventType;
+  investigationId?: string;
+  stationId?: string;
+  fallbackReason?: "db_path_missing" | "db_open_failed" | "db_query_failed";
+}
+
+export interface MarineWorkflowDecisionSummaryTelemetry {
+  route: "GET /marine-intelligence/summary";
+  source: "db" | "unavailable";
+  result: "found" | "forbidden";
+  decisionCount: number;
+  telemetryEventCount: number;
+  fallbackReason?: "db_path_missing" | "db_open_failed" | "db_query_failed";
+}
+
 // ─── Ecological correlation ────────────────────────────────────────────────────
 
 /**
@@ -2337,4 +3125,32 @@ export interface DataExplorerDatasetDetailFetchResult {
 export interface DataExplorerRelatedRecordsFetchResult {
   data: DataExplorerRelatedRecordsResult | null;
   meta: DataExplorerFetchMeta;
+}
+
+// ─── Marine Region Config ──────────────────────────────────────────────────────
+
+const MARINE_REGION_CONFIGS: MarineRegionConfig[] = [
+  {
+    id: "southeast-florida",
+    name: "Southeast Florida",
+    stationIds: ["41009", "41010", "41012", "41013", "41044", "42036"],
+    crwRegionKey: "Southeast Florida",
+    minimumHealthyStationRequirement: 3,
+  },
+  {
+    id: "florida-keys",
+    name: "Florida Keys",
+    stationIds: ["41025", "42003", "42019", "42040", "42056"],
+    crwRegionKey: "Florida Keys",
+    minimumHealthyStationRequirement: 3,
+  },
+];
+
+export function listMarineRegionConfigs(): MarineRegionConfig[] {
+  return [...MARINE_REGION_CONFIGS];
+}
+
+export function getMarineRegionConfig(regionId: string): MarineRegionConfig | null {
+  const normalizedRegionId = regionId.trim().toLowerCase();
+  return MARINE_REGION_CONFIGS.find((config) => config.id === normalizedRegionId) ?? null;
 }

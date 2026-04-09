@@ -15,6 +15,9 @@ interface ObservationRow {
   wave_height_m: number | string | null;
   wind_speed_mps: number | string | null;
   pressure_hpa: number | string | null;
+  source: string | null;
+  source_reference: string | null;
+  created_at: number | string | null;
 }
 
 export interface ObservationInsertInput {
@@ -30,6 +33,34 @@ export interface ObservationInsertInput {
   sourceReference: string;
   rawLine: string;
   createdAt: number;
+}
+
+export interface ObservationHistoryItem {
+  stationId: string;
+  observedAt: number;
+  seaSurfaceTempC: number | null;
+  waveHeightM: number | null;
+  windSpeedMps: number | null;
+  pressureHpa: number | null;
+  source: string | null;
+  sourceReference: string | null;
+  sourceTimestamp: string;
+}
+
+function toObservationHistoryItem(
+  row: ObservationRow & { source_timestamp: string },
+): ObservationHistoryItem {
+  return {
+    stationId: row.station_id,
+    observedAt: toTimestamp(row.observed_at),
+    seaSurfaceTempC: toNumber(row.sea_surface_temp_c),
+    waveHeightM: toNumber(row.wave_height_m),
+    windSpeedMps: toNumber(row.wind_speed_mps),
+    pressureHpa: toNumber(row.pressure_hpa),
+    source: row.source,
+    sourceReference: row.source_reference,
+    sourceTimestamp: row.source_timestamp,
+  };
 }
 
 interface ObservationRepositoryDependencies {
@@ -87,8 +118,22 @@ function toTimestamp(value: number | string): number {
   return Date.now();
 }
 
+function shouldExcludeSyntheticBaselineData(): boolean {
+  return process.env.NODE_ENV === "production"
+    && String(process.env.ALLOW_SYNTHETIC_BASELINE_IN_PRODUCTION ?? "false").trim().toLowerCase() !== "true";
+}
+
+function syntheticObservationPredicate(column = "source"): string {
+  if (!shouldExcludeSyntheticBaselineData()) {
+    return "";
+  }
+
+  return ` AND ${column} NOT LIKE 'synthetic%'`;
+}
+
 function toLiveCondition(row: ObservationRow): LiveMarineCondition {
   const observedAtMs = toTimestamp(row.observed_at);
+  const createdAtMs = row.created_at !== null ? toTimestamp(row.created_at) : null;
 
   return {
     stationId: row.station_id,
@@ -97,6 +142,9 @@ function toLiveCondition(row: ObservationRow): LiveMarineCondition {
     waveHeightM: toNumber(row.wave_height_m),
     windSpeedMps: toNumber(row.wind_speed_mps),
     pressureHpa: toNumber(row.pressure_hpa),
+    source: row.source ?? undefined,
+    sourceFeed: row.source_reference ?? undefined,
+    ingestedAt: createdAtMs !== null ? new Date(createdAtMs).toISOString() : undefined,
   };
 }
 
@@ -134,17 +182,21 @@ export function observationExists(
   db: SqliteDatabaseLike,
   stationId: string,
   observedAt: number,
+  source?: string,
 ): boolean {
-  const rows = toStatement(
-    db,
-    "SELECT 1 AS found FROM observations WHERE station_id = ? AND observed_at = ? LIMIT 1",
-  ).all(stationId, observedAt) as Array<{ found?: number }>;
+  const sql = source
+    ? "SELECT 1 AS found FROM observations WHERE station_id = ? AND observed_at = ? AND source = ? LIMIT 1"
+    : "SELECT 1 AS found FROM observations WHERE station_id = ? AND observed_at = ? LIMIT 1";
+  const rows = (source
+    ? toStatement(db, sql).all(stationId, observedAt, source)
+    : toStatement(db, sql).all(stationId, observedAt)) as Array<{ found?: number }>;
 
   return rows.length > 0;
 }
 
 export function insertObservation(db: SqliteDatabaseLike, input: ObservationInsertInput): string {
-  const observationId = `OBS-${input.stationId}-${input.observedAt}`;
+  const normalizedSource = input.source.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const observationId = `OBS-${normalizedSource}-${input.stationId}-${input.observedAt}`;
 
   runStatement(
     toStatement(
@@ -194,11 +246,16 @@ export function readLatestLiveConditionsFromDb(
             o.sea_surface_temp_c,
             o.wave_height_m,
             o.wind_speed_mps,
-            o.pressure_hpa
+            o.pressure_hpa,
+            o.source,
+            o.source_reference,
+            o.created_at
      FROM observations o
      INNER JOIN (
        SELECT station_id, MAX(observed_at) AS observed_at
        FROM observations
+       WHERE 1 = 1
+         ${syntheticObservationPredicate()}
        GROUP BY station_id
      ) latest
        ON latest.station_id = o.station_id
@@ -208,6 +265,84 @@ export function readLatestLiveConditionsFromDb(
   ).all(limit) as ObservationRow[];
 
   return rows.map(toLiveCondition);
+}
+
+export function readRecentObservationHistoryFromDb(
+  db: SqliteDatabaseLike,
+  stationId: string,
+  sinceObservedAt: number,
+  limit = 120,
+): ObservationHistoryItem[] {
+  try {
+    const rows = toStatement(
+      db,
+      `SELECT station_id,
+              observed_at,
+              sea_surface_temp_c,
+              wave_height_m,
+              wind_speed_mps,
+              pressure_hpa,
+              source,
+              source_reference,
+              source_timestamp
+       FROM observations
+       WHERE station_id = ?
+         AND observed_at >= ?
+         ${syntheticObservationPredicate()}
+       ORDER BY observed_at DESC
+       LIMIT ?`,
+    ).all(stationId, sinceObservedAt, limit) as Array<ObservationRow & { source_timestamp: string }>;
+
+    return rows.map(toObservationHistoryItem);
+  } catch {
+    return [];
+  }
+}
+
+export function readLatestObservationSnapshotsFromDb(
+  db: SqliteDatabaseLike,
+  stationIds: string[],
+  observedAtUpperBound = Number.POSITIVE_INFINITY,
+): ObservationHistoryItem[] {
+  const normalizedStationIds = stationIds
+    .map((stationId) => stationId.trim())
+    .filter((stationId) => stationId.length > 0);
+
+  if (normalizedStationIds.length === 0) {
+    return [];
+  }
+
+  try {
+    const placeholders = normalizedStationIds.map(() => "?").join(", ");
+    const rows = toStatement(
+      db,
+      `SELECT o.station_id,
+              o.observed_at,
+              o.sea_surface_temp_c,
+              o.wave_height_m,
+              o.wind_speed_mps,
+              o.pressure_hpa,
+              o.source,
+              o.source_reference,
+              o.source_timestamp
+       FROM observations o
+       INNER JOIN (
+         SELECT station_id, MAX(observed_at) AS observed_at
+         FROM observations
+         WHERE station_id IN (${placeholders})
+           AND observed_at <= ?
+           ${syntheticObservationPredicate()}
+         GROUP BY station_id
+       ) latest
+         ON latest.station_id = o.station_id
+        AND latest.observed_at = o.observed_at
+       ORDER BY o.observed_at DESC`,
+    ).all(...normalizedStationIds, observedAtUpperBound) as Array<ObservationRow & { source_timestamp: string }>;
+
+    return rows.map(toObservationHistoryItem);
+  } catch {
+    return [];
+  }
 }
 
 export function listLatestLiveConditions(

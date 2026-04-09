@@ -280,20 +280,27 @@ export function listSignals(
   const openReadOnly = dependencies.openReadOnly ?? openReadOnlyDatabase;
   const now = dependencies.now ?? Date.now;
   const databasePath = resolvePath();
-
-  if (!hasPath(databasePath)) {
+  console.log("[signals] resolved databasePath:", databasePath);
+  const has = hasPath(databasePath);
+  console.log("[signals] hasPath:", has);
+  if (!has) {
+    console.log("[signals] DB path missing, returning fallback");
     return { source: "mock", fallbackReason: "db_path_missing" };
   }
 
   let db: SqliteDatabaseLike;
 
   try {
+    console.log("[signals] opening database");
     db = openReadOnly(databasePath);
-  } catch {
+    console.log("[signals] database opened");
+  } catch (e) {
+    console.log("[signals] DB open failed:", e);
     return { source: "mock", fallbackReason: "db_open_failed" };
   }
 
   try {
+    console.log("[signals] preparing and running query");
     ensureSignalDetectionsTable(db);
 
     const whereClauses: string[] = [];
@@ -335,15 +342,17 @@ export function listSignals(
        ORDER BY detected_at DESC, id DESC
        LIMIT ?`,
     ).all(...params, normalizeLimit(filters.limit)) as SignalRow[];
-
+    console.log("[signals] query returned rows:", rows.length);
     return {
       source: "db",
       signals: rows.map((row) => toSignal(row, now())),
     };
-  } catch {
+  } catch (e) {
+    console.log("[signals] DB query failed:", e);
     return { source: "mock", fallbackReason: "db_query_failed" };
   } finally {
     db.close();
+    console.log("[signals] db closed");
   }
 }
 

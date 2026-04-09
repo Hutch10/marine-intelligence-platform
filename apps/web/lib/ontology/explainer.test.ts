@@ -35,18 +35,26 @@ describe("explainInvestigation — output shape", () => {
     expect(result).toHaveProperty("title");
     expect(result).toHaveProperty("summary");
     expect(result).toHaveProperty("confidence");
+    expect(result).toHaveProperty("confidenceScore");
     expect(result).toHaveProperty("state");
+    expect(result).toHaveProperty("keyDrivers");
+    expect(result).toHaveProperty("anomalies");
+    expect(result).toHaveProperty("relationships");
     expect(result).toHaveProperty("likelyDrivers");
     expect(result).toHaveProperty("keyEntities");
     expect(result).toHaveProperty("anomalyNotes");
     expect(result).toHaveProperty("generatedAt");
   });
 
-  it("likelyDrivers, keyEntities, anomalyNotes are always arrays", () => {
+  it("structured outputs are always arrays and confidenceScore is numeric", () => {
     const result = explainInvestigation(makeNetwork());
+    expect(Array.isArray(result.keyDrivers)).toBe(true);
+    expect(Array.isArray(result.anomalies)).toBe(true);
+    expect(Array.isArray(result.relationships)).toBe(true);
     expect(Array.isArray(result.likelyDrivers)).toBe(true);
     expect(Array.isArray(result.keyEntities)).toBe(true);
     expect(Array.isArray(result.anomalyNotes)).toBe(true);
+    expect(typeof result.confidenceScore).toBe("number");
   });
 });
 
@@ -613,8 +621,170 @@ describe("explainInvestigation — full network", () => {
     expect(types).toContain("Station");
     expect(types).toContain("MarineAlert");
 
-    // Has an anomaly note for the observation
-    expect(result.anomalyNotes).toHaveLength(1);
-    expect(result.anomalyNotes[0]).toContain("30.1°C");
+    // Has anomaly notes for grounded alert/observation evidence
+    expect(result.anomalyNotes.length).toBeGreaterThanOrEqual(1);
+    expect(result.anomalyNotes.some((note) => note.includes("30.1°C"))).toBe(true);
+  });
+});
+
+// ─── Structured evidence ─────────────────────────────────────────────────────
+
+describe("explainInvestigation — structured evidence", () => {
+  it("builds relationships with provenance timestamps", () => {
+    const result = explainInvestigation(
+      makeNetwork({
+        species: [
+          {
+            __type: "OntologySpeciesNode",
+            __rid: "Species/sp-structured",
+            __primaryKey: "sp-structured",
+            commonName: "Coral Trout",
+            scientificName: "Plectropomus leopardus",
+            conservationStatus: "vulnerable",
+            habitatRegion: "Reef boundary",
+            summary: "Coral-linked reef predator.",
+          },
+        ],
+        stations: [
+          {
+            __type: "OntologyStationNode",
+            __rid: "Station/stn-structured",
+            __primaryKey: "stn-structured",
+            slug: "structured-station",
+            name: "Structured Station",
+            region: "Reef boundary",
+            status: "active",
+            summary: "Linked to the current case.",
+            locationLabel: "17°S 147°E",
+            depthM: 11,
+          },
+        ],
+        observations: [
+          {
+            __type: "OntologyObservationNode",
+            __rid: "Observation/stn-structured__t1",
+            __primaryKey: "stn-structured__t1",
+            stationId: "stn-structured",
+            timestamp: "2024-06-01T06:00:00Z",
+            sstC: 30.3,
+            waveHeightM: 1.1,
+            windSpeedMps: 9.2,
+            pressureHpa: 1006,
+          },
+        ],
+        alerts: [
+          {
+            __type: "MarineAlert",
+            __rid: "MarineAlert/a-structured",
+            __primaryKey: "a-structured",
+            title: "Structured thermal alert",
+            severity: "critical",
+            status: "open",
+            detail: "Thermal breach persists.",
+            stationId: "stn-structured",
+            linkedInvestigationId: "inv-1",
+            detectedAt: "2024-06-01T05:00:00Z",
+          },
+        ],
+      }),
+    );
+
+    const relationIds = result.relationships.map((relation) => relation.linkTypeId);
+
+    expect(relationIds).toContain("Investigation_involves_MarineAlert");
+    expect(relationIds).toContain("Investigation_involves_Species");
+    expect(relationIds).toContain("Investigation_involves_Station");
+    expect(relationIds).toContain("Station_has_Observation");
+
+    const alertRelation = result.relationships.find((relation) => relation.linkTypeId === "Investigation_involves_MarineAlert");
+    const observationRelation = result.relationships.find((relation) => relation.linkTypeId === "Station_has_Observation");
+
+    expect(alertRelation?.timestamp).toBe("2024-06-01T05:00:00Z");
+    expect(observationRelation?.timestamp).toBe("2024-06-01T06:00:00Z");
+  });
+
+  it("raises confidenceScore when corroborating alerts and multiple source types are present", () => {
+    const lowConfidence = explainInvestigation(makeNetwork({ alerts: [] }));
+    const highConfidence = explainInvestigation(
+      makeNetwork({
+        species: [
+          {
+            __type: "OntologySpeciesNode",
+            __rid: "Species/sp-confidence",
+            __primaryKey: "sp-confidence",
+            commonName: "Leatherback Turtle",
+            scientificName: "Dermochelys coriacea",
+            conservationStatus: "vulnerable",
+            habitatRegion: "North Pacific",
+            summary: "Reef-adjacent visitor.",
+          },
+        ],
+        stations: [
+          {
+            __type: "OntologyStationNode",
+            __rid: "Station/stn-confidence",
+            __primaryKey: "stn-confidence",
+            slug: "confidence-station",
+            name: "Confidence Station",
+            region: "North Pacific",
+            status: "active",
+            summary: "Additional corroborating source.",
+            locationLabel: "18°N 144°W",
+            depthM: 15,
+          },
+        ],
+        observations: [
+          {
+            __type: "OntologyObservationNode",
+            __rid: "Observation/stn-confidence__t1",
+            __primaryKey: "stn-confidence__t1",
+            stationId: "stn-confidence",
+            timestamp: "2024-06-01T07:00:00Z",
+            sstC: 31.2,
+            waveHeightM: 2.2,
+            windSpeedMps: 11.5,
+            pressureHpa: 1004,
+          },
+        ],
+        alerts: [
+          {
+            __type: "MarineAlert",
+            __rid: "MarineAlert/a-confidence",
+            __primaryKey: "a-confidence",
+            title: "Confidence alert",
+            severity: "critical",
+            status: "open",
+            detail: "Thermal breach corroborated.",
+            stationId: "stn-confidence",
+            linkedInvestigationId: "inv-1",
+            detectedAt: "2024-06-01T07:15:00Z",
+          },
+          {
+            __type: "MarineAlert",
+            __rid: "MarineAlert/a-confidence-2",
+            __primaryKey: "a-confidence-2",
+            title: "Second corroborating alert",
+            severity: "high",
+            status: "open",
+            detail: "Secondary confirmation.",
+            stationId: "stn-confidence",
+            linkedInvestigationId: "inv-1",
+            detectedAt: "2024-06-01T07:20:00Z",
+          },
+        ],
+      }),
+    );
+
+    expect(lowConfidence.confidenceScore).toBeLessThan(highConfidence.confidenceScore);
+    expect(highConfidence.confidenceScore).toBeGreaterThan(0);
+    expect(highConfidence.confidenceScore).toBeLessThanOrEqual(1);
+  });
+
+  it("keeps legacy aliases in sync with the structured fields", () => {
+    const result = explainInvestigation(makeNetwork());
+
+    expect(result.likelyDrivers).toEqual(result.keyDrivers);
+    expect(result.anomalyNotes).toHaveLength(result.anomalies.length);
+    expect(result.keyEntities.length).toBeGreaterThanOrEqual(0);
   });
 });

@@ -1,5 +1,7 @@
 import type { NdbcParsedRow } from "./parse";
 
+const MAX_BACKFILL_AGE_MS = 6 * 60 * 60 * 1000;
+
 export interface NdbcMappedObservation {
   stationId: string;
   observedAt: number;
@@ -45,12 +47,48 @@ function toObservationTimestamp(row: NdbcParsedRow): number {
   );
 }
 
+function backfillMetric(
+  rows: NdbcMappedObservation[],
+  index: number,
+  field: "seaSurfaceTempC" | "waveHeightM",
+): number | null {
+  const current = rows[index];
+
+  if (!current) {
+    return null;
+  }
+
+  const directValue = current[field];
+  if (typeof directValue === "number" && Number.isFinite(directValue)) {
+    return directValue;
+  }
+
+  for (let offset = index + 1; offset < rows.length; offset += 1) {
+    const candidate = rows[offset];
+
+    if (!candidate) {
+      continue;
+    }
+
+    if (current.observedAt - candidate.observedAt > MAX_BACKFILL_AGE_MS) {
+      break;
+    }
+
+    const candidateValue = candidate[field];
+    if (typeof candidateValue === "number" && Number.isFinite(candidateValue)) {
+      return candidateValue;
+    }
+  }
+
+  return null;
+}
+
 export function mapNdbcRowsToObservations(
   stationId: string,
   sourceFeed: string,
   rows: NdbcParsedRow[],
 ): NdbcMappedObservation[] {
-  return rows
+  const mapped = rows
     .map((row) => {
       const observedAt = toObservationTimestamp(row);
 
@@ -68,4 +106,10 @@ export function mapNdbcRowsToObservations(
       };
     })
     .sort((left, right) => right.observedAt - left.observedAt);
+
+  return mapped.map((row, index) => ({
+    ...row,
+    seaSurfaceTempC: backfillMetric(mapped, index, "seaSurfaceTempC"),
+    waveHeightM: backfillMetric(mapped, index, "waveHeightM"),
+  }));
 }

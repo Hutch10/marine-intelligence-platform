@@ -15,7 +15,7 @@ import {
   upsertDataExplorerPreset,
   upsertSharedDataExplorerPreset,
   type DataExplorerBehaviorDedupeDropSummaryOptions,
-} from "../../../api/src/repositories/data-explorer-presets";
+} from "@/lib/server/data-explorer-presets-repository";
 import type {
   DataExplorerBehaviorDedupeDropSummaryExportQuery,
   DataExplorerBehaviorDedupeDropSummaryExportFormat,

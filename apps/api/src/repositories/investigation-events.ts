@@ -159,11 +159,14 @@ function createEventId(now: number): string {
 }
 
 function investigationExists(db: SqliteDatabaseLike, investigationId: string): boolean {
-  const rows = toStatement(
+  const stmt = toStatement(
     db,
     "SELECT id FROM investigations WHERE id = ? LIMIT 1",
-  ).all(investigationId) as Array<{ id: string }>;
-
+  );
+  let rows: Array<{ id: string }> = [];
+  if (stmt && typeof stmt.all === "function") {
+    rows = stmt.all(investigationId) as Array<{ id: string }>;
+  }
   return rows.length > 0;
 }
 
@@ -171,7 +174,7 @@ function findDuplicateEvent(
   db: SqliteDatabaseLike,
   input: RecordInvestigationEventInput,
 ): InvestigationEventRow | null {
-  const rows = toStatement(
+  const stmt = toStatement(
     db,
     `SELECT id, event_type, source, summary, detail, created_at
      FROM investigation_events
@@ -181,8 +184,11 @@ function findDuplicateEvent(
        AND summary = ?
      ORDER BY created_at DESC
      LIMIT 1`,
-  ).all(input.investigationId, input.eventType, input.source, input.summary) as InvestigationEventRow[];
-
+  );
+  let rows: InvestigationEventRow[] = [];
+  if (stmt && typeof stmt.all === "function") {
+    rows = stmt.all(input.investigationId, input.eventType, input.source, input.summary) as InvestigationEventRow[];
+  }
   return rows[0] ?? null;
 }
 

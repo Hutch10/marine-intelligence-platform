@@ -21,6 +21,8 @@ interface OperationalAlertsResponseItem {
   resolved_at: number | null;
   created_at: string;
   updated_at: string;
+  // Only emit investigationId if a real linked investigation exists
+  investigationId?: string;
 }
 
 interface OperationalAlertsSummaryResponse {
@@ -176,7 +178,7 @@ export function readDatabaseOperationalAlerts(
 }
 
 function toAlertResponseItem(item: OperationalAlert): OperationalAlertsResponseItem {
-  return {
+  const base: OperationalAlertsResponseItem = {
     id: item.id,
     source: item.source,
     rule_type: item.ruleType,
@@ -189,6 +191,11 @@ function toAlertResponseItem(item: OperationalAlert): OperationalAlertsResponseI
     created_at: item.createdAt,
     updated_at: item.updatedAt,
   };
+  // Only emit investigationId if a real linked investigation exists (not null/undefined/empty)
+  if (item.investigationId && typeof item.investigationId === "string" && item.investigationId.trim() !== "") {
+    return { ...base, investigationId: item.investigationId };
+  }
+  return base;
 }
 
 function toSummaryResponse(summary: OperationalAlertsSummary): OperationalAlertsSummaryResponse {

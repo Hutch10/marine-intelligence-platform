@@ -2,12 +2,16 @@ import { postAiAnalyzeRoute } from "./ai";
 import { getAiLabRoute } from "./ai-lab";
 import { getDashboardRoute } from "./dashboard";
 import { getFeedHealthRoute } from "./feed-health";
+import { getInternalStationsHealthRoute } from "./internal-stations-health";
 import { getOperationalAlertsRoute } from "./operational-alerts";
+import { getRegionRiskScoreRoute } from "./region-risk";
+import { getRegionRiskTrendRoute } from "./region-risk-trend";
 import { getLiveConditionsRoute } from "./live-conditions";
 import { getReefAlertsRoute } from "./reef-alerts";
 import { getDatasetByIdRoute, getDatasetRecordsRoute, getDatasetsRoute } from "./datasets";
 import { getInvestigationsRoute } from "./investigations";
 import { getInvestigationTimelineRoute, postInvestigationEventRoute } from "./investigation-events";
+import { getSimilarInvestigationsRoute } from "./similar-investigations";
 import {
   getSignalByIdRoute,
   getSignalsRoute,
@@ -65,18 +69,44 @@ import {
   postStationEventAcknowledgeRoute,
 } from "./station-events";
 import {
+  getMarineWorkflowSummaryRoute,
   getMarineWorkflowAlertsRoute,
   getMarineWorkflowEventsRoute,
   getMarineWorkflowInvestigationsRoute,
+  postMarineWorkflowDecisionRoute,
+  postMarineWorkflowFeedbackRoute,
   postMarineWorkflowAcknowledgeAlertRoute,
   postMarineWorkflowCreateInvestigationRoute,
   postMarineWorkflowResolveAlertRoute,
+  postMarineWorkflowTelemetryRoute,
 } from "./marine-intelligence";
+import {
+  getAnomaliesRoute,
+  getRiskScoreRoute,
+  postRiskEvaluateRoute,
+} from "./risk";
+import {
+  getValidationSummaryRoute,
+  postValidationFeedbackRoute,
+  postValidationOutcomeRoute,
+} from "./validation";
+import {
+  getStationThresholdsRoute,
+  putStationThresholdsRoute,
+} from "./station-thresholds";
+import { getV1RiskRoute } from "./v1-risk";
+import { getV1RegionRiskRoute } from "./v1-region-risk";
+import { getV1RegionRiskTrendRoute } from "./v1-region-risk-trend";
+import { getV1SpeciesIntelligenceRoute } from "./v1-species";
+import { getV1RegionImpactRoute } from "./v1-regions";
 
 export const routeStubs = [
   getAiLabRoute,
   getDashboardRoute,
   getFeedHealthRoute,
+  getInternalStationsHealthRoute,
+  getRegionRiskScoreRoute,
+  getRegionRiskTrendRoute,
   getOperationalAlertsRoute,
   getLiveConditionsRoute,
   getReefAlertsRoute,
@@ -100,6 +130,7 @@ export const routeStubs = [
   getDatasetByIdRoute,
   getDatasetRecordsRoute,
   getInvestigationsRoute,
+  getSimilarInvestigationsRoute,
   getInvestigationTimelineRoute,
   postInvestigationEventRoute,
   getSignalsRoute,
@@ -131,6 +162,23 @@ export const routeStubs = [
   getMarineWorkflowInvestigationsRoute,
   postMarineWorkflowCreateInvestigationRoute,
   getMarineWorkflowAlertsRoute,
+  postMarineWorkflowDecisionRoute,
+  postMarineWorkflowFeedbackRoute,
   postMarineWorkflowAcknowledgeAlertRoute,
   postMarineWorkflowResolveAlertRoute,
+  postMarineWorkflowTelemetryRoute,
+  getMarineWorkflowSummaryRoute,
+  getRiskScoreRoute,
+  postRiskEvaluateRoute,
+  getAnomaliesRoute,
+  getValidationSummaryRoute,
+  postValidationOutcomeRoute,
+  postValidationFeedbackRoute,
+  getStationThresholdsRoute,
+  putStationThresholdsRoute,
+  getV1RiskRoute,
+  getV1RegionRiskRoute,
+  getV1RegionRiskTrendRoute,
+  getV1SpeciesIntelligenceRoute,
+  getV1RegionImpactRoute,
 ] as const;

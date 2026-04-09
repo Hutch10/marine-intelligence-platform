@@ -169,6 +169,7 @@ export interface MarineInvestigationRecord {
   status: MarineInvestigationStatus;
   ownerId: string | null;
   notes: string | null;
+  outcome?: "confirmed" | "false_positive" | "inconclusive" | null;
   createdAt: string;
   updatedAt: string;
   acknowledgedAt: string | null;
@@ -250,7 +251,7 @@ export interface MarineAlertCreateInput {
 
 export interface MarineAlertListFilters {
   eventId?: string;
-  investigationId?: string;
+  investigationId?: string | null;
   status?: MarineAlertStatus;
   severity?: MarineEventSeverity;
   ruleType?: MarineAlertRuleType;

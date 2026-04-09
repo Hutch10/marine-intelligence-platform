@@ -8,7 +8,7 @@ function buildSignal(overrides: Partial<SignalDetection>): SignalDetection {
     signalType: "thermal_anomaly",
     severity: "medium",
     confidence: 70,
-    sourceType: "test-source",
+    sourceType: "risk_engine",
     sourceId: "source-1",
     region: "North Pacific",
     stationId: null,
@@ -58,19 +58,28 @@ test("signal center ranks open signals by severity and confidence", () => {
           status: "monitoring",
         }),
       ]}
+      statusLine="Persisted detections only."
     />,
   );
 
   const rankedTitles = screen.getAllByRole("heading", { level: 3 }).map((node) => node.textContent);
 
+  expect(screen.getByText("Persisted detections only.")).toBeInTheDocument();
   expect(rankedTitles[0]).toContain("Critical priority signal");
   expect(rankedTitles[1]).toContain("High priority signal");
   expect(rankedTitles[2]).toContain("Low priority signal");
   expect(screen.queryByText("Monitoring only signal")).toBeNull();
 });
 
-test("signal center renders empty state with no active signals", () => {
-  render(<SignalCenter signals={[]} />);
+test("signal center renders trustful empty state with custom copy", () => {
+  render(
+    <SignalCenter
+      signals={[]}
+      emptyStateTitle="No live detections are open"
+      emptyStateSubtitle="Use regional and station pages for direct risk outputs."
+    />,
+  );
 
-  expect(screen.getByText("No active signals available.")).toBeInTheDocument();
+  expect(screen.getByText("No live detections are open")).toBeInTheDocument();
+  expect(screen.getByText("Use regional and station pages for direct risk outputs.")).toBeInTheDocument();
 });

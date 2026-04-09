@@ -8,6 +8,7 @@ import type {
 } from "@marine/shared";
 import { verifyTotpToken } from "../security/totp";
 import { resolveMfaSecret } from "../security/mfa-secret";
+import { buildRecentStepUpQuery } from "../security/stepup-policy";
 import {
   hasDatabasePath,
   openWritableDatabase,
@@ -778,46 +779,14 @@ function hasRecentStepUp(
   db: WritableDbLike,
   actorId: string,
   sessionId: string,
+  purpose: StationAdminMfaChallengePurpose,
   nowMs: number,
   windowMs: number,
 ): boolean {
   try {
-    const sinceIso = new Date(nowMs - windowMs).toISOString();
-    const rows = db
-      .prepare(
-        `SELECT event_type, occurred_at, metadata
-         FROM station_admin_auth_events
-         WHERE actor_id = ?
-         AND session_id = ?
-         AND event_type = 'mfa_challenge_success'
-         AND occurred_at > ?
-         ORDER BY occurred_at DESC
-         LIMIT 10`,
-      )
-      .all(actorId, sessionId, sinceIso) as Array<{
-        event_type: string;
-        occurred_at: string | null;
-        metadata: string | null;
-      }>;
-
-    for (const row of rows) {
-      if (row.event_type !== "mfa_challenge_success") {
-        continue;
-      }
-
-      const occurredAtMs = row.occurred_at ? new Date(row.occurred_at).getTime() : Number.NaN;
-
-      if (!Number.isFinite(occurredAtMs) || nowMs - occurredAtMs > windowMs) {
-        continue;
-      }
-
-      const metadata = parseMetadataObject(row.metadata);
-      if (metadata?.challengePurpose === "session_revoke") {
-        return true;
-      }
-    }
-
-    return false;
+    const { sql, params } = buildRecentStepUpQuery(actorId, sessionId, purpose, nowMs, windowMs);
+    const rows = db.prepare(sql).all(...params);
+    return rows.length > 0;
   } catch {
     // Default to requiring step-up MFA if auth event lookup is unavailable.
     return false;
@@ -868,8 +837,12 @@ export function loginStationAdmin(
   }
 
   const { db, close } = handle;
+  let transactionOpen = false;
 
   try {
+    beginTransaction(db);
+    transactionOpen = true;
+
     let lockoutScope: "actor" | "ip" | null = null;
     try {
       const sinceIso = new Date(now() - lockoutWindowMs).toISOString();
@@ -916,6 +889,8 @@ export function loginStationAdmin(
         null,
         buildEventMetadata(requestMetadata, { lockoutScope }),
       );
+      commitTransaction(db);
+      transactionOpen = false;
       return { result: "locked_out" };
     }
 
@@ -939,6 +914,8 @@ export function loginStationAdmin(
         null,
         buildEventMetadata(requestMetadata),
       );
+      commitTransaction(db);
+      transactionOpen = false;
       return { result: "invalid_credentials" };
     }
 
@@ -954,6 +931,8 @@ export function loginStationAdmin(
         null,
         buildEventMetadata(requestMetadata),
       );
+      commitTransaction(db);
+      transactionOpen = false;
       return { result: "invalid_credentials" };
     }
 
@@ -969,6 +948,8 @@ export function loginStationAdmin(
         null,
         buildEventMetadata(requestMetadata),
       );
+      commitTransaction(db);
+      transactionOpen = false;
       return { result: "invalid_credentials" };
     }
 
@@ -984,6 +965,8 @@ export function loginStationAdmin(
         requestMetadata,
       );
 
+      commitTransaction(db);
+      transactionOpen = false;
       return {
         result: "pending_mfa",
         actorId: normalizedActorId,
@@ -1006,6 +989,8 @@ export function loginStationAdmin(
       buildEventMetadata(requestMetadata),
     );
 
+    commitTransaction(db);
+    transactionOpen = false;
     return {
       result: "issued",
       sessionId: issuedSession.sessionId,
@@ -1017,6 +1002,13 @@ export function loginStationAdmin(
       mfa: mfaState,
     };
   } catch {
+    if (transactionOpen) {
+      try {
+        rollbackTransaction(db);
+      } catch {
+        // Ignore rollback failures.
+      }
+    }
     return { result: "not_available" };
   } finally {
     close();
@@ -1533,8 +1525,11 @@ export function logoutStationAdmin(
   }
 
   const { db, close } = handle;
+  let transactionOpen = false;
 
   try {
+    beginTransaction(db);
+    transactionOpen = true;
     const rows = db
       .prepare(
         `SELECT id, actor_id, actor_role, csrf_token, expires_at, revoked_at
@@ -1544,6 +1539,8 @@ export function logoutStationAdmin(
     const row = rows[0];
 
     if (!row || row.revoked_at !== null) {
+      commitTransaction(db);
+      transactionOpen = false;
       return { result: "not_found" };
     }
 
@@ -1554,6 +1551,8 @@ export function logoutStationAdmin(
     }
 
     if (row.csrf_token !== csrfToken) {
+      commitTransaction(db);
+      transactionOpen = false;
       return { result: "csrf_invalid" };
     }
 
@@ -1571,8 +1570,17 @@ export function logoutStationAdmin(
       buildEventMetadata(requestMetadata),
     );
 
+    commitTransaction(db);
+    transactionOpen = false;
     return { result: "revoked", actorId: row.actor_id };
   } catch {
+    if (transactionOpen) {
+      try {
+        rollbackTransaction(db);
+      } catch {
+        // Ignore rollback failures.
+      }
+    }
     return { result: "not_found" };
   } finally {
     close();
@@ -1600,8 +1608,12 @@ export function refreshStationAdminSession(
   }
 
   const { db, close } = handle;
+  let transactionOpen = false;
 
   try {
+    beginTransaction(db);
+    transactionOpen = true;
+
     const rows = db
       .prepare(
         `SELECT id, actor_id, actor_role, permissions, csrf_token, expires_at, revoked_at
@@ -1611,16 +1623,22 @@ export function refreshStationAdminSession(
     const row = rows[0];
 
     if (!row || row.revoked_at !== null) {
+      commitTransaction(db);
+      transactionOpen = false;
       return { result: "not_found" };
     }
 
     const expiresAtMs = new Date(row.expires_at).getTime();
 
     if (!Number.isFinite(expiresAtMs) || expiresAtMs <= now()) {
+      commitTransaction(db);
+      transactionOpen = false;
       return { result: "not_found" };
     }
 
     if (row.csrf_token !== csrfToken) {
+      commitTransaction(db);
+      transactionOpen = false;
       return { result: "csrf_invalid" };
     }
 
@@ -1658,6 +1676,8 @@ export function refreshStationAdminSession(
       buildEventMetadata(requestMetadata),
     );
 
+    commitTransaction(db);
+    transactionOpen = false;
     return {
       result: "refreshed",
       sessionId: newSessionId,
@@ -1666,6 +1686,13 @@ export function refreshStationAdminSession(
       actorId: row.actor_id,
     };
   } catch {
+    if (transactionOpen) {
+      try {
+        rollbackTransaction(db);
+      } catch {
+        // Ignore rollback failures.
+      }
+    }
     return { result: "not_found" };
   } finally {
     close();
@@ -1696,8 +1723,12 @@ export function revokeStationAdminSession(
   }
 
   const { db, close } = handle;
+  let transactionOpen = false;
 
   try {
+    beginTransaction(db);
+    transactionOpen = true;
+
     // Validate the admin's own session
     const adminRows = db
       .prepare(
@@ -1708,20 +1739,28 @@ export function revokeStationAdminSession(
     const adminRow = adminRows[0];
 
     if (!adminRow || adminRow.revoked_at !== null) {
+      commitTransaction(db);
+      transactionOpen = false;
       return { result: "not_found" };
     }
 
     const expiresAtMs = new Date(adminRow.expires_at).getTime();
 
     if (!Number.isFinite(expiresAtMs) || expiresAtMs <= now()) {
+      commitTransaction(db);
+      transactionOpen = false;
       return { result: "not_found" };
     }
 
     if (adminRow.csrf_token !== adminCsrfToken) {
+      commitTransaction(db);
+      transactionOpen = false;
       return { result: "csrf_invalid" };
     }
 
     if (adminRow.actor_role !== "admin") {
+      commitTransaction(db);
+      transactionOpen = false;
       return { result: "forbidden" };
     }
 
@@ -1742,6 +1781,8 @@ export function revokeStationAdminSession(
     const targetRow = targetRows[0];
 
     if (!targetRow) {
+      commitTransaction(db);
+      transactionOpen = false;
       return { result: "not_found" };
     }
 
@@ -1749,7 +1790,7 @@ export function revokeStationAdminSession(
       adminCredential
       && toBooleanFlag(adminCredential.mfa_enabled)
       && targetRow.actor_id !== adminRow.actor_id
-      && !hasRecentStepUp(db, adminRow.actor_id, adminRow.id, now(), mfaStepUpWindowMs)
+      && !hasRecentStepUp(db, adminRow.actor_id, adminRow.id, "session_revoke", now(), mfaStepUpWindowMs)
     ) {
       const challenge = createMfaChallenge(
         db,
@@ -1761,6 +1802,8 @@ export function revokeStationAdminSession(
         adminRow.id,
       );
 
+      commitTransaction(db);
+      transactionOpen = false;
       return {
         result: "mfa_required",
         challenge,
@@ -1786,8 +1829,17 @@ export function revokeStationAdminSession(
       }),
     );
 
+    commitTransaction(db);
+    transactionOpen = false;
     return { result: "revoked", actorId: targetRow.actor_id };
   } catch {
+    if (transactionOpen) {
+      try {
+        rollbackTransaction(db);
+      } catch {
+        // Ignore rollback failures.
+      }
+    }
     return { result: "not_found" };
   } finally {
     close();

@@ -44,6 +44,16 @@ export type {
 } from "./actions";
 export { listActions, getAction } from "./actions";
 
+// ─── Recommendation engine ───────────────────────────────────────────────────
+
+export type {
+  ActionRecommendationContext,
+  ActionSupportingSignal,
+  RecommendedAction,
+  RecommendedActionUrgency,
+} from "./action-recommender";
+export { recommendAction } from "./action-recommender";
+
 // ─── Object Sets ──────────────────────────────────────────────────────────────
 
 export type {

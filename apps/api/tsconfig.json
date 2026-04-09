@@ -10,10 +10,10 @@
     "rootDir": "..",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["../web/*"],
-      "@marine/shared": ["../../packages/shared/src/index.ts"]
+      "@/*": ["../web/*"]
     },
-    "types": ["node"]
+    "types": ["node", "vitest/globals"],
+    "forceConsistentCasingInFileNames": true
   },
   "include": ["src/**/*.ts", "../web/lib/api/**/*.ts"],
   "exclude": ["dist", "node_modules"]

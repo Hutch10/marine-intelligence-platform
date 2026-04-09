@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildReefAlertsRouteResponse } from "./reef-alerts";
+import { CRW_SOURCE } from "../connectors/coral-reef-watch/constants";
 
 test("reef-alerts route returns db-backed reef stress alerts", () => {
   const response = buildReefAlertsRouteResponse({
@@ -14,7 +15,7 @@ test("reef-alerts route returns db-backed reef stress alerts", () => {
         hotSpotC: 1.4,
         dhw: 6.2,
         stressLevel: "alert_level_1",
-        source: "noaa_coral_reef_watch",
+        source: CRW_SOURCE,
         outputClass: "derived",
       },
     ],

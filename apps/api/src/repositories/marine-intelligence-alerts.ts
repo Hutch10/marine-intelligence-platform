@@ -316,6 +316,8 @@ export function listMarineAlerts(
   }
 
   try {
+    ensureMarineAlertTables(db);
+
     const clauses: string[] = [];
     const params: unknown[] = [];
 

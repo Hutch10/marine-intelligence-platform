@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDatasetRecordsRoute } from "../../../../../../api/src/routes/datasets";
-import type { DatasetRecordsQuery } from "../../../../../../api/src/types";
+import { apiClient } from "@/lib/api/client";
+import type {
+  DataExplorerRelatedRecordSortBy,
+  DataExplorerRelatedRecordsQuery,
+  DataExplorerSortDirection,
+} from "@/lib/api/types";
 
 function toSourceHeader(value: unknown): string {
   return value === "db" || value === "mock" ? value : "mock";
@@ -27,26 +31,33 @@ function normalizeIntParam(value: string | null): number | undefined {
   return Number.isNaN(parsed) ? undefined : parsed;
 }
 
+function normalizeSortBy(value: string | null): DataExplorerRelatedRecordSortBy | undefined {
+  return value === "title" || value === "type" || value === "status" || value === "updated"
+    ? value
+    : undefined;
+}
+
+function normalizeSortDir(value: string | null): DataExplorerSortDirection | undefined {
+  return value === "asc" || value === "desc" ? value : undefined;
+}
+
 export async function GET(request: NextRequest, context: DatasetRecordsRouteContext) {
   const searchParams = request.nextUrl.searchParams;
-  const query: DatasetRecordsQuery = {
-    sortBy: searchParams.get("sortBy") ?? undefined,
-    sortDir: searchParams.get("sortDir") ?? undefined,
+  const query: DataExplorerRelatedRecordsQuery = {
+    sortBy: normalizeSortBy(searchParams.get("sortBy")),
+    sortDir: normalizeSortDir(searchParams.get("sortDir")),
     page: normalizeIntParam(searchParams.get("page")),
     pageSize: normalizeIntParam(searchParams.get("pageSize")),
   };
 
   const datasetId = context.params.id;
-  const response = getDatasetRecordsRoute.handler({ body: { id: datasetId }, query });
-  const telemetry = response.telemetry as
-    | { source?: unknown; fallbackReason?: unknown }
-    | undefined;
+  const response = await apiClient.dataExplorer.getDatasetRecords(datasetId, query);
 
-  return NextResponse.json(response.json, {
-    status: response.status,
+  return NextResponse.json(response.data ?? { message: "Dataset not found" }, {
+    status: response.meta.state === "not_found" ? 404 : 200,
     headers: {
-      "x-marine-data-source": toSourceHeader(telemetry?.source),
-      "x-marine-fallback-reason": toFallbackHeader(telemetry?.fallbackReason),
+      "x-marine-data-source": toSourceHeader(response.meta.source),
+      "x-marine-fallback-reason": toFallbackHeader(response.meta.fallbackReason),
     },
   });
 }

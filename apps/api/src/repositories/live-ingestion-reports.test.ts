@@ -11,6 +11,7 @@ import {
 } from "./live-ingestion-reports";
 import type { SqliteDatabaseLike } from "../db/client";
 import type { LiveFeedIngestionReport } from "../workers/ingest-live-feeds";
+import { CRW_SOURCE } from "../connectors/coral-reef-watch/constants";
 
 const SAMPLE_REPORT: LiveFeedIngestionReport = {
   started_at: "2026-03-18T10:00:00.000Z",
@@ -35,7 +36,7 @@ const SAMPLE_REPORT: LiveFeedIngestionReport = {
       error: null,
     },
     {
-      source: "noaa_coral_reef_watch",
+      source: CRW_SOURCE,
       started_at: "2026-03-18T10:00:31.000Z",
       completed_at: "2026-03-18T10:01:50.000Z",
       duration_ms: 79000,
@@ -173,7 +174,7 @@ test("readLatestLiveIngestionStatusBySourceFromDb maps latest source rows", () =
   const latest = readLatestLiveIngestionStatusBySourceFromDb(
     createReadDatabase([], [
       {
-        source: "noaa_coral_reef_watch",
+        source: CRW_SOURCE,
         worker_run_id: "LWR-2",
         worker_status: "success",
         status: "success",
@@ -204,7 +205,7 @@ test("readLatestLiveIngestionStatusBySourceFromDb maps latest source rows", () =
   );
 
   assert.equal(latest.length, 2);
-  assert.equal(latest[0]?.source, "noaa_coral_reef_watch");
+  assert.equal(latest[0]?.source, CRW_SOURCE);
   assert.equal(latest[0]?.status, "success");
   assert.equal(latest[0]?.workerStatus, "success");
   assert.equal(latest[0]?.insertedCount, 3);
@@ -294,7 +295,7 @@ test("readLiveIngestionHealthSnapshotFromDb returns summary and stale-source ind
           error: null,
         },
         {
-          source: "noaa_coral_reef_watch",
+          source: CRW_SOURCE,
           worker_run_id: "LWR-2",
           worker_status: "success",
           status: "success",

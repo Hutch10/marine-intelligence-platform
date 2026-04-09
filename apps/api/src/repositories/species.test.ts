@@ -26,9 +26,8 @@ function createInMemoryDb(): SqliteDatabaseLike {
   };
 
   const raw = new DatabaseSync(":memory:");
-
   raw.exec(`
-    CREATE TABLE species (
+    CREATE TABLE IF NOT EXISTS species (
       id TEXT PRIMARY KEY,
       common_name TEXT NOT NULL,
       scientific_name TEXT NOT NULL,
@@ -39,7 +38,7 @@ function createInMemoryDb(): SqliteDatabaseLike {
       updated_at INTEGER NOT NULL
     );
 
-    CREATE TABLE species_sightings (
+    CREATE TABLE IF NOT EXISTS species_sightings (
       id TEXT PRIMARY KEY,
       species_id TEXT NOT NULL,
       station_id TEXT,
@@ -56,7 +55,7 @@ function createInMemoryDb(): SqliteDatabaseLike {
       created_at INTEGER NOT NULL
     );
 
-    CREATE TABLE species_movement_signals (
+    CREATE TABLE IF NOT EXISTS species_movement_signals (
       id TEXT PRIMARY KEY,
       species_id TEXT NOT NULL,
       signal_id TEXT,
@@ -67,11 +66,63 @@ function createInMemoryDb(): SqliteDatabaseLike {
       created_at INTEGER NOT NULL
     );
 
-    CREATE TABLE investigations (
+    CREATE TABLE IF NOT EXISTS investigations (
       id TEXT PRIMARY KEY
     );
 
-    CREATE TABLE signal_detections (
+    CREATE TABLE IF NOT EXISTS signal_detections (
+      id TEXT PRIMARY KEY,
+      region TEXT,
+      station_id TEXT,
+      linked_investigation_id TEXT
+    );
+  `);
+  raw.exec(`
+    CREATE TABLE IF NOT EXISTS species (
+      id TEXT PRIMARY KEY,
+      common_name TEXT NOT NULL,
+      scientific_name TEXT NOT NULL,
+      conservation_status TEXT NOT NULL,
+      habitat_region TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS species_sightings (
+      id TEXT PRIMARY KEY,
+      species_id TEXT NOT NULL,
+      station_id TEXT,
+      region TEXT NOT NULL,
+      observed_at INTEGER NOT NULL,
+      latitude REAL NOT NULL,
+      longitude REAL NOT NULL,
+      count INTEGER NOT NULL,
+      source TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      verification_status TEXT NOT NULL DEFAULT 'pending',
+      verified_at INTEGER,
+      verified_by TEXT,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS species_movement_signals (
+      id TEXT PRIMARY KEY,
+      species_id TEXT NOT NULL,
+      signal_id TEXT,
+      investigation_id TEXT,
+      movement_type TEXT NOT NULL,
+      confidence INTEGER NOT NULL,
+      summary TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS investigations (
+      id TEXT PRIMARY KEY,
+      outcome TEXT CHECK (outcome IN ('confirmed', 'false_positive', 'inconclusive') OR outcome IS NULL)
+    );
+
+    CREATE TABLE IF NOT EXISTS signal_detections (
       id TEXT PRIMARY KEY,
       region TEXT,
       station_id TEXT,

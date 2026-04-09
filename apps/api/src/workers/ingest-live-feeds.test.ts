@@ -5,6 +5,7 @@ import {
   runIngestLiveFeedsCli,
   type IngestLiveFeedsDependencies,
 } from "./ingest-live-feeds";
+import { CRW_SOURCE } from "../connectors/coral-reef-watch/constants";
 
 function createNow(values: number[]): () => number {
   let index = 0;
@@ -34,7 +35,9 @@ function createDependencies(overrides: Partial<IngestLiveFeedsDependencies> = {}
         timestamp_stale: 0,
         impossible_values: 0,
         duplicate_row: 0,
+        transient_failure: 0,
       },
+      stationDiagnostics: [],
       finishedAt: "2026-03-18T00:00:00.000Z",
     }),
     runCrw: async () => ({
@@ -98,7 +101,7 @@ test("ingestLiveFeeds keeps IOOS disabled by default and skips ioos run", async 
 
   assert.equal(ioosExecuted, false);
   assert.equal(report.runs.length, 2);
-  assert.deepEqual(report.runs.map((run) => run.source), ["noaa_ndbc", "noaa_coral_reef_watch"]);
+  assert.deepEqual(report.runs.map((run) => run.source), ["noaa_ndbc", CRW_SOURCE]);
 });
 
 test("ingestLiveFeeds runs IOOS after NDBC and CRW when enabled", async () => {
@@ -138,7 +141,7 @@ test("ingestLiveFeeds runs IOOS after NDBC and CRW when enabled", async () => {
   );
 
   assert.equal(report.runs.length, 3);
-  assert.deepEqual(report.runs.map((run) => run.source), ["noaa_ndbc", "noaa_coral_reef_watch", "ioos_regional"]);
+  assert.deepEqual(report.runs.map((run) => run.source), ["noaa_ndbc", CRW_SOURCE, "ioos_regional"]);
   assert.equal(report.runs[2]?.status, "success");
   assert.equal(report.inserted_count, 9);
   assert.equal(report.rejected_count, 0);
@@ -183,7 +186,7 @@ test("ingestLiveFeeds worker happy path emits per-source telemetry", async () =>
   assert.equal(report.runs.length, 2);
   assert.equal(report.runs[0]?.source, "noaa_ndbc");
   assert.equal(report.runs[0]?.status, "success");
-  assert.equal(report.runs[1]?.source, "noaa_coral_reef_watch");
+  assert.equal(report.runs[1]?.source, CRW_SOURCE);
   assert.equal(report.runs[1]?.status, "partial");
   assert.equal(report.inserted_count, 5);
   assert.equal(report.rejected_count, 1);
@@ -226,6 +229,51 @@ test("ingestLiveFeeds continues when one source throws and reports partial", asy
   assert.equal(report.runs[1]?.status, "success");
 });
 
+test("ingestLiveFeeds preserves source-level error when a runner returns failed status directly", async () => {
+  const report = await ingestLiveFeeds(
+    createDependencies({
+      runNdbc: async () => ({
+        runId: "ING-NDBC-FAILED",
+        status: "failed",
+        polledStations: 2,
+        insertedRows: 0,
+        rejectedRows: 0,
+        rejectionReasons: {
+          timestamp_stale: 0,
+          impossible_values: 0,
+          duplicate_row: 0,
+          transient_failure: 0,
+        },
+        stationDiagnostics: [],
+        finishedAt: "2026-03-18T00:00:00.000Z",
+        error: "NDBC station 46042 fetch returned no usable records from https://www.ndbc.noaa.gov/data/realtime2/46042.txt",
+      }),
+      runCrw: async () => ({
+        runId: "ING-CRW-OK",
+        status: "completed",
+        polledTargets: 1,
+        insertedRows: 1,
+        rejectedRows: 0,
+        rejectionReasons: {
+          timestamp_stale: 0,
+          impossible_values: 0,
+          duplicate_record: 0,
+          schema_drift: 0,
+        },
+        finishedAt: "2026-03-18T00:05:00.000Z",
+        error: null,
+      }),
+    }),
+  );
+
+  assert.equal(report.status, "partial");
+  assert.equal(report.runs[0]?.status, "failed");
+  assert.equal(
+    report.runs[0]?.error,
+    "NDBC station 46042 fetch returned no usable records from https://www.ndbc.noaa.gov/data/realtime2/46042.txt",
+  );
+});
+
 test("ingestLiveFeeds telemetry payload includes required operational fields", async () => {
   const report = await ingestLiveFeeds(createDependencies());
 
@@ -256,7 +304,9 @@ test("ingestLiveFeeds aggregates rejection reasons across sources", async () => 
           timestamp_stale: 1,
           impossible_values: 1,
           duplicate_row: 0,
+          transient_failure: 0,
         },
+        stationDiagnostics: [],
         finishedAt: "2026-03-18T00:00:00.000Z",
       }),
       runCrw: async () => ({
@@ -369,7 +419,7 @@ test("ingestLiveFeeds persistence payload includes IOOS source when enabled", as
 
   assert.equal(report.runs.length, 3);
   assert.equal(persisted.length, 1);
-  assert.deepEqual(persisted[0]?.sources, ["noaa_ndbc", "noaa_coral_reef_watch", "ioos_regional"]);
+  assert.deepEqual(persisted[0]?.sources, ["noaa_ndbc", CRW_SOURCE, "ioos_regional"]);
   assert.equal(persisted[0]?.inserted, 9);
   assert.equal(persisted[0]?.rejected, 0);
 });
@@ -428,6 +478,7 @@ test("runIngestLiveFeedsCli sets failure exit code when all sources fail", async
     runCrw: async () => {
       throw new Error("CRW down");
     },
+    persistReport: async () => {},
     writeLine: () => {},
     setExitCode: (code) => {
       exitCode = code;

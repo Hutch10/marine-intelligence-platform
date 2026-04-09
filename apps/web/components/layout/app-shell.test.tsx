@@ -14,7 +14,16 @@ vi.mock("@/components/layout/topbar", () => ({
   ),
 }));
 
-test("app shell keeps the main pane shrink-safe and the right AI panel fixed width", () => {
+vi.mock("@/lib/feed-health", () => ({
+  getFeedHealth: () => ({
+    ndbc: { source: "ndbc", label: "NDBC", status: "unknown", lastIngestedAt: null, ageLabel: null },
+    crw: { source: "crw", label: "CRW", status: "unknown", lastIngestedAt: null, ageLabel: null },
+    overallStatus: "unknown",
+    dbAvailable: false,
+  }),
+}));
+
+test("app shell keeps the main pane shrink-safe", () => {
   render(
     <AppShell pageTitle="Investigations" pageSubtitle="Workspace shell regression test">
       <div>Workspace content</div>
@@ -24,21 +33,24 @@ test("app shell keeps the main pane shrink-safe and the right AI panel fixed wid
   const main = screen.getByRole("main");
   expect(main).toHaveClass("min-w-0");
   expect(main).toHaveClass("flex-1");
-
-  const panelHeading = screen.getByText("AI Insights");
-  const panel = panelHeading.closest("aside");
-
-  expect(panel).not.toBeNull();
-  expect(panel).toHaveClass("w-72");
-  expect(panel).toHaveClass("shrink-0");
+  expect(screen.queryByText("AI Insights")).not.toBeInTheDocument();
 });
 
-test("app shell can still hide the right AI panel when requested", () => {
+test("app shell renders children without any AI panel", () => {
   render(
-    <AppShell hideAIPanel>
+    <AppShell>
       <div>Workspace content</div>
     </AppShell>,
   );
 
+  expect(screen.getByText("Workspace content")).toBeInTheDocument();
   expect(screen.queryByText("AI Insights")).not.toBeInTheDocument();
+});
+
+test("AppShell does not accept hideAIPanel — type-level contract lock", () => {
+  // @ts-expect-error hideAIPanel must not exist on AppShellProps.
+  // If this line stops being a TS error, the dead prop was re-added to the interface.
+  const _unused = <AppShell hideAIPanel><div /></AppShell>;
+  void _unused;
+  expect(true).toBe(true);
 });

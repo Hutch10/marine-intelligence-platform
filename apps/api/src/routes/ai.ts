@@ -91,15 +91,15 @@ function buildStructuredAnalysisResponse(request: AnalyzeRequestBody): AnalyzeRe
   };
 }
 
-function resolveInvestigationIdFromRequest(request: AnalyzeRequestBody): string {
+function resolveRegionIdFromRequest(request: AnalyzeRequestBody): string {
   const candidates = [request.prompt, ...(request.context ?? [])].filter(Boolean).join(" ");
-  const match = candidates.match(/TRK-\d+/i);
+  const match = candidates.match(/reg-[a-z0-9-]+/i);
 
   if (match) {
-    return match[0].toUpperCase();
+    return match[0].toLowerCase();
   }
 
-  return "TRK-201";
+  return "reg-pac-001";
 }
 
 function recordAiAnalysisEvents(request: AnalyzeRequestBody) {
@@ -141,14 +141,53 @@ function recordAiAnalysisEvents(request: AnalyzeRequestBody) {
   }
 }
 
+import { createBiodiversitySynthesisService } from "../services/species-intelligence/biodiversity-synthesis";
+
 export const postAiAnalyzeRoute: RouteDefinition<AnalyzeResponse, AnalyzeRequestBody> = {
   method: "POST",
   path: "/ai/analyze",
-  handler(request) {
+  async handler(request) {
+    const synthesisService = createBiodiversitySynthesisService();
+    const regionId = resolveRegionIdFromRequest(request.body ?? { prompt: "" });
+    
+    const synthesis = await synthesisService.synthesizeAnalysis(
+      request.body?.prompt ?? "",
+      regionId
+    );
+
+    // Record events for traceability
     recordAiAnalysisEvents(request.body ?? { prompt: "" });
+
     return {
       status: 200,
-      json: buildStructuredAnalysisResponse(request.body ?? { prompt: "" }),
+      json: {
+        prompt: request.body?.prompt ?? "",
+        summary: {
+          title: "Summary",
+          body: synthesis.sections.summary
+        },
+        findings: {
+          title: "Findings",
+          body: synthesis.sections.findings
+        },
+        evidence: {
+          title: "Evidence",
+          body: synthesis.sections.evidence
+        },
+        confidence: {
+          title: "Confidence",
+          body: synthesis.sections.confidence
+        },
+        uncertainty: {
+          title: "Uncertainty",
+          body: synthesis.sections.uncertainty
+        },
+        suggestedNextActions: {
+          title: "Suggested Next Actions",
+          body: synthesis.sections.suggestedNextActions
+        },
+        sources: synthesis.sources as any,
+      },
     };
   },
 };

@@ -2,41 +2,7 @@ import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { vi } from "vitest";
 import DashboardPage from "@/app/page";
-import type {
-  DashboardOverviewData,
-  DashboardSpeciesActivity,
-  LiveMarineCondition,
-  ReefStressWatchItem,
-} from "@/lib/api/types";
-
-const SPECIES_ACTIVITY: DashboardSpeciesActivity = {
-  recentSightingCount: 3,
-  recentMovementSignalCount: 2,
-  topMovementTypes: ["route_deviation", "aggregation_shift"],
-  topActiveSpecies: [{ speciesId: "SP-BLUE-WHALE", commonName: "Blue Whale", sightingCount: 3 }],
-  ecologicalReasons: [
-    {
-      kind: "increased_sighting_rate",
-      label: "3 sightings in last 14 days",
-      detail: "Sighting frequency exceeds baseline threshold.",
-    },
-    {
-      kind: "migration_shift_detected",
-      label: "Migration shift: route deviation",
-      detail: "Detected route deviation in recent movement signals.",
-    },
-  ],
-  windowDays: 14,
-  generatedAt: "2026-03-13T12:00:00.000Z",
-};
-
-const OVERVIEW: DashboardOverviewData = {
-  metrics: [],
-  missions: [],
-  activity: [],
-  quickAccess: [],
-  speciesActivity: SPECIES_ACTIVITY,
-};
+import type { LiveMarineCondition, ReefStressWatchItem, SignalDetection } from "@/lib/api/types";
 
 const LIVE_CONDITIONS: LiveMarineCondition[] = [
   {
@@ -46,12 +12,13 @@ const LIVE_CONDITIONS: LiveMarineCondition[] = [
     waveHeightM: 1.24,
     windSpeedMps: 7,
     pressureHpa: 1015.6,
+    source: "noaa_ndbc",
   },
 ];
 
 const REEF_ALERTS: ReefStressWatchItem[] = [
   {
-    region: "Great Barrier Reef",
+    region: "Southeast Florida",
     stationId: null,
     timestamp: "2026-03-18T10:00:00.000Z",
     sstAnomalyC: 1.8,
@@ -63,25 +30,117 @@ const REEF_ALERTS: ReefStressWatchItem[] = [
   },
 ];
 
-const { mockApiClient } = vi.hoisted(() => ({
-  mockApiClient: {
-    dashboard: {
-      getOverview: vi.fn(),
+const SIGNALS: SignalDetection[] = [
+  {
+    id: "SIG-1",
+    signalType: "thermal_anomaly",
+    severity: "high",
+    confidence: 81,
+    sourceType: "risk_engine",
+    sourceId: "risk-41009",
+    region: "Southeast Florida",
+    stationId: "41009",
+    title: "Thermal anomaly escalation",
+    summary: "Station-level warming exceeds baseline.",
+    detail: "Station-level warming exceeds baseline.",
+    status: "open",
+    detectedAt: "2026-03-18T10:50:00.000Z",
+    createdAt: "2026-03-18T10:50:00.000Z",
+    updatedAt: "2026-03-18T10:50:00.000Z",
+    linkedInvestigationId: "TRK-201",
+  },
+];
+
+const MARINE_SURFACE_DATA = {
+  metrics: [
+    { label: "Anomalies", value: "4", caption: "public anomaly feed records", tone: "critical" as const, href: "/investigations" },
+  ],
+  anomalySummary: {
+    totalAnomalies: 4,
+    elevatedAnomalies: 2,
+    criticalAnomalies: 1,
+    regionsAffected: 1,
+    trendDirection: "up" as const,
+  },
+  anomalySummaryLinks: {
+    totalHref: "/investigations",
+    elevatedHref: "/v1/regions/southeast-florida/risk",
+    criticalHref: "/investigations",
+    regionsHref: "/v1/regions/southeast-florida/risk/trend",
+  },
+  anomalySummaryStatus: {
+    source: "derived" as const,
+    label: "Derived summary",
+    detail: "Summary is derived from live routes.",
+    fallbackReason: null,
+    updatedAt: "2026-03-18T10:50:00.000Z",
+    freshnessLabel: "2h old",
+    isStale: false,
+  },
+  prioritizedSignals: SIGNALS,
+  signalCenterStatus: {
+    source: "live" as const,
+    label: "Live API-backed",
+    detail: "Persisted signals only.",
+    fallbackReason: null,
+    updatedAt: "2026-03-18T10:50:00.000Z",
+    freshnessLabel: "2h old",
+    isStale: false,
+  },
+  liveConditions: LIVE_CONDITIONS,
+  liveConditionsStatus: {
+    source: "fallback" as const,
+    label: "Fallback data",
+    detail: "Showing fallback conditions because database is unavailable.",
+    fallbackReason: "db_path_missing",
+    updatedAt: "2026-03-18T10:50:00.000Z",
+    freshnessLabel: "2h old",
+    isStale: false,
+  },
+  reefAlerts: REEF_ALERTS,
+  reefAlertsStatus: {
+    source: "live" as const,
+    label: "Live API-backed",
+    detail: "Persisted reef alerts.",
+    fallbackReason: null,
+    updatedAt: "2026-03-18T10:00:00.000Z",
+    freshnessLabel: "3h old",
+    isStale: false,
+  },
+  primaryRegion: {
+    id: "southeast-florida",
+    name: "Southeast Florida",
+  },
+  quickLinks: [
+    {
+      label: "Anomaly Feed",
+      description: "Review live anomaly records and open signals.",
+      href: "/investigations",
     },
-    signals: {
-      list: vi.fn(),
+  ],
+  notices: [
+    {
+      title: "Station conditions are in fallback mode",
+      detail: "Showing fallback conditions because database is unavailable.",
+      tone: "warning" as const,
     },
-    liveConditions: {
-      getLatest: vi.fn(),
-    },
-    reefAlerts: {
-      getLatest: vi.fn(),
-    },
+  ],
+};
+
+const { mockMarineSurfaceData } = vi.hoisted(() => ({
+  mockMarineSurfaceData: {
+    getDashboardMarineSurfaceData: vi.fn(),
+    getMarineRegionByName: vi.fn(),
+    getSignalDetailHref: vi.fn(),
+    formatSurfaceStatusLine: vi.fn(),
   },
 }));
 
-vi.mock("@/lib/api/client", () => ({
-  apiClient: mockApiClient,
+vi.mock("@/lib/marine-intelligence", () => ({
+  getDashboardMarineSurfaceData: mockMarineSurfaceData.getDashboardMarineSurfaceData,
+  getMarineRegionByName: mockMarineSurfaceData.getMarineRegionByName,
+  getSignalDetailHref: mockMarineSurfaceData.getSignalDetailHref,
+  formatSurfaceStatusLine: mockMarineSurfaceData.formatSurfaceStatusLine,
 }));
 
 vi.mock("@/components/layout/app-shell", () => ({
@@ -89,87 +148,74 @@ vi.mock("@/components/layout/app-shell", () => ({
 }));
 
 vi.mock("@/components/dashboard/dashboard-anomaly-summary", () => ({
-  DashboardAnomalySummaryCard: () => <div data-testid="anomaly-summary" />,
+  DashboardAnomalySummaryCard: ({ statusLine }: { statusLine?: string }) => (
+    <div data-testid="anomaly-summary">{statusLine}</div>
+  ),
 }));
 
 vi.mock("@/components/signals/signal-center", () => ({
-  SignalCenter: () => <div data-testid="signal-center" />,
+  SignalCenter: ({ statusLine }: { statusLine?: string }) => <div data-testid="signal-center">{statusLine}</div>,
 }));
 
 beforeEach(() => {
-  mockApiClient.dashboard.getOverview.mockReset();
-  mockApiClient.signals.list.mockReset();
-  mockApiClient.liveConditions.getLatest.mockReset();
-  mockApiClient.reefAlerts.getLatest.mockReset();
+  mockMarineSurfaceData.getDashboardMarineSurfaceData.mockReset();
+  mockMarineSurfaceData.getMarineRegionByName.mockReset();
+  mockMarineSurfaceData.getSignalDetailHref.mockReset();
+  mockMarineSurfaceData.formatSurfaceStatusLine.mockReset();
 
-  mockApiClient.dashboard.getOverview.mockResolvedValue(OVERVIEW);
-  mockApiClient.signals.list.mockResolvedValue([]);
-  mockApiClient.liveConditions.getLatest.mockResolvedValue(LIVE_CONDITIONS);
-  mockApiClient.reefAlerts.getLatest.mockResolvedValue(REEF_ALERTS);
+  mockMarineSurfaceData.getDashboardMarineSurfaceData.mockReturnValue(MARINE_SURFACE_DATA);
+  mockMarineSurfaceData.formatSurfaceStatusLine.mockImplementation((status) => status.detail);
+  mockMarineSurfaceData.getMarineRegionByName.mockReturnValue({
+    id: "southeast-florida",
+    name: "Southeast Florida",
+  });
 });
 
-test("dashboard page renders species activity from overview", async () => {
+test("dashboard page renders only live-backed marine surfaces and trust notices", async () => {
   const page = await DashboardPage();
   render(page);
 
-  expect(screen.getByText("Species Activity")).toBeInTheDocument();
-  expect(screen.getByText("Blue Whale")).toBeInTheDocument();
-  expect(screen.getByText("3 sightings in last 14 days")).toBeInTheDocument();
-  expect(screen.getByText(/Migration shift/i)).toBeInTheDocument();
+  expect(screen.getByText("This dashboard now shows only live-backed marine risk surfaces.")).toBeInTheDocument();
+  expect(screen.getByText("Station conditions are in fallback mode")).toBeInTheDocument();
+  expect(screen.queryByText("Intentionally Hidden Until Live-Backed")).not.toBeInTheDocument();
+  expect(screen.queryByText("Species Activity")).not.toBeInTheDocument();
+  expect(screen.queryByText("Active Missions")).not.toBeInTheDocument();
+  expect(screen.queryByText("Recent Activity")).not.toBeInTheDocument();
 });
 
-test("dashboard page only requests overview and signals", async () => {
-  await DashboardPage();
+test("dashboard page passes surface status into anomaly and signal sections", async () => {
+  const page = await DashboardPage();
+  render(page);
 
-  expect(mockApiClient.dashboard.getOverview).toHaveBeenCalledTimes(1);
-  expect(mockApiClient.signals.list).toHaveBeenCalledTimes(1);
-  expect(mockApiClient.liveConditions.getLatest).toHaveBeenCalledTimes(1);
-  expect(mockApiClient.reefAlerts.getLatest).toHaveBeenCalledTimes(1);
+  expect(screen.getByTestId("anomaly-summary")).toHaveTextContent("Summary is derived from live routes.");
+  expect(screen.getByTestId("signal-center")).toHaveTextContent("Persisted signals only.");
 });
 
-test("dashboard page renders live marine conditions panel", async () => {
+test("dashboard page station IDs in live conditions link to canonical station risk route", async () => {
+  const page = await DashboardPage();
+  render(page);
+
+  const stationLink = screen.getByRole("link", { name: "46042" });
+  expect(stationLink).toBeInTheDocument();
+  expect(stationLink).toHaveAttribute("href", "/v1/risk/46042");
+});
+
+test("dashboard page does not surface investigation IDs as text", async () => {
+  // SIGNALS fixture contains linkedInvestigationId: "TRK-201" but signal-card
+  // no longer renders it — this test locks that behavior in.
+  // Note: SignalCenter is mocked in this test file so we verify at the page level only.
+  const page = await DashboardPage();
+  render(page);
+
+  expect(screen.queryByText("TRK-201")).not.toBeInTheDocument();
+});
+
+test("dashboard page renders live conditions and reef stress panels", async () => {
   const page = await DashboardPage();
   render(page);
 
   expect(screen.getByText("Live Marine Conditions")).toBeInTheDocument();
   expect(screen.getByText("46042")).toBeInTheDocument();
-  expect(screen.getByText(/17.1 °C/)).toBeInTheDocument();
-});
-
-test("dashboard page renders reef stress watch panel", async () => {
-  const page = await DashboardPage();
-  render(page);
-
   expect(screen.getByText("Reef Stress Watch")).toBeInTheDocument();
-  expect(screen.getByText("Great Barrier Reef")).toBeInTheDocument();
   expect(screen.getByText("Alert Level 1")).toBeInTheDocument();
-});
-
-test("dashboard page shows empty species activity state when unavailable", async () => {
-  mockApiClient.dashboard.getOverview.mockResolvedValue({
-    ...OVERVIEW,
-    speciesActivity: undefined,
-  });
-
-  const page = await DashboardPage();
-  render(page);
-
-  expect(screen.getByText("No recent species activity data available.")).toBeInTheDocument();
-});
-
-test("dashboard page renders ecological reasons section when reasons exist", async () => {
-  const page = await DashboardPage();
-  render(page);
-
-  expect(screen.getByText("Ecological signals")).toBeInTheDocument();
-  expect(screen.getByText("Sighting frequency exceeds baseline threshold.")).toBeInTheDocument();
-});
-
-test("dashboard page shows empty reef stress state when alerts unavailable", async () => {
-  mockApiClient.reefAlerts.getLatest.mockResolvedValue([]);
-
-  const page = await DashboardPage();
-  render(page);
-
-  expect(screen.getByText("No reef stress alerts available.")).toBeInTheDocument();
 });

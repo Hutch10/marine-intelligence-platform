@@ -46,16 +46,22 @@ interface OperationalAlertsRepositoryReadOptions extends OperationalAlertsReadOp
 interface OperationalAlertRow {
   id: string;
   source: string;
+  station_id?: string | null;
   rule_type: string;
   severity: string;
   status: string;
+  lifecycle_status?: string | null;
   title: string;
   detail: string | null;
   metadata_json: string | null;
   detected_at: number | string;
   resolved_at: number | string | null;
+  occurrence_count?: number | string | null;
+  window_started_at?: number | string | null;
+  window_ends_at?: number | string | null;
   created_at: string;
   updated_at: string;
+  investigation_id?: string | null;
 }
 
 const DEFAULT_LIMIT = 20;
@@ -79,19 +85,36 @@ function normalizeFilterText(value: string | undefined): string | undefined {
 }
 
 function toOperationalAlert(row: OperationalAlertRow): OperationalAlert {
+  const detectedAt = Number(row.detected_at);
+  const occurrenceCount = Number(row.occurrence_count ?? 1) || 1;
+  const windowStartedAt = Number(row.window_started_at ?? detectedAt);
+  const windowEndsAt = Number(row.window_ends_at ?? windowStartedAt + 60 * 60 * 1000);
+
   return {
     id: row.id,
     source: row.source,
+    stationId: row.station_id ?? null,
     ruleType: row.rule_type as OperationalAlertRuleType,
     severity: row.severity as OperationalAlertSeverity,
     status: row.status as OperationalAlertStatus,
+    lifecycleStatus: (row.lifecycle_status === "resolved"
+      ? "resolved"
+      : row.lifecycle_status === "ongoing"
+        ? "ongoing"
+        : occurrenceCount > 1
+          ? "ongoing"
+          : "open"),
     title: row.title,
     detail: row.detail,
     metadataJson: row.metadata_json,
-    detectedAt: Number(row.detected_at),
-    resolvedAt: row.resolved_at === null ? null : Number(row.resolved_at),
+    detectedAt,
+    resolvedAt: row.resolved_at == null ? null : Number(row.resolved_at),
+    occurrenceCount,
+    windowStartedAt,
+    windowEndsAt,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    investigationId: row.investigation_id ?? null,
   };
 }
 
@@ -155,16 +178,22 @@ export function ensureOperationalAlertsTable(db: SqliteDatabaseLike) {
     CREATE TABLE IF NOT EXISTS operational_alerts (
       id TEXT PRIMARY KEY,
       source TEXT NOT NULL,
+      station_id TEXT,
       rule_type TEXT NOT NULL,
       severity TEXT NOT NULL,
       status TEXT NOT NULL,
+      lifecycle_status TEXT NOT NULL DEFAULT 'open',
       title TEXT NOT NULL,
       detail TEXT,
       metadata_json TEXT,
       detected_at INTEGER NOT NULL,
       resolved_at INTEGER,
+      occurrence_count INTEGER NOT NULL DEFAULT 1,
+      window_started_at INTEGER NOT NULL DEFAULT 0,
+      window_ends_at INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
+      investigation_id TEXT REFERENCES investigations(id),
       UNIQUE(source, rule_type, status)
     )
   `);
@@ -175,6 +204,60 @@ export function ensureOperationalAlertsTable(db: SqliteDatabaseLike) {
     stmt.all();
   }
 }
+// --- Phase 3: Investigation Linking Helpers ---
+
+/**
+ * Link an operational alert to an investigation (sets investigation_id).
+ */
+export function linkOperationalAlertToInvestigation(db: SqliteDatabaseLike, alertId: string, investigationId: string) {
+  const stmt = db.prepare(`
+    UPDATE operational_alerts
+    SET investigation_id = ?
+    WHERE id = ?
+  `);
+  if (stmt && typeof stmt.run === "function") {
+    stmt.run(investigationId, alertId);
+  } else {
+    throw new Error("Failed to prepare statement or .run is not a function");
+  }
+}
+
+/**
+ * Find an open investigation for a given alert context (by source, rule_type, etc).
+ * Returns the investigation_id or null if not found.
+ * You can extend the context as needed for your workflow.
+ */
+export function findOpenInvestigationForAlertContext(db: SqliteDatabaseLike, context: { source: string; ruleType: string; }): string | null {
+  // Example: Find the most recent open investigation for this source and ruleType
+  const stmt = db.prepare(`
+    SELECT investigation_id FROM operational_alerts
+    WHERE source = ? AND rule_type = ? AND investigation_id IS NOT NULL
+    ORDER BY detected_at DESC LIMIT 1
+  `);
+  const rows = stmt.all(context.source, context.ruleType);
+  if (Array.isArray(rows) && rows.length > 0) {
+    const row = rows[0] as { investigation_id?: string | null };
+    return row.investigation_id ?? null;
+  }
+  return null;
+}
+
+/**
+ * Read the linked investigation data for a given alert (returns investigation row or null).
+ */
+export function getLinkedInvestigationForAlert(db: SqliteDatabaseLike, alertId: string): { id: string; title: string; summary: string; state: string; confidence: number | null } | null {
+  const stmt = db.prepare(`
+    SELECT i.id, i.title, i.summary, i.state, i.confidence
+    FROM operational_alerts oa
+    JOIN investigations i ON oa.investigation_id = i.id
+    WHERE oa.id = ?
+  `);
+  const rows = stmt.all(alertId);
+  if (Array.isArray(rows) && rows.length > 0) {
+    return rows[0] as { id: string; title: string; summary: string; state: string; confidence: number | null };
+  }
+  return null;
+}
 
 /**
  * Evaluate feed-health snapshot and apply alerts.
@@ -184,7 +267,8 @@ export function evaluateAndApplyAlerts(
   db: SqliteDatabaseLike,
   snapshot: LiveIngestionHealthSnapshot,
 ): string[] {
-  const service = createOperationalAlertsService({ db });
+  const { DbAlertStore } = require("../services/db-alert-store");
+  const service = createOperationalAlertsService({ db, alertStore: new DbAlertStore(db) });
   const actions = evaluateFeedHealthForAlerts(snapshot);
 
   // Apply create actions

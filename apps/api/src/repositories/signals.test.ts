@@ -24,13 +24,37 @@ function createInMemoryDb(): SqliteDatabaseLike {
   };
 
   const raw = new DatabaseSync(":memory:");
-
   raw.exec(`
-    CREATE TABLE investigations (
+    CREATE TABLE IF NOT EXISTS investigations (
       id TEXT PRIMARY KEY
     );
 
-    CREATE TABLE signal_detections (
+    CREATE TABLE IF NOT EXISTS signal_detections (
+      id TEXT PRIMARY KEY,
+      signal_type TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      confidence INTEGER NOT NULL,
+      source_type TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      region TEXT NOT NULL,
+      station_id TEXT,
+      title TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      detail TEXT NOT NULL,
+      status TEXT NOT NULL,
+      detected_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      linked_investigation_id TEXT
+    );
+  `);
+  raw.exec(`
+    CREATE TABLE IF NOT EXISTS investigations (
+      id TEXT PRIMARY KEY,
+      outcome TEXT CHECK (outcome IN ('confirmed', 'false_positive', 'inconclusive') OR outcome IS NULL)
+    );
+
+    CREATE TABLE IF NOT EXISTS signal_detections (
       id TEXT PRIMARY KEY,
       signal_type TEXT NOT NULL,
       severity TEXT NOT NULL,

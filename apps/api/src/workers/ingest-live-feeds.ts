@@ -1,6 +1,7 @@
 import {
   runNdbcIngestion,
   type RunNdbcIngestionResult,
+  type NdbcStationIngestionDiagnostic,
 } from "../services/ingestion/run-ndbc";
 import {
   runCrwIngestion,
@@ -10,9 +11,15 @@ import {
   runIoosIngestion,
   type RunIoosIngestionResult,
 } from "../services/ingestion/run-ioos";
+import {
+  runErddapIngestion,
+  type RunErddapIngestionResult,
+} from "../services/ingestion/run-erddap";
 import { persistLiveIngestionReport } from "../repositories/live-ingestion-reports";
+import { CRW_SOURCE } from "../connectors/coral-reef-watch/constants";
+import { createBiodiversityOrchestrator } from "../services/species-intelligence/biodiversity-orchestrator";
 
-export type LiveFeedSource = "noaa_ndbc" | "noaa_coral_reef_watch" | "ioos_regional";
+export type LiveFeedSource = "noaa_ndbc" | typeof CRW_SOURCE | "ioos_regional" | "ioos_erddap";
 export type OperationalRunStatus = "success" | "partial" | "failed";
 
 export interface SourceIngestionTelemetry {
@@ -26,6 +33,7 @@ export interface SourceIngestionTelemetry {
   status: OperationalRunStatus;
   run_id: string | null;
   error: string | null;
+  station_diagnostics?: NdbcStationIngestionDiagnostic[];
 }
 
 export interface LiveFeedIngestionReport {
@@ -45,6 +53,8 @@ interface SourceExecutionResult {
   insertedRows: number;
   rejectedRows: number;
   rejectionReasons: Record<string, number>;
+  stationDiagnostics?: NdbcStationIngestionDiagnostic[];
+  error?: string | null;
 }
 
 export interface IngestLiveFeedsDependencies {
@@ -52,7 +62,9 @@ export interface IngestLiveFeedsDependencies {
   runNdbc?: () => Promise<RunNdbcIngestionResult>;
   runCrw?: () => Promise<RunCrwIngestionResult>;
   runIoos?: () => Promise<RunIoosIngestionResult>;
+  runErddap?: () => Promise<RunErddapIngestionResult>;
   ioosEnabled?: boolean;
+  erddapEnabled?: boolean;
   persistReport?: (report: LiveFeedIngestionReport) => void | Promise<void>;
   onPersistenceFailure?: (error: Error, report: LiveFeedIngestionReport) => void;
   evaluateAlerts?: (snapshot: any) => Promise<void>;
@@ -69,6 +81,10 @@ function toIso(ms: number): string {
 
 function isIoosEnabled(env = process.env): boolean {
   return String(env.IOOS_ENABLED ?? "false").trim().toLowerCase() === "true";
+}
+
+function isErddapEnabled(env = process.env): boolean {
+  return String(env.ERDDAP_ENABLED ?? "false").trim().toLowerCase() === "true";
 }
 
 function normalizeStatus(result: SourceExecutionResult): OperationalRunStatus {
@@ -136,7 +152,8 @@ async function executeSource(
       rejection_reasons: { ...result.rejectionReasons },
       status: normalizeStatus(result),
       run_id: result.runId,
-      error: null,
+      error: result.status === "failed" ? result.error ?? `${source} ingestion failed` : null,
+      station_diagnostics: result.stationDiagnostics,
     };
   } catch (error) {
     const completedAtMs = now();
@@ -152,6 +169,7 @@ async function executeSource(
       status: "failed",
       run_id: null,
       error: error instanceof Error ? error.message : String(error),
+      station_diagnostics: undefined,
     };
   }
 }
@@ -163,7 +181,9 @@ export async function ingestLiveFeeds(
   const runNdbc = dependencies.runNdbc ?? runNdbcIngestion;
   const runCrw = dependencies.runCrw ?? runCrwIngestion;
   const runIoos = dependencies.runIoos ?? runIoosIngestion;
+  const runErddap = dependencies.runErddap ?? runErddapIngestion;
   const ioosEnabled = dependencies.ioosEnabled ?? isIoosEnabled();
+  const erddapEnabled = dependencies.erddapEnabled ?? isErddapEnabled();
   const persistReport = dependencies.persistReport ?? persistLiveIngestionReport;
   const onPersistenceFailure = dependencies.onPersistenceFailure;
 
@@ -173,10 +193,14 @@ export async function ingestLiveFeeds(
 
   // Preserve deterministic execution order for operational traceability.
   runs.push(await executeSource("noaa_ndbc", runNdbc, now));
-  runs.push(await executeSource("noaa_coral_reef_watch", runCrw, now));
+  runs.push(await executeSource(CRW_SOURCE, runCrw, now));
 
   if (ioosEnabled) {
     runs.push(await executeSource("ioos_regional", runIoos, now));
+  }
+
+  if (erddapEnabled) {
+    runs.push(await executeSource("ioos_erddap", runErddap, now));
   }
 
   const completedAtMs = now();
@@ -211,6 +235,11 @@ export async function ingestLiveFeeds(
         if (snapshotResult.source === "db") {
           await dependencies.evaluateAlerts(snapshotResult.snapshot);
         }
+
+        // Trigger Biological Intelligence cycle
+        console.log("[ingest:live] Triggering Biodiversity Intelligence cycle...");
+        const bioOrchestrator = createBiodiversityOrchestrator();
+        await bioOrchestrator.runRegionalCycle();
       } catch (alertError) {
         // Log but don't fail the worker if alert evaluation fails
         console.warn("[ingest:live] Alert evaluation failed:", alertError);

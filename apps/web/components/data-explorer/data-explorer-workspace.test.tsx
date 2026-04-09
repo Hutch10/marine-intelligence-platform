@@ -1923,6 +1923,7 @@ test("preset history detail fetch failures are non-fatal", async () => {
   expect(await screen.findByRole("option", { name: "Shared History Error" })).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "View full history" }));
 
+  // Await the error UI, not network
   expect(await screen.findByTestId("preset-history-error")).toHaveTextContent(
     "Preset audit history unavailable.",
   );

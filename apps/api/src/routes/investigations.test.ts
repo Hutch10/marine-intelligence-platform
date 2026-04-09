@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildInvestigationsRouteResponse } from "./investigations";
 
-test("investigations route returns DB-backed analysis tracks", () => {
+test("investigations route returns DB-backed analysis tracks and evidenceItems is always an array", () => {
   const response = buildInvestigationsRouteResponse({
     source: "db",
     analysisTracks: [
@@ -30,7 +30,9 @@ test("investigations route returns DB-backed analysis tracks", () => {
   assert.equal(response.telemetry.fallbackReason, undefined);
   assert.equal(response.json.workspace.analysisTracks.length, 2);
   assert.equal(response.json.workspace.analysisTracks[0]?.id, "TRK-201");
-  assert.equal(response.json.workspace.speciesSummary, null);
+  assert.equal(Array.isArray(response.json.workspace.speciesSummary?.entries), true);
+  // Contract: evidenceItems is always an array
+  assert.ok(Array.isArray(response.json.workspace.evidenceItems), "evidenceItems must always be an array");
 });
 
 test("investigations route injects DB species summary when provided", () => {

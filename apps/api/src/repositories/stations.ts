@@ -928,20 +928,27 @@ export function listStations(
   const openDatabase = dependencies.openDatabase ?? openReadOnlyDatabase;
   const now = dependencies.now ?? Date.now;
   const databasePath = resolvePath();
-
-  if (!hasPath(databasePath)) {
+  console.log("[stations] resolved databasePath:", databasePath);
+  const has = hasPath(databasePath);
+  console.log("[stations] hasPath:", has);
+  if (!has) {
+    console.log("[stations] DB path missing, returning fallback");
     return { source: "mock", fallbackReason: "db_path_missing" };
   }
 
   let db: SqliteDatabaseLike;
 
   try {
+    console.log("[stations] opening database");
     db = openDatabase(databasePath);
-  } catch {
+    console.log("[stations] database opened");
+  } catch (e) {
+    console.log("[stations] DB open failed:", e);
     return { source: "mock", fallbackReason: "db_open_failed" };
   }
 
   try {
+    console.log("[stations] preparing and running query");
     const rows = db
       .prepare(
         `SELECT
@@ -967,15 +974,17 @@ export function listStations(
          ORDER BY s.updated_at DESC, s.created_at DESC, s.id ASC`,
       )
       .all() as StationRow[];
-
+    console.log("[stations] query returned rows:", rows.length);
     return {
       source: "db",
       stations: rows.map((row) => toStationSummary(row, now())),
     };
-  } catch {
+  } catch (e) {
+    console.log("[stations] DB query failed:", e);
     return { source: "mock", fallbackReason: "db_query_failed" };
   } finally {
     db.close();
+    console.log("[stations] db closed");
   }
 }
 

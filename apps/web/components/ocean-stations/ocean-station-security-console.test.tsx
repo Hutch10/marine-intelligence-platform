@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 
@@ -91,6 +91,10 @@ vi.mock("@/lib/api/client", () => ({
 }));
 
 const STATION = oceanStationDetails["STA-NPC-01"];
+
+function setInputValue(label: string, value: string) {
+  fireEvent.change(screen.getByLabelText(label), { target: { value } });
+}
 
 function renderConsole(options?: {
   initialOperationalAlertFilters?: {
@@ -348,8 +352,8 @@ test("security console filter UI applies actor and ip investigation filters", as
 
   renderConsole();
 
-  await user.type(screen.getByLabelText("Actor"), "pilot.filter@marine.local");
-  await user.type(screen.getByLabelText("IP"), "198.51.100.33");
+  setInputValue("Actor", "pilot.filter@marine.local");
+  setInputValue("IP", "198.51.100.33");
   await user.selectOptions(screen.getByLabelText("Event Type"), "login_failure");
 
   expect(mockApiClient.stationAdminAuth.queryEvents).not.toHaveBeenCalled();
@@ -374,11 +378,11 @@ test("security console updates URL query params when investigation filters chang
 
   renderConsole();
 
-  await user.type(screen.getByLabelText("Actor"), "pilot.filter@marine.local");
-  await user.type(screen.getByLabelText("IP"), "198.51.100.33");
+  setInputValue("Actor", "pilot.filter@marine.local");
+  setInputValue("IP", "198.51.100.33");
   await user.selectOptions(screen.getByLabelText("Event Type"), "login_failure");
-  await user.type(screen.getByLabelText("Since"), "2026-03-16T08:30");
-  await user.type(screen.getByLabelText("Until"), "2026-03-16T10:45");
+  setInputValue("Since", "2026-03-16T08:30");
+  setInputValue("Until", "2026-03-16T10:45");
 
   const params = new URLSearchParams(window.location.search);
 
@@ -401,10 +405,10 @@ test("security console copies the current incident view URL without extra reques
 
   renderConsole();
 
-  await user.type(screen.getByLabelText("Actor"), "pilot.filter@marine.local");
-  await user.type(screen.getByLabelText("IP"), "198.51.100.33");
+  setInputValue("Actor", "pilot.filter@marine.local");
+  setInputValue("IP", "198.51.100.33");
   await user.selectOptions(screen.getByLabelText("Event Type"), "login_failure");
-  await user.type(screen.getByLabelText("Alert source"), "ioos_regional");
+  setInputValue("Alert source", "ioos_regional");
   await user.selectOptions(screen.getByLabelText("Alert status"), "resolved");
   await user.selectOptions(screen.getByLabelText("Rule type"), "source_stale");
   await user.selectOptions(screen.getByLabelText("History limit"), "50");
@@ -426,9 +430,9 @@ test("security console opens incident view in a new tab using current URL", asyn
 
   renderConsole();
 
-  await user.type(screen.getByLabelText("Actor"), "pilot.filter@marine.local");
+  setInputValue("Actor", "pilot.filter@marine.local");
   await user.selectOptions(screen.getByLabelText("Event Type"), "login_failure");
-  await user.type(screen.getByLabelText("Alert source"), "ioos_regional");
+  setInputValue("Alert source", "ioos_regional");
 
   const expectedUrl = window.location.href;
 
@@ -465,12 +469,12 @@ test("security console reset all URL filters clears params and restores default 
 
   renderConsole();
 
-  await user.type(screen.getByLabelText("Actor"), "pilot.filter@marine.local");
-  await user.type(screen.getByLabelText("IP"), "198.51.100.33");
+  setInputValue("Actor", "pilot.filter@marine.local");
+  setInputValue("IP", "198.51.100.33");
   await user.selectOptions(screen.getByLabelText("Event Type"), "login_failure");
-  await user.type(screen.getByLabelText("Since"), "2026-03-16T08:30");
-  await user.type(screen.getByLabelText("Until"), "2026-03-16T10:45");
-  await user.type(screen.getByLabelText("Alert source"), "ioos_regional");
+  setInputValue("Since", "2026-03-16T08:30");
+  setInputValue("Until", "2026-03-16T10:45");
+  setInputValue("Alert source", "ioos_regional");
   await user.selectOptions(screen.getByLabelText("Alert status"), "resolved");
   await user.selectOptions(screen.getByLabelText("Rule type"), "source_stale");
   await user.selectOptions(screen.getByLabelText("History limit"), "50");
@@ -508,7 +512,7 @@ test("security console requests operational alerts with updated filters", async 
 
   renderConsole();
 
-  await user.type(screen.getByLabelText("Alert source"), "ioos_regional");
+  setInputValue("Alert source", "ioos_regional");
   await user.selectOptions(screen.getByLabelText("Alert status"), "resolved");
   await user.selectOptions(screen.getByLabelText("Rule type"), "source_stale");
   await user.selectOptions(screen.getByLabelText("History limit"), "50");
@@ -531,7 +535,7 @@ test("security console updates URL query params when operational alert filters c
 
   renderConsole();
 
-  await user.type(screen.getByLabelText("Alert source"), "ioos_regional");
+  setInputValue("Alert source", "ioos_regional");
   await user.selectOptions(screen.getByLabelText("Alert status"), "resolved");
   await user.selectOptions(screen.getByLabelText("Rule type"), "source_stale");
   await user.selectOptions(screen.getByLabelText("History limit"), "50");
@@ -577,7 +581,7 @@ test("security console handles revoke step-up challenge and retries revoke after
   await user.click(screen.getByRole("button", { name: "Revoke session" }));
 
   expect(await screen.findByRole("heading", { name: "MFA Step-Up Required" })).toBeInTheDocument();
-  await user.type(screen.getByLabelText("Authenticator code"), "246810");
+  setInputValue("Authenticator code", "246810");
   await user.click(screen.getByRole("button", { name: "Verify and continue" }));
 
   expect(await screen.findByText("Session revoked successfully.")).toBeInTheDocument();
@@ -613,7 +617,7 @@ test("security console step-up verification handles rate-limited responses", asy
   await user.click(screen.getByRole("button", { name: "Revoke session" }));
   expect(await screen.findByRole("heading", { name: "MFA Step-Up Required" })).toBeInTheDocument();
 
-  await user.type(screen.getByLabelText("Authenticator code"), "246810");
+  setInputValue("Authenticator code", "246810");
   await user.click(screen.getByRole("button", { name: "Verify and continue" }));
 
   expect(await screen.findByText("MFA verification rate-limited. Retry in 45s.")).toBeInTheDocument();
@@ -650,7 +654,7 @@ test("security console step-up verification handles locked_out responses", async
   await user.click(screen.getByRole("button", { name: "Revoke session" }));
   expect(await screen.findByRole("heading", { name: "MFA Step-Up Required" })).toBeInTheDocument();
 
-  await user.type(screen.getByLabelText("Authenticator code"), "000000");
+  setInputValue("Authenticator code", "000000");
   await user.click(screen.getByRole("button", { name: "Verify and continue" }));
 
   expect(
@@ -686,7 +690,7 @@ test("security console step-up verification handles expired responses", async ()
   await user.click(screen.getByRole("button", { name: "Revoke session" }));
   expect(await screen.findByRole("heading", { name: "MFA Step-Up Required" })).toBeInTheDocument();
 
-  await user.type(screen.getByLabelText("Authenticator code"), "123456");
+  setInputValue("Authenticator code", "123456");
   await user.click(screen.getByRole("button", { name: "Verify and continue" }));
 
   expect(
@@ -723,7 +727,7 @@ test("security console step-up verification handles mfa_failed with attempts rem
   await user.click(screen.getByRole("button", { name: "Revoke session" }));
   expect(await screen.findByRole("heading", { name: "MFA Step-Up Required" })).toBeInTheDocument();
 
-  await user.type(screen.getByLabelText("Authenticator code"), "999999");
+  setInputValue("Authenticator code", "999999");
   await user.click(screen.getByRole("button", { name: "Verify and continue" }));
 
   expect(
@@ -771,15 +775,17 @@ test("security console saves current filter state as incident preset", async () 
 
   renderConsole();
 
-  await user.type(screen.getByLabelText("Actor"), "pilot.auth@marine.local");
-  await user.type(screen.getByLabelText("IP"), "198.51.100.99");
+  setInputValue("Actor", "pilot.auth@marine.local");
+  setInputValue("IP", "198.51.100.99");
   await user.selectOptions(screen.getByLabelText("Event Type"), "login_failure");
 
   await user.click(screen.getByRole("button", { name: "Save preset" }));
   
   expect(screen.getByPlaceholderText("e.g., Suspicious login attempts")).toBeInTheDocument();
 
-  await user.type(screen.getByPlaceholderText("e.g., Suspicious login attempts"), "Suspicious Logins");
+  fireEvent.change(screen.getByPlaceholderText("e.g., Suspicious login attempts"), {
+    target: { value: "Suspicious Logins" },
+  });
   await user.click(screen.getByRole("button", { name: "Save" }));
 
   expect(mockIncidentPresets.saveIncidentPreset).toHaveBeenCalledTimes(1);
@@ -962,7 +968,7 @@ test("security console deletes incident preset without affecting current filters
   expect(screen.getByText("Temporary Investigation")).toBeInTheDocument();
 
   // Set some filter values first
-  await user.type(screen.getByLabelText("Actor"), "active.user@marine.local");
+  setInputValue("Actor", "active.user@marine.local");
 
   await user.click(screen.getByRole("button", { name: "Delete" }));
 
@@ -1040,7 +1046,9 @@ test("security console rejects duplicate or empty preset names safely", async ()
   renderConsole();
 
   await user.click(screen.getByRole("button", { name: "Save preset" }));
-  await user.type(screen.getByPlaceholderText("e.g., Suspicious login attempts"), "Duplicate Name");
+  fireEvent.change(screen.getByPlaceholderText("e.g., Suspicious login attempts"), {
+    target: { value: "Duplicate Name" },
+  });
   await user.click(screen.getByRole("button", { name: "Save" }));
 
   expect(await screen.findByText("Preset name already exists.")).toBeInTheDocument();

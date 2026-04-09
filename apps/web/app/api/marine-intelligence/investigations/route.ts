@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
-import { apiClient } from "@/lib/api/client";
-import { getStationAdminSessionCookie } from "@/lib/api/session-cookies";
+import type { MarineWorkflowCreateInvestigationResponse } from "@marine/shared";
+import {
+  buildMarineIntelligenceProxyHeaders,
+  requireMarineIntelligenceAdminSession,
+  resolveMarineIntelligenceApiOrigin,
+} from "../_utils";
 
 interface CreateInvestigationBody {
   eventId?: unknown;
@@ -8,20 +12,10 @@ interface CreateInvestigationBody {
 }
 
 export async function POST(request: Request) {
-  const sessionId = getStationAdminSessionCookie();
+  const authResult = await requireMarineIntelligenceAdminSession();
 
-  if (!sessionId) {
-    return NextResponse.json({ message: "Session required" }, { status: 401 });
-  }
-
-  const auth = await apiClient.stationAdminAuth.getSession(sessionId);
-
-  if (!auth) {
-    return NextResponse.json({ message: "Session required" }, { status: 401 });
-  }
-
-  if (!auth.permissions.includes("station.view_admin")) {
-    return NextResponse.json({ message: "Missing permission: station.view_admin" }, { status: 403 });
+  if (!authResult.ok) {
+    return authResult.response;
   }
 
   let body: CreateInvestigationBody = {};
@@ -39,14 +33,39 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: "eventId and title are required" }, { status: 400 });
   }
 
-  const result = await apiClient.marineIntelligence.createInvestigation(
-    { eventId, title, ownerId: auth.actorId },
-    auth,
-  );
+  const origin = resolveMarineIntelligenceApiOrigin(request);
 
-  if (!result.ok) {
-    return NextResponse.json({ message: result.message }, { status: result.status });
+  if (!origin) {
+    return NextResponse.json({ message: "Marine intelligence API origin is not configured." }, { status: 503 });
   }
 
-  return NextResponse.json({ ok: true, investigation: result.investigation });
+  try {
+    const response = await fetch(new URL("/marine-intelligence/investigations", origin), {
+      method: "POST",
+      headers: buildMarineIntelligenceProxyHeaders(authResult.auth, "application/json"),
+      body: JSON.stringify({ eventId, title, ownerId: authResult.auth.actorId }),
+      cache: "no-store",
+    });
+    const payload = await response.json() as MarineWorkflowCreateInvestigationResponse | { message?: string };
+
+    if (!response.ok) {
+      return NextResponse.json(
+        {
+          message:
+            typeof payload === "object" && payload && "message" in payload && typeof payload.message === "string"
+              ? payload.message
+              : "Marine investigation request failed.",
+        },
+        { status: response.status || 502 },
+      );
+    }
+
+    if (payload && typeof payload === "object" && "investigation" in payload && payload.investigation) {
+      return NextResponse.json({ ok: true, investigation: payload.investigation });
+    }
+  } catch {
+    return NextResponse.json({ message: "Marine investigation request failed." }, { status: 502 });
+  }
+
+  return NextResponse.json({ message: "Marine investigation service returned an invalid payload." }, { status: 502 });
 }

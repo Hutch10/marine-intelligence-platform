@@ -2,6 +2,7 @@ import type {
   RouteDefinition,
 } from "../types";
 import type { LiveIngestionHealthSnapshotReadResult } from "../repositories/live-ingestion-reports";
+import type { NdbcStationIngestionDiagnostic } from "../services/ingestion/run-ndbc";
 
 type FeedHealthFallbackReason =
   | "db_path_missing"
@@ -35,6 +36,7 @@ interface FeedHealthLatestStatusResponseItem {
   error: string | null;
   is_stale: boolean;
   stale_by_ms: number | null;
+  station_diagnostics: FeedHealthStationDiagnosticResponseItem[];
 }
 
 interface FeedHealthHistoryResponseItem {
@@ -50,6 +52,28 @@ interface FeedHealthHistoryResponseItem {
   rejection_reasons: Record<string, number>;
   run_id: string | null;
   error: string | null;
+  station_diagnostics: FeedHealthStationDiagnosticResponseItem[];
+}
+
+interface FeedHealthStationDiagnosticResponseItem {
+  station_id: string;
+  status: "healthy" | "degraded" | "failed";
+  last_successful_ingestion_at: string | null;
+  latest_observation_timestamp: string | null;
+  latest_observation_age_ms: number | null;
+  usable_metric_coverage: {
+    present_count: number;
+    total_count: number;
+    metrics_present: string[];
+  };
+  missing_field_rates: {
+    sea_surface_temp_c: number;
+    wave_height_m: number;
+    wind_speed_mps: number;
+    pressure_hpa: number;
+  };
+  rejection_breakdown: Record<string, number>;
+  last_fetch_url: string | null;
 }
 
 interface FeedHealthResponse {
@@ -155,6 +179,7 @@ function toLatestStatusItem(item: {
   error: string | null;
   isStale: boolean;
   staleByMs: number | null;
+  stationDiagnostics: NdbcStationIngestionDiagnostic[];
 }): FeedHealthLatestStatusResponseItem {
   return {
     source: item.source,
@@ -171,6 +196,7 @@ function toLatestStatusItem(item: {
     error: item.error,
     is_stale: item.isStale,
     stale_by_ms: item.staleByMs,
+    station_diagnostics: item.stationDiagnostics.map(toStationDiagnosticItem),
   };
 }
 
@@ -187,6 +213,7 @@ function toHistoryItem(item: {
   rejectionReasons: Record<string, number>;
   runId: string | null;
   error: string | null;
+  stationDiagnostics: NdbcStationIngestionDiagnostic[];
 }): FeedHealthHistoryResponseItem {
   return {
     source: item.source,
@@ -201,6 +228,30 @@ function toHistoryItem(item: {
     rejection_reasons: item.rejectionReasons,
     run_id: item.runId,
     error: item.error,
+    station_diagnostics: item.stationDiagnostics.map(toStationDiagnosticItem),
+  };
+}
+
+function toStationDiagnosticItem(item: NdbcStationIngestionDiagnostic): FeedHealthStationDiagnosticResponseItem {
+  return {
+    station_id: item.stationId,
+    status: item.status,
+    last_successful_ingestion_at: item.lastSuccessfulIngestionAt,
+    latest_observation_timestamp: item.latestObservationTimestamp,
+    latest_observation_age_ms: item.latestObservationAgeMs,
+    usable_metric_coverage: {
+      present_count: item.usableMetricCoverage.presentCount,
+      total_count: item.usableMetricCoverage.totalCount,
+      metrics_present: item.usableMetricCoverage.metricsPresent,
+    },
+    missing_field_rates: {
+      sea_surface_temp_c: item.missingFieldRates.seaSurfaceTempC,
+      wave_height_m: item.missingFieldRates.waveHeightM,
+      wind_speed_mps: item.missingFieldRates.windSpeedMps,
+      pressure_hpa: item.missingFieldRates.pressureHpa,
+    },
+    rejection_breakdown: item.rejectionBreakdown,
+    last_fetch_url: item.lastFetchUrl,
   };
 }
 

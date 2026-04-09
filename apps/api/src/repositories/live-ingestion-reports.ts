@@ -7,6 +7,7 @@ import {
   type SqliteStatementLike,
 } from "../db/client";
 import type { LiveFeedIngestionReport, SourceIngestionTelemetry } from "../workers/ingest-live-feeds";
+import type { NdbcStationIngestionDiagnostic } from "../services/ingestion/run-ndbc";
 
 export type LiveIngestionReportFallbackReason =
   | "db_path_missing"
@@ -27,6 +28,7 @@ export interface LiveIngestionHistoryItem {
   runId: string | null;
   error: string | null;
   workerStatus: string;
+  stationDiagnostics: NdbcStationIngestionDiagnostic[];
 }
 
 export interface LiveIngestionLatestSourceStatus {
@@ -42,6 +44,7 @@ export interface LiveIngestionLatestSourceStatus {
   rejectionReasons: Record<string, number>;
   runId: string | null;
   error: string | null;
+  stationDiagnostics: NdbcStationIngestionDiagnostic[];
 }
 
 interface LiveIngestionReportRow {
@@ -58,6 +61,7 @@ interface LiveIngestionReportRow {
   run_id: string | null;
   error: string | null;
   worker_status: string;
+  station_diagnostics_json: string | null;
 }
 
 interface LiveIngestionLatestRow {
@@ -73,6 +77,7 @@ interface LiveIngestionLatestRow {
   rejection_reasons_json: string;
   run_id: string | null;
   error: string | null;
+  station_diagnostics_json: string | null;
 }
 
 interface WorkerRunInsertInput {
@@ -100,6 +105,7 @@ interface SourceReportInsertInput {
   status: string;
   runId: string | null;
   error: string | null;
+  stationDiagnosticsJson: string;
   createdAt: number;
 }
 
@@ -225,6 +231,107 @@ function parseRejectionReasons(value: string): Record<string, number> {
   }
 }
 
+function parseStationDiagnostics(value: string | null): NdbcStationIngestionDiagnostic[] {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed.flatMap((item) => {
+      if (!item || typeof item !== "object") {
+        return [];
+      }
+
+      const candidate = item as Record<string, unknown>;
+      const coverage = candidate.usableMetricCoverage;
+      if (typeof candidate.stationId !== "string" || !coverage || typeof coverage !== "object") {
+        return [];
+      }
+
+      const coverageObject = coverage as Record<string, unknown>;
+      const metricsPresent = Array.isArray(coverageObject.metricsPresent)
+        ? coverageObject.metricsPresent.filter((metric): metric is string => typeof metric === "string")
+        : [];
+      const rawMissingFieldRates = (
+        candidate.missingFieldRates && typeof candidate.missingFieldRates === "object" && !Array.isArray(candidate.missingFieldRates)
+          ? candidate.missingFieldRates
+          : {}
+      ) as Record<string, unknown>;
+      const rejectionBreakdown: Record<string, number> = {};
+      const rawBreakdown = candidate.rejectionBreakdown;
+
+      if (rawBreakdown && typeof rawBreakdown === "object" && !Array.isArray(rawBreakdown)) {
+        for (const [reason, count] of Object.entries(rawBreakdown as Record<string, unknown>)) {
+          const numeric = Number(count);
+          if (Number.isFinite(numeric)) {
+            rejectionBreakdown[reason] = numeric;
+          }
+        }
+      }
+
+      return [{
+        stationId: candidate.stationId,
+        status:
+          candidate.status === "healthy" || candidate.status === "degraded" || candidate.status === "failed"
+            ? candidate.status
+            : "failed",
+        lastSuccessfulIngestionAt:
+          typeof candidate.lastSuccessfulIngestionAt === "string"
+            ? candidate.lastSuccessfulIngestionAt
+            : typeof candidate.latestSuccessTimestamp === "string"
+              ? candidate.latestSuccessTimestamp
+              : null,
+        latestObservationTimestamp:
+          typeof candidate.latestObservationTimestamp === "string" ? candidate.latestObservationTimestamp : null,
+        latestObservationAgeMs:
+          typeof candidate.latestObservationAgeMs === "number" && Number.isFinite(candidate.latestObservationAgeMs)
+            ? candidate.latestObservationAgeMs
+            : typeof candidate.rowAgeMs === "number" && Number.isFinite(candidate.rowAgeMs)
+              ? candidate.rowAgeMs
+              : null,
+        usableMetricCoverage: {
+          presentCount: Number.isFinite(Number(coverageObject.presentCount))
+            ? Number(coverageObject.presentCount)
+            : 0,
+          totalCount: Number.isFinite(Number(coverageObject.totalCount))
+            ? Number(coverageObject.totalCount)
+            : 4,
+          metricsPresent,
+        },
+        missingFieldRates: {
+          seaSurfaceTempC: Number.isFinite(Number(rawMissingFieldRates.seaSurfaceTempC))
+            ? Number(rawMissingFieldRates.seaSurfaceTempC)
+            : 1,
+          waveHeightM: Number.isFinite(Number(rawMissingFieldRates.waveHeightM))
+            ? Number(rawMissingFieldRates.waveHeightM)
+            : 1,
+          windSpeedMps: Number.isFinite(Number(rawMissingFieldRates.windSpeedMps))
+            ? Number(rawMissingFieldRates.windSpeedMps)
+            : 1,
+          pressureHpa: Number.isFinite(Number(rawMissingFieldRates.pressureHpa))
+            ? Number(rawMissingFieldRates.pressureHpa)
+            : 1,
+        },
+        rejectionBreakdown,
+        lastFetchUrl: typeof candidate.lastFetchUrl === "string" ? candidate.lastFetchUrl : null,
+      } satisfies NdbcStationIngestionDiagnostic];
+    });
+  } catch {
+    return [];
+  }
+}
+
+function hasColumn(db: SqliteDatabaseLike, tableName: string, columnName: string): boolean {
+  const rows = toStatement(db, `PRAGMA table_info(${tableName})`).all() as Array<{ name?: string }>;
+  return rows.some((row) => row.name === columnName);
+}
+
 function toHistoryItem(row: LiveIngestionReportRow): LiveIngestionHistoryItem {
   return {
     reportId: row.id,
@@ -240,6 +347,7 @@ function toHistoryItem(row: LiveIngestionReportRow): LiveIngestionHistoryItem {
     runId: row.run_id,
     error: row.error,
     workerStatus: row.worker_status,
+    stationDiagnostics: parseStationDiagnostics(row.station_diagnostics_json),
   };
 }
 
@@ -257,6 +365,7 @@ function toLatestSourceStatus(row: LiveIngestionLatestRow): LiveIngestionLatestS
     rejectionReasons: parseRejectionReasons(row.rejection_reasons_json),
     runId: row.run_id,
     error: row.error,
+    stationDiagnostics: parseStationDiagnostics(row.station_diagnostics_json),
   };
 }
 
@@ -296,6 +405,7 @@ export function ensureLiveIngestionReportsTable(db: SqliteDatabaseLike) {
         status TEXT NOT NULL,
         run_id TEXT,
         error TEXT,
+        station_diagnostics_json TEXT NOT NULL DEFAULT '[]',
         created_at INTEGER NOT NULL,
         FOREIGN KEY (worker_run_id) REFERENCES live_ingestion_worker_runs(id)
       )`,
@@ -315,6 +425,15 @@ export function ensureLiveIngestionReportsTable(db: SqliteDatabaseLike) {
       "CREATE INDEX IF NOT EXISTS idx_live_ingestion_reports_worker_run_id ON live_ingestion_reports (worker_run_id)",
     ),
   );
+
+  if (!hasColumn(db, "live_ingestion_reports", "station_diagnostics_json")) {
+    runStatement(
+      toStatement(
+        db,
+        "ALTER TABLE live_ingestion_reports ADD COLUMN station_diagnostics_json TEXT NOT NULL DEFAULT '[]'",
+      ),
+    );
+  }
 }
 
 export function insertLiveIngestionWorkerRun(
@@ -370,8 +489,9 @@ export function insertLiveIngestionSourceReport(
         status,
         run_id,
         error,
+        station_diagnostics_json,
         created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     input.reportId,
     input.workerRunId,
@@ -385,6 +505,7 @@ export function insertLiveIngestionSourceReport(
     input.status,
     input.runId,
     input.error,
+    input.stationDiagnosticsJson,
     input.createdAt,
   );
 
@@ -445,6 +566,7 @@ export function persistLiveIngestionReport(
         status: run.status,
         runId: run.run_id,
         error: run.error,
+        stationDiagnosticsJson: JSON.stringify(run.station_diagnostics ?? []),
         createdAt: persistedAt,
       });
 
@@ -480,7 +602,8 @@ export function readRecentLiveIngestionHistoryFromDb(
             r.status,
             r.run_id,
             r.error,
-            w.status AS worker_status
+            w.status AS worker_status,
+            r.station_diagnostics_json
      FROM live_ingestion_reports r
      INNER JOIN live_ingestion_worker_runs w
              ON w.id = r.worker_run_id
@@ -507,7 +630,8 @@ export function readLatestLiveIngestionStatusBySourceFromDb(
             r.rejected_count,
             r.rejection_reasons_json,
             r.run_id,
-            r.error
+            r.error,
+            r.station_diagnostics_json
      FROM live_ingestion_reports r
      INNER JOIN live_ingestion_worker_runs w
              ON w.id = r.worker_run_id

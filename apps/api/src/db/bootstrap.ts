@@ -50,12 +50,22 @@ export function createTableStatement(table: DatabaseTableSchema): string {
   return `CREATE TABLE IF NOT EXISTS ${table.name} (\n${columns}\n);`;
 }
 
+export function createIndexStatement(table: DatabaseTableSchema, index: any): string {
+  const unique = index.unique ? "UNIQUE " : "";
+  return `CREATE ${unique}INDEX IF NOT EXISTS ${index.name} ON ${table.name} (${index.columns.join(", ")});`;
+}
+
 export function createBootstrapSql(): string {
-  return databaseSchema.map(createTableStatement).join("\n\n");
+  const tables = databaseSchema.map(createTableStatement);
+  const indexes = databaseSchema.flatMap((table) => (table.indexes ?? []).map((idx) => createIndexStatement(table, idx)));
+  return [...tables, ...indexes].join("\n\n");
 }
 
 export const databaseBootstrap = {
   version: "0001_foundation",
   tables: databaseSchema,
-  statements: databaseSchema.map(createTableStatement),
+  statements: databaseSchema.flatMap((table) => [
+    createTableStatement(table),
+    ...(table.indexes ?? []).map((idx) => createIndexStatement(table, idx)),
+  ]),
 } as const;

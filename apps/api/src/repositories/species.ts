@@ -42,7 +42,7 @@ interface SpeciesSightingRow {
   count: number | string;
   source: string;
   summary: string;
-  verification_status: string | null;
+  verification_status: string;
   verified_at: number | string | null;
   verified_by: string | null;
   created_at: number | string;
@@ -339,7 +339,6 @@ function normalizeVerificationStatus(value: string | null): SpeciesSightingVerif
 
   return "pending";
 }
-
 function toSpecies(row: SpeciesRow, now: number): SpeciesProfile {
   return {
     id: row.id,
@@ -348,30 +347,42 @@ function toSpecies(row: SpeciesRow, now: number): SpeciesProfile {
     conservationStatus: normalizeConservationStatus(row.conservation_status),
     habitatRegion: row.habitat_region,
     summary: row.summary,
-    createdAt: new Date(normalizeTimestamp(row.created_at, now)).toISOString(),
+    source: row.source,
+    sourceUrl: row.source_url ?? undefined,
+    method: row.method,
+    observedAt: new Date(normalizeTimestamp(row.observed_at, now)).toISOString(),
+    ingestedAt: new Date(normalizeTimestamp(row.ingested_at, now)).toISOString(),
     updatedAt: new Date(normalizeTimestamp(row.updated_at, now)).toISOString(),
+    confidenceScore: normalizeFloat(row.confidence_score),
+    coverageScore: normalizeFloat(row.coverage_score),
+    verificationState: (row.verification_state as any) || "unknown",
   };
 }
-
 function toSpeciesSighting(row: SpeciesSightingRow, now: number): SpeciesSighting {
   return {
     id: row.id,
     speciesId: row.species_id,
-    stationId: row.station_id,
+    stationId: row.station_id ?? null,
     region: row.region,
     observedAt: new Date(normalizeTimestamp(row.observed_at, now)).toISOString(),
     latitude: normalizeFloat(row.latitude),
     longitude: normalizeFloat(row.longitude),
-    count: Math.max(0, normalizeInteger(row.count)),
-    source: row.source,
+    count: normalizeInteger(row.count),
     summary: row.summary,
     verificationStatus: normalizeVerificationStatus(row.verification_status),
-    verifiedAt:
-      row.verified_at == null
-        ? null
-        : new Date(normalizeTimestamp(row.verified_at, now)).toISOString(),
+    verifiedAt: row.verified_at
+      ? new Date(normalizeTimestamp(row.verified_at, now)).toISOString()
+      : null,
     verifiedBy: row.verified_by ?? null,
-    createdAt: new Date(normalizeTimestamp(row.created_at, now)).toISOString(),
+    source: row.source,
+    sourceUrl: row.source_url ?? undefined,
+    method: row.method,
+    observedAt: new Date(normalizeTimestamp(row.observed_at, now)).toISOString(),
+    ingestedAt: new Date(normalizeTimestamp(row.ingested_at, now)).toISOString(),
+    updatedAt: new Date(normalizeTimestamp(row.updated_at, now)).toISOString(),
+    confidenceScore: normalizeFloat(row.confidence_score),
+    coverageScore: normalizeFloat(row.coverage_score),
+    verificationState: (row.verification_state as any) || "unknown",
   };
 }
 
@@ -1049,3 +1060,9 @@ export function getInvestigationSpeciesSummary(
     db.close();
   }
 }
+
+export type SpeciesRepository = {
+  list: typeof listSpecies;
+  get: typeof getSpeciesById;
+  createSighting: typeof createSpeciesSighting;
+};
