@@ -15,6 +15,7 @@ import type {
   MarineEventSeverity,
   MarineEventStatus,
   MarineEventClass,
+  TruthPartition,
 } from "../marine-intelligence-types";
 
 const VALID_EVENT_CLASSES = new Set<MarineEventClass>([
@@ -59,6 +60,7 @@ interface MarineEventRow {
   ingested_at: string;
   detected_at: string;
   resolved_at: string | null;
+  truth_partition: string;
   created_at: string;
   updated_at: string;
 }
@@ -241,17 +243,26 @@ export function ensureMarineEventTables(db: SqliteDatabaseLike) {
         ingested_at TEXT NOT NULL,
         detected_at TEXT NOT NULL,
         resolved_at TEXT,
+        truth_partition TEXT NOT NULL DEFAULT 'FIELD_TRUTH',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )`,
     ),
   );
 
+  // Column Guard: truth_partition
+  try {
+    runStatement(toStatement(db, "ALTER TABLE marine_intelligence_events ADD COLUMN truth_partition TEXT NOT NULL DEFAULT 'FIELD_TRUTH'"));
+  } catch {
+    // Column already exists
+  }
+
+
   runStatement(
     toStatement(
       db,
-      `CREATE INDEX IF NOT EXISTS idx_marine_events_detected
-       ON marine_intelligence_events (detected_at DESC, id ASC)`,
+      `CREATE INDEX IF NOT EXISTS idx_marine_events_partition_at
+       ON marine_intelligence_events (truth_partition, detected_at DESC, id ASC)`,
     ),
   );
 
@@ -285,6 +296,7 @@ function mapMarineEventRow(row: MarineEventRow): MarineEventRecord {
     },
     detectedAt: row.detected_at,
     resolvedAt: row.resolved_at,
+    truthPartition: (row.truth_partition as TruthPartition) || "FIELD_TRUTH",
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -369,6 +381,7 @@ export function createMarineEvent(
       },
       detectedAt,
       resolvedAt,
+      truthPartition: input.truthPartition || "FIELD_TRUTH",
       createdAt: nowIso,
       updatedAt: nowIso,
     };
@@ -379,8 +392,8 @@ export function createMarineEvent(
         `INSERT INTO marine_intelligence_events (
           id, ontology_term_id, event_class, severity, status, title, summary, region, station_id,
           confidence, source, source_record_id, ingestion_run_id, observed_at, ingested_at,
-          detected_at, resolved_at, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          detected_at, resolved_at, truth_partition, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ),
       event.id,
       event.ontologyTermId,
@@ -399,6 +412,7 @@ export function createMarineEvent(
       event.lineage.ingestedAt,
       event.detectedAt,
       event.resolvedAt,
+      event.truthPartition,
       event.createdAt,
       event.updatedAt,
     );
@@ -415,11 +429,13 @@ export function createMarineEvent(
       source: "unavailable",
       fallbackReason: "db_query_failed",
     };
+  } finally {
+    db.close();
   }
 }
 
 export function listMarineEvents(
-  filters: MarineEventListFilters = {},
+  filters: MarineEventListFilters & { includeAllPartitions?: boolean; truthPartition?: TruthPartition } = {},
   dependencies: MarineEventsRepositoryDependencies = {},
 ): MarineEventsRepositoryReadResult {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
@@ -487,6 +503,11 @@ export function listMarineEvents(
       params.push(normalizeText(filters.stationId));
     }
 
+    if (!filters.includeAllPartitions) {
+      whereClauses.push("truth_partition = ?");
+      params.push(filters.truthPartition ?? "FIELD_TRUTH");
+    }
+
     if (normalizeText(filters.source)) {
       whereClauses.push("source = ?");
       params.push(normalizeText(filters.source));
@@ -500,7 +521,7 @@ export function listMarineEvents(
         db,
         `SELECT id, ontology_term_id, event_class, severity, status, title, summary, region, station_id,
                 confidence, source, source_record_id, ingestion_run_id, observed_at, ingested_at,
-                detected_at, resolved_at, created_at, updated_at
+                detected_at, resolved_at, truth_partition, created_at, updated_at
          FROM marine_intelligence_events
          ${whereSql}
          ORDER BY detected_at DESC, id ASC
@@ -522,5 +543,7 @@ export function listMarineEvents(
       source: "unavailable",
       fallbackReason: "db_query_failed",
     };
+  } finally {
+    db.close();
   }
 }

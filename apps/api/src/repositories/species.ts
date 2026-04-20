@@ -27,8 +27,15 @@ interface SpeciesRow {
   conservation_status: string;
   habitat_region: string;
   summary: string;
-  created_at: number | string;
+  source: string;
+  source_url: string | null;
+  method: string;
+  observed_at: number | string;
+  ingested_at: number | string;
   updated_at: number | string;
+  confidence_score: number | string;
+  coverage_score: number | string;
+  verification_state: string;
 }
 
 interface SpeciesSightingRow {
@@ -41,10 +48,17 @@ interface SpeciesSightingRow {
   longitude: number | string;
   count: number | string;
   source: string;
+  source_url: string | null;
+  method: string;
   summary: string;
   verification_status: string;
   verified_at: number | string | null;
   verified_by: string | null;
+  ingested_at: number | string;
+  updated_at: number | string;
+  confidence_score: number | string;
+  coverage_score: number | string;
+  verification_state: string;
   created_at: number | string;
 }
 
@@ -125,38 +139,29 @@ export interface SpeciesSightingListFilters {
   limit?: number | string;
 }
 
-export type SpeciesListResult =
-  | { source: "db"; species: SpeciesProfile[] }
-  | { source: "mock"; fallbackReason: SpeciesFallbackReason };
+export type SpeciesListResult = { source: "db"; species: SpeciesProfile[] };
 
 export type SpeciesDetailResult =
   | { source: "db"; result: "found"; species: SpeciesProfile }
-  | { source: "db"; result: "not_found" }
-  | { source: "mock"; fallbackReason: SpeciesFallbackReason };
+  | { source: "db"; result: "not_found" };
 
-export type SpeciesSightingsResult =
-  | { source: "db"; sightings: SpeciesSighting[] }
-  | { source: "mock"; fallbackReason: SpeciesFallbackReason };
+export type SpeciesSightingsResult = { source: "db"; sightings: SpeciesSighting[] };
 
 export type SpeciesByIdSightingsResult =
   | { source: "db"; result: "found"; sightings: SpeciesSighting[] }
-  | { source: "db"; result: "not_found" }
-  | { source: "mock"; fallbackReason: SpeciesFallbackReason };
+  | { source: "db"; result: "not_found" };
 
 export type SpeciesSightingCreateResult =
   | { source: "db"; result: "created"; sighting: SpeciesSighting }
-  | { source: "db"; result: "not_found" }
-  | { source: "mock"; fallbackReason: SpeciesFallbackReason };
+  | { source: "db"; result: "not_found" };
 
 export type SpeciesMovementSignalsResult =
   | { source: "db"; result: "found"; movementSignals: SpeciesMovementSignal[] }
-  | { source: "db"; result: "not_found" }
-  | { source: "mock"; fallbackReason: SpeciesFallbackReason };
+  | { source: "db"; result: "not_found" };
 
 export type InvestigationSpeciesSummaryResult =
   | { source: "db"; result: "found"; summary: InvestigationSpeciesSummary }
-  | { source: "db"; result: "not_found" }
-  | { source: "mock"; fallbackReason: SpeciesFallbackReason };
+  | { source: "db"; result: "not_found" };
 
 interface SpeciesRepositoryDependencies {
   resolvePath?: typeof resolveDatabasePath;
@@ -179,102 +184,6 @@ function runStatement(statement: SqliteStatementLike, ...params: unknown[]) {
   statement.all(...params);
 }
 
-function ensureSpeciesTables(db: SqliteDatabaseLike) {
-  runStatement(
-    toStatement(
-      db,
-      `CREATE TABLE IF NOT EXISTS species (
-        id TEXT PRIMARY KEY,
-        common_name TEXT NOT NULL,
-        scientific_name TEXT NOT NULL,
-        conservation_status TEXT NOT NULL,
-        habitat_region TEXT NOT NULL,
-        summary TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
-      )`,
-    ),
-  );
-
-  runStatement(
-    toStatement(
-      db,
-      `CREATE TABLE IF NOT EXISTS species_sightings (
-        id TEXT PRIMARY KEY,
-        species_id TEXT NOT NULL REFERENCES species(id),
-        station_id TEXT,
-        region TEXT NOT NULL,
-        observed_at INTEGER NOT NULL,
-        latitude REAL NOT NULL,
-        longitude REAL NOT NULL,
-        count INTEGER NOT NULL,
-        source TEXT NOT NULL,
-        summary TEXT NOT NULL,
-        verification_status TEXT NOT NULL DEFAULT 'pending',
-        verified_at INTEGER,
-        verified_by TEXT,
-        created_at INTEGER NOT NULL
-      )`,
-    ),
-  );
-
-  runStatement(
-    toStatement(
-      db,
-      `CREATE TABLE IF NOT EXISTS species_movement_signals (
-        id TEXT PRIMARY KEY,
-        species_id TEXT NOT NULL REFERENCES species(id),
-        signal_id TEXT REFERENCES signal_detections(id),
-        investigation_id TEXT REFERENCES investigations(id),
-        movement_type TEXT NOT NULL,
-        confidence INTEGER NOT NULL,
-        summary TEXT NOT NULL,
-        created_at INTEGER NOT NULL
-      )`,
-    ),
-  );
-
-  ensureSpeciesSightingColumns(db);
-}
-
-function listTableColumns(db: SqliteDatabaseLike, tableName: string): string[] {
-  try {
-    const rows = toStatement(db, `PRAGMA table_info(${tableName})`).all() as Array<{
-      name?: unknown;
-    }>;
-
-    return rows
-      .map((row) => (typeof row.name === "string" ? row.name : null))
-      .filter((value): value is string => value !== null);
-  } catch {
-    return [];
-  }
-}
-
-function ensureSpeciesSightingColumns(db: SqliteDatabaseLike) {
-  const columns = new Set(listTableColumns(db, "species_sightings"));
-
-  if (!columns.has("verification_status")) {
-    runStatement(
-      toStatement(
-        db,
-        "ALTER TABLE species_sightings ADD COLUMN verification_status TEXT NOT NULL DEFAULT 'pending'",
-      ),
-    );
-  }
-
-  if (!columns.has("verified_at")) {
-    runStatement(
-      toStatement(db, "ALTER TABLE species_sightings ADD COLUMN verified_at INTEGER"),
-    );
-  }
-
-  if (!columns.has("verified_by")) {
-    runStatement(
-      toStatement(db, "ALTER TABLE species_sightings ADD COLUMN verified_by TEXT"),
-    );
-  }
-}
 
 function normalizeTimestamp(value: number | string, now: number): number {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -486,20 +395,12 @@ export function listSpecies(
   const databasePath = resolvePath();
 
   if (!hasPath(databasePath)) {
-    return { source: "mock", fallbackReason: "db_path_missing" };
+    throw new Error(`[species] Critical Failure: Database missing at ${databasePath}`);
   }
 
-  let db: SqliteDatabaseLike;
+  const db = openReadOnly(databasePath);
 
   try {
-    db = openReadOnly(databasePath);
-  } catch {
-    return { source: "mock", fallbackReason: "db_open_failed" };
-  }
-
-  try {
-    ensureSpeciesTables(db);
-
     const whereClauses: string[] = [];
     const params: unknown[] = [];
 
@@ -528,8 +429,9 @@ export function listSpecies(
       source: "db",
       species: rows.map((row) => toSpecies(row, now())),
     };
-  } catch {
-    return { source: "mock", fallbackReason: "db_query_failed" };
+  } catch (e) {
+    console.error("[species] species list query failed:", e);
+    throw e;
   } finally {
     db.close();
   }
@@ -546,20 +448,12 @@ export function getSpeciesById(
   const databasePath = resolvePath();
 
   if (!hasPath(databasePath)) {
-    return { source: "mock", fallbackReason: "db_path_missing" };
+    throw new Error(`[species] Critical Failure: Database missing at ${databasePath}`);
   }
 
-  let db: SqliteDatabaseLike;
+  const db = openReadOnly(databasePath);
 
   try {
-    db = openReadOnly(databasePath);
-  } catch {
-    return { source: "mock", fallbackReason: "db_open_failed" };
-  }
-
-  try {
-    ensureSpeciesTables(db);
-
     const row = toStatement(
       db,
       `SELECT id, common_name, scientific_name, conservation_status, habitat_region, summary, created_at, updated_at
@@ -577,8 +471,9 @@ export function getSpeciesById(
       result: "found",
       species: toSpecies(row, now()),
     };
-  } catch {
-    return { source: "mock", fallbackReason: "db_query_failed" };
+  } catch (e) {
+    console.error("[species] get species failed:", e);
+    throw e;
   } finally {
     db.close();
   }
@@ -595,20 +490,12 @@ export function listSpeciesSightings(
   const databasePath = resolvePath();
 
   if (!hasPath(databasePath)) {
-    return { source: "mock", fallbackReason: "db_path_missing" };
+    throw new Error(`[species] Critical Failure: Database missing at ${databasePath}`);
   }
 
-  let db: SqliteDatabaseLike;
+  const db = openReadOnly(databasePath);
 
   try {
-    db = openReadOnly(databasePath);
-  } catch {
-    return { source: "mock", fallbackReason: "db_open_failed" };
-  }
-
-  try {
-    ensureSpeciesTables(db);
-
     const whereClauses: string[] = [];
     const params: unknown[] = [];
 
@@ -647,8 +534,9 @@ export function listSpeciesSightings(
       source: "db",
       sightings: rows.map((row) => toSpeciesSighting(row, now())),
     };
-  } catch {
-    return { source: "mock", fallbackReason: "db_query_failed" };
+  } catch (e) {
+    console.error("[species] list sightings failed:", e);
+    throw e;
   } finally {
     db.close();
   }
@@ -666,20 +554,12 @@ export function getSpeciesSightingsBySpecies(
   const databasePath = resolvePath();
 
   if (!hasPath(databasePath)) {
-    return { source: "mock", fallbackReason: "db_path_missing" };
+    throw new Error(`[species] Critical Failure: Database missing at ${databasePath}`);
   }
 
-  let db: SqliteDatabaseLike;
+  const db = openReadOnly(databasePath);
 
   try {
-    db = openReadOnly(databasePath);
-  } catch {
-    return { source: "mock", fallbackReason: "db_open_failed" };
-  }
-
-  try {
-    ensureSpeciesTables(db);
-
     if (!speciesExists(db, speciesId)) {
       return { source: "db", result: "not_found" };
     }
@@ -716,8 +596,9 @@ export function getSpeciesSightingsBySpecies(
       result: "found",
       sightings: rows.map((row) => toSpeciesSighting(row, now())),
     };
-  } catch {
-    return { source: "mock", fallbackReason: "db_query_failed" };
+  } catch (e) {
+    console.error("[species] list sightings by species failed:", e);
+    throw e;
   } finally {
     db.close();
   }
@@ -735,20 +616,12 @@ export function createSpeciesSighting(
   const databasePath = resolvePath();
 
   if (!hasPath(databasePath)) {
-    return { source: "mock", fallbackReason: "db_path_missing" };
+    throw new Error(`[species] Critical Failure: Database missing at ${databasePath}`);
   }
 
-  let db: SqliteDatabaseLike;
+  const db = openWritable(databasePath);
 
   try {
-    db = openWritable(databasePath);
-  } catch {
-    return { source: "mock", fallbackReason: "db_open_failed" };
-  }
-
-  try {
-    ensureSpeciesTables(db);
-
     if (!speciesExists(db, input.speciesId)) {
       return { source: "db", result: "not_found" };
     }
@@ -788,7 +661,7 @@ export function createSpeciesSighting(
     const row = findSightingById(db, id);
 
     if (!row) {
-      return { source: "mock", fallbackReason: "db_query_failed" };
+      throw new Error(`[species] Sighting created but could not be retrieved (ID: ${id})`);
     }
 
     return {
@@ -796,8 +669,9 @@ export function createSpeciesSighting(
       result: "created",
       sighting: toSpeciesSighting(row, now()),
     };
-  } catch {
-    return { source: "mock", fallbackReason: "db_query_failed" };
+  } catch (e) {
+    console.error("[species] create sighting failed:", e);
+    throw e;
   } finally {
     db.close();
   }
@@ -815,20 +689,12 @@ export function listSpeciesMovementSignals(
   const databasePath = resolvePath();
 
   if (!hasPath(databasePath)) {
-    return { source: "mock", fallbackReason: "db_path_missing" };
+    throw new Error(`[species] Critical Failure: Database missing at ${databasePath}`);
   }
 
-  let db: SqliteDatabaseLike;
+  const db = openReadOnly(databasePath);
 
   try {
-    db = openReadOnly(databasePath);
-  } catch {
-    return { source: "mock", fallbackReason: "db_open_failed" };
-  }
-
-  try {
-    ensureSpeciesTables(db);
-
     if (!speciesExists(db, speciesId)) {
       return { source: "db", result: "not_found" };
     }
@@ -879,9 +745,10 @@ export function listSpeciesMovementSignals(
       `SELECT sms.id, sms.species_id, sms.signal_id, sms.investigation_id, sms.movement_type, sms.confidence, sms.summary, sms.created_at
        FROM species_movement_signals sms
        LEFT JOIN signal_detections sd ON sd.id = sms.signal_id
-       WHERE ${whereClauses.join(" AND ")}
+       WHERE ${whereClauses.join(" AND ")} AND (sd.truth_partition IS NULL OR sd.truth_partition = 'FIELD_TRUTH')
        ORDER BY sms.created_at DESC, sms.id DESC
        LIMIT ?`,
+
     ).all(...params, normalizeLimit(filters.limit, DEFAULT_MOVEMENT_LIMIT)) as SpeciesMovementSignalRow[];
 
     return {
@@ -889,8 +756,9 @@ export function listSpeciesMovementSignals(
       result: "found",
       movementSignals: rows.map((row) => toSpeciesMovementSignal(row, now())),
     };
-  } catch {
-    return { source: "mock", fallbackReason: "db_query_failed" };
+  } catch (e) {
+    console.error("[species] list movement signals failed:", e);
+    throw e;
   } finally {
     db.close();
   }
@@ -907,20 +775,12 @@ export function getInvestigationSpeciesSummary(
   const databasePath = resolvePath();
 
   if (!hasPath(databasePath)) {
-    return { source: "mock", fallbackReason: "db_path_missing" };
+    throw new Error(`[species] Critical Failure: Database missing at ${databasePath}`);
   }
 
-  let db: SqliteDatabaseLike;
+  const db = openReadOnly(databasePath);
 
   try {
-    db = openReadOnly(databasePath);
-  } catch {
-    return { source: "mock", fallbackReason: "db_open_failed" };
-  }
-
-  try {
-    ensureSpeciesTables(db);
-
     const investigationRow = toStatement(
       db,
       "SELECT id FROM investigations WHERE id = ? LIMIT 1",
@@ -974,8 +834,10 @@ export function getInvestigationSpeciesSummary(
       db,
       `SELECT DISTINCT station_id
        FROM signal_detections
-       WHERE linked_investigation_id = ? AND station_id IS NOT NULL`,
+       WHERE linked_investigation_id = ? AND station_id IS NOT NULL
+       AND (truth_partition IS NULL OR truth_partition = 'FIELD_TRUTH')`,
     ).all(investigationId) as Array<{ station_id?: unknown }>;
+
 
     const stationIds = linkedStationIds
       .map((row) => (typeof row.station_id === "string" ? row.station_id : null))
@@ -1054,8 +916,9 @@ export function getInvestigationSpeciesSummary(
           "Correlation scores are deterministic and derived from linked movement signals, verification-aware sightings, and station overlap already present in the investigation context.",
       },
     };
-  } catch {
-    return { source: "mock", fallbackReason: "db_query_failed" };
+  } catch (e) {
+    console.error("[species] investigation summary query failed:", e);
+    throw e;
   } finally {
     db.close();
   }

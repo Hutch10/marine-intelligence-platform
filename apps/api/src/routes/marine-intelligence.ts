@@ -312,7 +312,8 @@ export function buildMarineWorkflowFeedbackRouteResponse(
 
 export function buildMarineWorkflowSummaryRouteResponse(
   auth: OceanStationAdminAuthContext | undefined,
-  summaryResult: MarineIntelligenceDecisionSummaryResult = getMarineIntelligenceDecisionSummary(),
+  query: { windowType?: "live" | "trend"; windowDays?: number } = {},
+  summaryResult: MarineIntelligenceDecisionSummaryResult = getMarineIntelligenceDecisionSummary(query),
 ): {
   status: 200 | 403 | 503;
   json: MarineWorkflowDecisionSummaryResponse | { message: string };
@@ -328,6 +329,7 @@ export function buildMarineWorkflowSummaryRouteResponse(
         result: "forbidden",
         decisionCount: 0,
         telemetryEventCount: 0,
+        windowType: (query.windowType ?? "live") as any,
       },
     };
   }
@@ -342,6 +344,7 @@ export function buildMarineWorkflowSummaryRouteResponse(
         result: "found",
         decisionCount: 0,
         telemetryEventCount: 0,
+        windowType: (query.windowType ?? "live") as any,
         fallbackReason: summaryResult.fallbackReason,
       },
     };
@@ -356,6 +359,7 @@ export function buildMarineWorkflowSummaryRouteResponse(
       result: "found",
       decisionCount: summaryResult.result.summary.decisionCount,
       telemetryEventCount: summaryResult.result.summary.telemetryEventCount,
+      windowType: (query.windowType ?? "live") as any,
     },
   };
 }
@@ -627,7 +631,8 @@ export const getMarineWorkflowEventsRoute: RouteDefinition<
   method: "GET",
   path: "/marine-intelligence/events",
   handler(request) {
-    return buildMarineWorkflowEventsRouteResponse(request.auth, request.query ?? {});
+    const { includeAllPartitions, truthPartition, ...query } = (request.query ?? {}) as any;
+    return buildMarineWorkflowEventsRouteResponse(request.auth, query);
   },
 };
 
@@ -639,7 +644,8 @@ export const getMarineWorkflowInvestigationsRoute: RouteDefinition<
   method: "GET",
   path: "/marine-intelligence/investigations",
   handler(request) {
-    return buildMarineWorkflowInvestigationsRouteResponse(request.auth, request.query ?? {});
+    const { includeAllPartitions, truthPartition, ...query } = (request.query ?? {}) as any;
+    return buildMarineWorkflowInvestigationsRouteResponse(request.auth, query);
   },
 };
 
@@ -662,7 +668,8 @@ export const getMarineWorkflowAlertsRoute: RouteDefinition<
   method: "GET",
   path: "/marine-intelligence/alerts",
   handler(request) {
-    return buildMarineWorkflowAlertsRouteResponse(request.auth, request.query ?? {});
+    const { includeAllPartitions, truthPartition, ...query } = (request.query ?? {}) as any;
+    return buildMarineWorkflowAlertsRouteResponse(request.auth, query);
   },
 };
 
@@ -728,6 +735,7 @@ export const getMarineWorkflowSummaryRoute: RouteDefinition<
   method: "GET",
   path: "/marine-intelligence/summary",
   handler(request) {
-    return buildMarineWorkflowSummaryRouteResponse(request.auth);
+    const { includeAllPartitions, truthPartition, ...query } = (request.query ?? {}) as any;
+    return buildMarineWorkflowSummaryRouteResponse(request.auth, query);
   },
 };

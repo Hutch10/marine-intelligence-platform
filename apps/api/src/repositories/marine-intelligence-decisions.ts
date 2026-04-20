@@ -430,11 +430,23 @@ export function ensureMarineIntelligenceDecisionTables(db: SqliteDatabaseLike) {
   ensureColumn(db, "marine_intelligence_feedback", "evaluation_id", "evaluation_id TEXT");
   ensureColumn(db, "marine_intelligence_feedback", "signal_snapshot_json", "signal_snapshot_json TEXT");
 
+  ensureColumn(db, "marine_intelligence_feedback", "signal_snapshot_json", "signal_snapshot_json TEXT");
+  ensureColumn(db, "marine_intelligence_feedback", "truth_partition", "TEXT NOT NULL DEFAULT 'FIELD_TRUTH'");
+  ensureColumn(db, "marine_intelligence_decisions", "truth_partition", "TEXT NOT NULL DEFAULT 'FIELD_TRUTH'");
+  ensureColumn(db, "marine_intelligence_telemetry_events", "truth_partition", "TEXT NOT NULL DEFAULT 'FIELD_TRUTH'");
+
   runStatement(
     toStatement(
       db,
-      `CREATE INDEX IF NOT EXISTS idx_marine_intelligence_feedback_timestamp
-       ON marine_intelligence_feedback (timestamp DESC, id ASC)`),
+      `CREATE INDEX IF NOT EXISTS idx_marine_intelligence_decisions_partition_timestamp
+       ON marine_intelligence_decisions (truth_partition, timestamp DESC, id ASC)`),
+  );
+
+  runStatement(
+    toStatement(
+      db,
+      `CREATE INDEX IF NOT EXISTS idx_marine_intelligence_feedback_partition_timestamp
+       ON marine_intelligence_feedback (truth_partition, timestamp DESC, id ASC)`),
   );
 }
 
@@ -463,8 +475,8 @@ function insertTelemetryEvent(
     toStatement(
       db,
       `INSERT INTO marine_intelligence_telemetry_events
-       (id, event_type, investigation_id, station_id, decision_id, timestamp, details, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, event_type, investigation_id, station_id, decision_id, timestamp, details, truth_partition, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     event.id,
     event.eventType,
@@ -473,6 +485,7 @@ function insertTelemetryEvent(
     event.decisionId,
     event.timestamp,
     event.details,
+    (input as any).truthPartition ?? "FIELD_TRUTH",
     event.createdAt,
   );
 
@@ -651,8 +664,8 @@ export function recordMarineIntelligenceDecision(
       toStatement(
         db,
         `INSERT INTO marine_intelligence_decisions
-         (id, investigation_id, station_id, decision, rationale, timestamp, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, investigation_id, station_id, decision, rationale, timestamp, truth_partition, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ),
       decision.id,
       decision.investigationId,
@@ -660,6 +673,7 @@ export function recordMarineIntelligenceDecision(
       decision.decision,
       decision.rationale,
       decision.timestamp,
+      (input as any).truthPartition ?? "FIELD_TRUTH",
       decision.createdAt,
       decision.updatedAt,
     );
@@ -763,8 +777,8 @@ export function recordMarineIntelligenceFeedback(
       toStatement(
         db,
         `INSERT INTO marine_intelligence_feedback
-         (id, useful, note, investigation_id, station_id, decision_id, evaluation_id, signal_snapshot_json, timestamp, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, useful, note, investigation_id, station_id, decision_id, evaluation_id, signal_snapshot_json, timestamp, truth_partition, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ),
       feedback.id,
       feedback.useful ? 1 : 0,
@@ -775,6 +789,7 @@ export function recordMarineIntelligenceFeedback(
       feedback.evaluationId,
       feedback.signalSnapshot ? JSON.stringify(feedback.signalSnapshot) : null,
       feedback.timestamp,
+      (input as any).truthPartition ?? "FIELD_TRUTH",
       feedback.createdAt,
     );
 
@@ -810,6 +825,7 @@ export function recordMarineIntelligenceFeedback(
 }
 
 export function getMarineIntelligenceDecisionSummary(
+  filters: { includeAllPartitions?: boolean; truthPartition?: string; windowDays?: number } = {},
   dependencies: MarineIntelligenceDecisionRepositoryDependencies = {},
 ): MarineIntelligenceDecisionSummaryResult {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
@@ -839,36 +855,61 @@ export function getMarineIntelligenceDecisionSummary(
   try {
     ensureMarineIntelligenceDecisionTables(db);
 
+    const partition = filters.truthPartition ?? "FIELD_TRUTH";
+    
+    // Window Rule Enforcement
+    // - Default: 1 day (24h) for live/current/recent
+    // - Trend: 90 days for health/drift/operational
+    let windowDays = filters.windowDays ?? 1; // Default to 24h
+    if (filters.windowType === "trend") {
+      windowDays = filters.windowDays ?? 90;
+    }
+
+    const timeWindowClause = filters.includeAllPartitions ? "1=1" : `timestamp >= datetime('now', '-${windowDays} days')`;
+    const partitionClause = filters.includeAllPartitions ? "1=1" : "truth_partition = ?";
+    const partitionParams = filters.includeAllPartitions ? [] : [partition];
+
+
     const decisionCountRows = toStatement(
       db,
-      "SELECT COUNT(*) AS total FROM marine_intelligence_decisions",
-    ).all() as Array<{ total: number }>;
+      `SELECT COUNT(*) AS total FROM marine_intelligence_decisions WHERE ${partitionClause} AND ${timeWindowClause}`,
+    ).all(...partitionParams) as Array<{ total: number }>;
+
     const feedbackCountRows = toStatement(
       db,
-      "SELECT COUNT(*) AS total FROM marine_intelligence_feedback",
-    ).all() as Array<{ total: number }>;
+      `SELECT COUNT(*) AS total FROM marine_intelligence_feedback WHERE ${partitionClause} AND ${timeWindowClause}`,
+    ).all(...partitionParams) as Array<{ total: number }>;
+
     const telemetryCountRows = toStatement(
       db,
-      "SELECT COUNT(*) AS total FROM marine_intelligence_telemetry_events",
-    ).all() as Array<{ total: number }>;
+      `SELECT COUNT(*) AS total FROM marine_intelligence_telemetry_events WHERE ${partitionClause} AND ${timeWindowClause}`,
+    ).all(...partitionParams) as Array<{ total: number }>;
+
     const typeCountRows = toStatement(
       db,
       `SELECT event_type, COUNT(*) AS total
        FROM marine_intelligence_telemetry_events
+       WHERE ${partitionClause} AND ${timeWindowClause}
        GROUP BY event_type`,
-    ).all() as Array<{ event_type: MarineIntelligenceDecisionEventType; total: number }>;
+    ).all(...partitionParams) as Array<{ event_type: MarineIntelligenceDecisionEventType; total: number }>;
+
     const decisionRows = toStatement(
       db,
       `SELECT decision, timestamp
        FROM marine_intelligence_decisions
-       ORDER BY timestamp DESC, id DESC`,
-    ).all() as Array<{ decision: string; timestamp: string }>;
+       WHERE ${partitionClause} AND ${timeWindowClause}
+       ORDER BY timestamp DESC, id DESC
+       LIMIT 1000`,
+    ).all(...partitionParams) as Array<{ decision: string; timestamp: string }>;
+
     const feedbackRows = toStatement(
       db,
       `SELECT useful, timestamp
        FROM marine_intelligence_feedback
-       ORDER BY timestamp DESC, id DESC`,
-    ).all() as Array<{ useful: number; timestamp: string }>;
+       WHERE ${partitionClause} AND ${timeWindowClause}
+       ORDER BY timestamp DESC, id DESC
+       LIMIT 1000`,
+    ).all(...partitionParams) as Array<{ useful: number; timestamp: string }>;
 
     const typeCounts = {
       view: 0,

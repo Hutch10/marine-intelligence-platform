@@ -15,6 +15,7 @@ import type {
   MarineAlertRuleType,
   MarineAlertStatus,
   MarineEventSeverity,
+  TruthPartition,
 } from "../marine-intelligence-types";
 
 const VALID_STATUSES = new Set<MarineAlertStatus>([
@@ -83,6 +84,7 @@ interface MarineAlertRow {
   detected_at: string;
   acknowledged_at: string | null;
   resolved_at: string | null;
+  truth_partition: string;
   created_at: string;
   updated_at: string;
 }
@@ -147,6 +149,7 @@ function mapRow(row: MarineAlertRow): MarineAlertRecord {
     detectedAt: row.detected_at,
     acknowledgedAt: row.acknowledged_at,
     resolvedAt: row.resolved_at,
+    truthPartition: (row.truth_partition as TruthPartition) || "FIELD_TRUTH",
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -175,16 +178,32 @@ export function ensureMarineAlertTables(db: SqliteDatabaseLike) {
         detected_at TEXT NOT NULL,
         acknowledged_at TEXT,
         resolved_at TEXT,
+        truth_partition TEXT NOT NULL DEFAULT 'FIELD_TRUTH',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )
     `),
   );
 
+  // Column Guard: truth_partition
+  try {
+    runStatement(toStatement(db, "ALTER TABLE marine_intelligence_alerts ADD COLUMN truth_partition TEXT NOT NULL DEFAULT 'FIELD_TRUTH'"));
+  } catch {
+    // Column already exists
+  }
+
+
   runStatement(
     db.prepare(
       `CREATE INDEX IF NOT EXISTS idx_alerts_event
        ON marine_intelligence_alerts (event_id)`,
+    ),
+  );
+
+  runStatement(
+    db.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_alerts_partition_at
+       ON marine_intelligence_alerts (truth_partition, detected_at DESC)`,
     ),
   );
 
@@ -261,14 +280,15 @@ export function createMarineAlert(
     const nowIso = new Date(nowMs).toISOString();
     const id = nextAlertId(db, nowMs);
     const detectedAt = normalizeIsoTimestamp(input.detectedAt) ?? nowIso;
+    const truthPartition = input.truthPartition || "FIELD_TRUTH";
 
     runStatement(
       db.prepare(`
         INSERT INTO marine_intelligence_alerts
           (id, event_id, investigation_id, severity, status, rule_type,
            title, detail, detected_at, acknowledged_at, resolved_at,
-           created_at, updated_at)
-        VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, NULL, NULL, ?, ?)
+           truth_partition, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, NULL, NULL, ?, ?, ?)
       `),
       id,
       input.eventId.trim(),
@@ -278,6 +298,7 @@ export function createMarineAlert(
       input.title.trim(),
       input.detail ?? null,
       detectedAt,
+      truthPartition,
       nowIso,
       nowIso,
     );
@@ -290,11 +311,13 @@ export function createMarineAlert(
     return { source: "db", result: { ok: true, alert } };
   } catch {
     return { source: "unavailable", fallbackReason: "db_query_failed" };
+  } finally {
+    db.close();
   }
 }
 
 export function listMarineAlerts(
-  filters: MarineAlertListFilters = {},
+  filters: MarineAlertListFilters & { includeAllPartitions?: boolean; truthPartition?: TruthPartition } = {},
   dependencies: MarineAlertRepositoryDeps = {},
 ): MarineAlertsRepositoryListResult {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
@@ -342,6 +365,11 @@ export function listMarineAlerts(
       params.push(filters.ruleType);
     }
 
+    if (!filters.includeAllPartitions) {
+      clauses.push("truth_partition = ?");
+      params.push(filters.truthPartition ?? "FIELD_TRUTH");
+    }
+
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
     const limit = normalizeLimit(filters.limit);
 
@@ -359,6 +387,8 @@ export function listMarineAlerts(
     return { source: "db", result: { ok: true, alerts: rows.map(mapRow) } };
   } catch {
     return { source: "unavailable", fallbackReason: "db_query_failed" };
+  } finally {
+    db.close();
   }
 }
 
@@ -447,5 +477,7 @@ function updateAlertStatus(
     return { source: "db", result: { ok: true, alert } };
   } catch {
     return { source: "unavailable", fallbackReason: "db_query_failed" };
+  } finally {
+    db.close();
   }
 }

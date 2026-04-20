@@ -66,9 +66,11 @@ export interface MarineEventRecord {
   lineage: MarineEventLineage;
   detectedAt: string;
   resolvedAt: string | null;
+  truthPartition: TruthPartition;
   createdAt: string;
   updatedAt: string;
 }
+
 
 export interface MarineEventCreateInput {
   ontologyTermId: string;
@@ -82,7 +84,9 @@ export interface MarineEventCreateInput {
   confidence: number;
   lineage: MarineEventLineage;
   detectedAt?: string;
+  truthPartition?: TruthPartition;
 }
+
 
 export interface MarineEventListFilters {
   id?: string;
@@ -175,13 +179,18 @@ export interface MarineInvestigationRecord {
   acknowledgedAt: string | null;
   resolvedAt: string | null;
   dismissedAt: string | null;
+  truthPartition: TruthPartition;
 }
+
 
 export interface MarineInvestigationCreateInput {
   eventId: string;
   title: string;
+  title: string;
   ownerId?: string | null;
+  truthPartition?: TruthPartition;
 }
+
 
 export interface MarineInvestigationListFilters {
   eventId?: string;
@@ -235,9 +244,11 @@ export interface MarineAlertRecord {
   detectedAt: string;
   acknowledgedAt: string | null;
   resolvedAt: string | null;
+  truthPartition: TruthPartition;
   createdAt: string;
   updatedAt: string;
 }
+
 
 export interface MarineAlertCreateInput {
   eventId: string;
@@ -247,7 +258,9 @@ export interface MarineAlertCreateInput {
   title: string;
   detail?: string | null;
   detectedAt?: string;
+  truthPartition?: TruthPartition;
 }
+
 
 export interface MarineAlertListFilters {
   eventId?: string;
@@ -272,3 +285,101 @@ export interface MarineAlertListResult {
   ok: boolean;
   alerts: MarineAlertRecord[];
 }
+
+// --- Signal Intelligence & Acoustic Classification ---
+
+export type TruthPartition = "FIELD_TRUTH" | "PRESSURE_TEST" | "SYNTHETIC_BENCH";
+
+export interface AcousticClassificationResult {
+  label: "whale_like" | "fish_chorus_like" | "shrimp_field_like" | "ambiguous_biologic" | "unknown";
+  confidence: number;
+  trace: SignalDecisionTrace;
+}
+
+export interface SignalDecisionTrace {
+  rawInputs: {
+    frequencyHz: number;
+    durationMs: number;
+    harmonicity?: number;
+    peakPowerDb?: number;
+    spectralTilt?: number;
+    burstIntervalsMs?: number[];
+    tiltSeries?: number[];
+    harmonicitySeries?: number[];
+    timestamp: string;
+  };
+  eligibility: {
+    whale_like: { eligible: boolean; reasons: string[] };
+    fish_chorus_like: { eligible: boolean; reasons: string[] };
+    shrimp_field_like: { eligible: boolean; reasons: string[] };
+  };
+  normalizedSubscores: {
+    frequency: number;
+    duration: number;
+    pattern: number;
+    environmental: number;
+  };
+  weightedTotals: {
+    whale_like: number;
+    fish_chorus_like: number;
+    shrimp_field_like: number;
+  };
+  exclusions: string[];
+  margins: {
+    winnerScore: number;
+    runnerUpScore: number;
+    margin: number;
+  };
+  mimicIndicators?: {
+    isMimicCandidate: boolean;
+    penaltyApplied: number;
+    reasons: string[];
+    tiltContribution?: number;
+    temporalContribution?: number;
+    correlationMetrics?: {
+      dci: number;
+      couplingBand: string;
+      coupledRecovery: boolean;
+    };
+    parameters?: ClassifierParameters;
+  };
+  classifierMetadata: {
+    version: string;
+    engine: string;
+  };
+  timestamp: string;
+}
+
+export interface ClassifierParameters {
+  resolutionFloor: number;
+  minMargin: number;
+  mimicConfidenceCap: number;
+  stationarityLimitMs: number;
+  shortDurationLimitMs: number;
+  tiltThreshold: number;
+  periodicCvThreshold: number;
+  stochasticCvThreshold: number;
+  dciCouplingLimit: number;
+  dciIndependenceLimit: number;
+  mimicPenaltyWeight: number;
+  tiltPenaltyWeight: number;
+  temporalPenaltyWeight: number;
+  couplingCreditWeight: number;
+}
+
+export const DEFAULT_PARAMETERS: ClassifierParameters = {
+  resolutionFloor: 0.65,
+  minMargin: 0.20,
+  mimicConfidenceCap: 0.85,
+  stationarityLimitMs: 1500,
+  shortDurationLimitMs: 1500,
+  tiltThreshold: 3.0,
+  periodicCvThreshold: 0.15,
+  stochasticCvThreshold: 0.45,
+  dciCouplingLimit: 0.75,
+  dciIndependenceLimit: 0.40,
+  mimicPenaltyWeight: 1.0, 
+  tiltPenaltyWeight: 1.0,  
+  temporalPenaltyWeight: 1.0,
+  couplingCreditWeight: 1.0
+};
