@@ -134,6 +134,7 @@ import type {
   SimilarInvestigationsResponse,
   SimilarInvestigationsTelemetry,
 } from "@marine/shared";
+import { SystemIntegrityStatus } from "@/lib/integrity-constants";
 import type {
   OceanStationAdminAuthContext,
   OceanStationAdminAuditEntry,
@@ -879,10 +880,12 @@ interface OperationalAlertsRouteResponseItem {
   rule_type: string;
   severity: string;
   status: string;
+  lifecycle_status?: string;
   title: string;
   detail: string | null;
   detected_at: number;
   resolved_at: number | null;
+  validation_state?: string;
   created_at: string;
   updated_at: string;
 }
@@ -891,6 +894,7 @@ interface OperationalAlertsRouteResponse {
   source: "db" | "unavailable";
   fallback_reason: OperationalAlertsFallbackReason | null;
   generated_at: string;
+  system_integrity?: string;
   summary: {
     active_alert_count: number;
     critical_count: number;
@@ -911,10 +915,12 @@ function mapOperationalAlertsItem(item: OperationalAlertsRouteResponseItem): Ope
     ruleType: item.rule_type as OperationalAlertItem["ruleType"],
     severity: item.severity as OperationalAlertItem["severity"],
     status: item.status as OperationalAlertItem["status"],
+    lifecycleStatus: (item.lifecycle_status as OperationalAlertItem["lifecycleStatus"]) ?? "open",
     title: item.title,
     detail: item.detail,
     detectedAt: item.detected_at,
     resolvedAt: item.resolved_at,
+    validationState: item.validation_state,
     createdAt: item.created_at,
     updatedAt: item.updated_at,
   };
@@ -927,6 +933,7 @@ function buildOperationalAlertsFallback(reason: OperationalAlertsFallbackReason 
     source: "unavailable",
     fallbackReason: reason,
     generatedAt,
+    systemIntegrity: SystemIntegrityStatus.TRUST_BLOCKED,
     summary: {
       activeAlertCount: 0,
       criticalCount: 0,
@@ -1320,28 +1327,46 @@ export const apiClient = {
   },
   ingestionOperations: {
     async getOperationalAlerts(filters: OperationalAlertsFilters = {}): Promise<OperationalAlertsData> {
-      const query: OperationalAlertsFilters = {};
+      try {
+        const params = new URLSearchParams();
+        if (filters.status) params.set("status", filters.status);
+        if (filters.source) params.set("source", filters.source);
+        if (filters.ruleType) params.set("ruleType", filters.ruleType);
+        if (filters.limit) params.set("limit", String(filters.limit));
 
-      if (filters.status) {
-        query.status = filters.status;
+        const response = await fetch(`/operational-alerts?${params.toString()}`, {
+          method: "GET",
+          headers: { Accept: "application/json" },
+          cache: "no-store",
+        });
+
+        if (!response.ok) {
+          return buildOperationalAlertsFallback("db_query_failed");
+        }
+
+        const data = await response.json();
+        const SIS = SystemIntegrityStatus;
+
+        return {
+          source: data.source === "db" ? "db" : "unavailable",
+          fallbackReason: data.fallback_reason ?? null,
+          generatedAt: data.generated_at ?? new Date().toISOString(),
+          systemIntegrity: (data.system_integrity as any) ?? SIS.TRUST_BLOCKED,
+          summary: {
+            activeAlertCount: Number(data.summary?.active_alert_count ?? 0),
+            criticalCount: Number(data.summary?.critical_count ?? 0),
+            warningCount: Number(data.summary?.warning_count ?? 0),
+            infoCount: Number(data.summary?.info_count ?? 0),
+            failedSourceCount: Number(data.summary?.failed_source_count ?? 0),
+            staleSourceCount: Number(data.summary?.stale_source_count ?? 0),
+            lastUpdatedAt: data.summary?.last_updated_at ?? new Date().toISOString(),
+          },
+          activeAlerts: (data.active_alerts ?? []).map(mapOperationalAlertsItem),
+          recentHistory: (data.recent_history ?? []).map(mapOperationalAlertsItem),
+        };
+      } catch {
+        return buildOperationalAlertsFallback("db_query_failed");
       }
-
-      if (filters.ruleType) {
-        query.ruleType = filters.ruleType;
-      }
-
-      const source = filters.source?.trim();
-      if (source) {
-        query.source = source;
-      }
-
-      if (typeof filters.limit === "number" && Number.isFinite(filters.limit)) {
-        query.limit = filters.limit;
-      } else if (typeof filters.historyLimit === "number" && Number.isFinite(filters.historyLimit)) {
-        query.historyLimit = filters.historyLimit;
-      }
-
-      return buildOperationalAlertsFallback();
     },
   },
   investigations: {

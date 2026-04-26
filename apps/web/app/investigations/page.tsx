@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { AppShell } from "@/components/layout/app-shell";
 import { listInvestigations } from "@/lib/server/investigations";
-import type { InvestigationAnalysisTrack } from "@marine/shared";
+import { type InvestigationAnalysisTrack } from "@marine/shared";
+import { SystemIntegrityStatus } from "@/lib/integrity-constants";
+import { evaluateConfidence } from "@/lib/trust-utils";
 
 export const metadata: Metadata = {
   title: "Investigations",
@@ -30,7 +32,8 @@ function StateBadge({ state }: { state: string }) {
 }
 
 export default async function InvestigationsPage() {
-  const investigations = await listInvestigations();
+  const { analysisTracks: investigations, systemIntegrity } = await listInvestigations();
+  const effectiveIntegrity = systemIntegrity || SystemIntegrityStatus.NORMAL;
 
   return (
     <AppShell
@@ -115,7 +118,22 @@ export default async function InvestigationsPage() {
                       <StateBadge state={inv.state} />
                     </td>
                     <td className="px-5 py-3 tabular-nums text-slate-400">
-                      {inv.confidence}%
+                      {(() => {
+                        const { value, label, tone } = evaluateConfidence(
+                          inv.confidence / 100,
+                          undefined, // list view doesn't have local integrity context yet
+                          effectiveIntegrity
+                        );
+                        
+                        if (value === null) return <span className="text-rose-500 font-bold">{label}</span>;
+                        
+                        return (
+                          <span>
+                            {(value * 100).toFixed(0)}%
+                            {label && <span className="ml-1 text-[10px] opacity-70 uppercase">{label}</span>}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="px-5 py-3 text-slate-500">
                       {inv.outcome ? OUTCOME_LABEL[inv.outcome] ?? inv.outcome : "—"}

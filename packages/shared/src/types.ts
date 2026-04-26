@@ -11,6 +11,22 @@ export interface MarineRegionConfig {
 
 export type FusionState = "single" | "agreement" | "conflict";
 export type FusionSummary = "single" | "agreement" | "mixed";
+export type TruthPartition = "FIELD_TRUTH" | "PRESSURE_TEST" | "SYNTHETIC_BENCH" | "RESEARCH" | "EXPERIMENTAL";
+
+// Const-object enums: avoids TypeScript IIFE pattern that webpack tree-shakes away.
+export const IntegrityStatus = {
+  VERIFIED: "VERIFIED",
+  UNVERIFIED: "UNVERIFIED",
+  REJECTED: "REJECTED",
+} as const;
+export type IntegrityStatus = (typeof IntegrityStatus)[keyof typeof IntegrityStatus];
+
+export const SystemIntegrityStatus = {
+  NORMAL: "NORMAL",
+  DEGRADED: "DEGRADED",
+  TRUST_BLOCKED: "TRUST_BLOCKED",
+} as const;
+export type SystemIntegrityStatus = (typeof SystemIntegrityStatus)[keyof typeof SystemIntegrityStatus];
 
 /**
  * @marine/shared — canonical shared type definitions
@@ -61,6 +77,7 @@ export interface OntologyStationNode {
   locationLabel: string;
   depthM: number | null;
 }
+
 
 export interface OntologyObservationNode {
   readonly __type: string;
@@ -212,6 +229,105 @@ export interface PublicApiErrorResponse {
 }
 
 export type RiskBaselineQuality = "high" | "medium" | "low";
+export type TruthConfidenceClassification = "VERIFIED" | "PARTIAL" | "WEAK" | "UNTRUSTED" | "INSUFFICIENT_DATA" | "CONFLICTING_SIGNALS";
+export type ConflictTaxonomy = "none" | "divergence" | "conflict" | "orphan" | "illegal" | "sensor_disagreement";
+
+export interface RiskDerivationTrace {
+  value: number | null;
+  source: string;
+  derivation: string;
+  inputs: Record<string, any>;
+  timestamp: string;
+  confidence: number;
+  conflictType?: ConflictTaxonomy;
+  exclusionReason?: string;
+  causalityParentId?: string; // Phase 28: Evidence Graph linkage
+  nodeId?: string;          // Phase 28: Stable ID for the graph node
+}
+
+export type CausalNodeKind = "observation" | "signal" | "rule" | "fusion" | "override" | "final_state";
+export type CausalNodeState = "ACCEPTED" | "REJECTED" | "CONFLICT" | "LATENT";
+
+export interface CausalNode {
+  id: string;
+  kind: CausalNodeKind;
+  label: string;
+  state: CausalNodeState;
+  value: number | string | null;
+  latentValue?: number | string | null;
+  reason?: string | null;
+  evidenceCount?: number;
+  metadata?: Record<string, any>;
+}
+
+export interface CausalEdge {
+  source: string;
+  target: string;
+  relationship: "supports" | "rejects" | "contradicts" | "overrides";
+}
+
+export interface CausalEvidenceGraph {
+  nodes: CausalNode[];
+  edges: CausalEdge[];
+}
+
+export type DivergenceCategory = 
+  | "DATA_DRIFT" 
+  | "POLICY_CHANGE" 
+  | "TIME_CONTEXT_CHANGE" 
+  | "COVERAGE_CHANGE" 
+  | "DERIVATION_CHANGE";
+
+export interface RiskReplayDivergence {
+  field: string;
+  category: DivergenceCategory;
+  oldValue: any;
+  newValue: any;
+  reason: string;
+}
+
+export interface RiskReplayDiff {
+  divergenceFound: boolean;
+  categories: DivergenceCategory[];
+  changes: RiskReplayDivergence[];
+  resultA_Hash: string;
+  resultB_Hash: string;
+}
+
+export interface SignalCoverage {
+  acceptedCount: number;
+  rejectedCount: number;
+  conflictCount: number;
+  missingCoverageSummary: string;
+  sourcesConsidered: string[];
+  stationsConsidered: string[];
+}
+
+export interface NdbcMappedObservation {
+  id: string;
+  stationId: string;
+  observedAt: number;
+  seaSurfaceTempC: number | null;
+  waveHeightM: number | null;
+  windSpeedMps: number | null;
+  pressureHpa: number | null;
+  source: "noaa_ndbc";
+  sourceFeed: string;
+  sourceTimestamp: string;
+  sourceReference: string;
+  rawLine: string;
+}
+
+export interface CitationMetadata {
+  bibtex: string;
+  cslJson: Record<string, any>;
+  policyVersion: string;
+  policyDigest: string;
+  inputSnapshotHash: string;
+  platformVersion: string;
+  generatedAt: string;
+  coverage: SignalCoverage;
+}
 
 export interface RiskSignalSummary {
   field:
@@ -220,6 +336,8 @@ export interface RiskSignalSummary {
     | "windSpeedMps"
     | "pressureHpa"
     | "crwSstAnomalyC"
+    | "crwHotspotC"
+    | "crwDhw"
     | "salinityPsu"
     | "dissolvedOxygenMgL";
   value: number | null;
@@ -231,6 +349,13 @@ export interface RiskSignalSummary {
   neighborDelta: number | null;
   sources: string[];
   fusionState: FusionState;
+  trace?: RiskDerivationTrace;
+  integrity?: {
+    id: string;
+    sourceReference: string;
+    partition: string;
+    status: IntegrityStatus;
+  };
 }
 
 export interface RiskAppliedThreshold {
@@ -290,7 +415,7 @@ export interface RiskScoreResponse {
   window: number;
   computedAt: string;
   signals: RiskSignalSummary[];
-  overallRisk: "low" | "medium" | "high" | "critical" | "unknown";
+  overallRisk: "low" | "medium" | "high" | "critical" | "unknown" | "insufficient_data" | "conflicting_signals";
   triggeredRules: RiskTriggeredRule[];
   appliedThresholds?: RiskAppliedThreshold[];
   confidenceScore: number;
@@ -299,9 +424,37 @@ export interface RiskScoreResponse {
   sampleSufficiency: boolean;
   warningMessages: string[];
   operatorSummary: string;
+  confidenceClassification: TruthConfidenceClassification;
+  conflictTaxonomy: ConflictTaxonomy;
+  trace?: Record<string, RiskDerivationTrace>;
   calibrationAdjustedConfidenceScore?: number | null;
   evaluationId?: string | null;
   recommendation?: RiskRecommendation | null;
+  citation?: CitationMetadata;
+  policyVersion?: string;
+  policyDigest?: string;
+  inputSnapshotHash?: string;
+  causalGraph?: CausalEvidenceGraph;
+  latentRiskLevel?: RiskScoreResponse["overallRisk"];
+  overrideReason?: string | null;
+  coverage?: SignalCoverage;
+  systemIntegrity: SystemIntegrityStatus;
+  integritySummary: {
+    verifiedCount: number;
+    unverifiedCount: number;
+    rejectedCount: number;
+    exclusionReasonCounts: Record<string, number>;
+  };
+  integrityAuditTrace?: {
+    excludedRecords: Array<{
+      id: string;
+      sourceReference: string;
+      partition: string;
+      status: IntegrityStatus;
+      reason: string;
+    }>;
+    isForensicTrace: boolean;
+  };
 }
 
 export interface RiskEvaluateResponse {
@@ -364,6 +517,12 @@ export interface PublicAnomalyItem {
   provenance?: AnomalyProvenance;
   sources: string[];
   fusionState: FusionState;
+  integrity?: {
+    id: string;
+    sourceReference: string;
+    partition: string;
+    status: IntegrityStatus;
+  };
 }
 
 export interface AnomalyListResponse {
@@ -606,8 +765,38 @@ export interface InvestigationAnalysisTrack {
     timestamp: string;
     stationId: string | null;
     source: string;
+    integrityStatus?: IntegrityStatus;
   }>;
+  exclusions?: Array<{
+    id: string;
+    reason: string;
+    timestamp: string;
+    source: string;
+  }>;
+  causalChain?: string;
+  integrityMetadata?: {
+    overallStatus: SystemIntegrityStatus;
+    purityRatio: number;
+  };
   lastUpdated?: string | null;
+}
+
+// ─── Missions ───────────────────────────────────────────────────────────────
+
+export type MissionStatus = "Pending" | "In Progress" | "Complete" | "Aborted";
+
+export interface Mission {
+  id: string;
+  name: string;
+  location: string;
+  status: MissionStatus;
+  progress: number;
+  eta: string;
+  description?: string;
+  linkedSignalIds?: string[];
+  createdAt: string;
+  updatedAt: string;
+  activatedAt?: string | null;
 }
 
 export type InvestigationHypothesisStatus = "Supported" | "Testing" | "Needs Review";
@@ -724,7 +913,12 @@ export type SignalType =
   | "migration_anomaly"
   | "chlorophyll_bloom"
   | "current_shear"
-  | "station_health";
+  | "station_health"
+  | "whale_vocalization"
+  | "fish_acoustic_signal"
+  | "shrimp_snap"
+  | "ambiguous_biologic"
+  | "unknown_acoustic";
 
 export type SignalSeverity = "low" | "medium" | "high" | "critical";
 export type SignalStatus = "open" | "monitoring" | "promoted" | "dismissed";
@@ -738,6 +932,9 @@ export interface SignalDetection {
   sourceId: string;
   region: string;
   stationId: string | null;
+  latitude?: number;
+  longitude?: number;
+  speciesId?: string;
   title: string;
   summary: string;
   detail: string;
@@ -746,6 +943,9 @@ export interface SignalDetection {
   createdAt: string;
   updatedAt: string;
   linkedInvestigationId: string | null;
+  linkedMissionId: string | null;
+  validationState: ValidationState;
+  validationMetadata: Record<string, any> | null;
 }
 
 export interface SignalFilters {
@@ -765,11 +965,16 @@ export interface CreateSignalInput {
   sourceId: string;
   region: string;
   stationId?: string;
+  latitude?: number;
+  longitude?: number;
+  speciesId?: string;
   title: string;
   summary: string;
   detail: string;
   status?: SignalStatus;
   linkedInvestigationId?: string;
+  validationState?: ValidationState;
+  validationMetadata?: Record<string, any> | null;
 }
 
 export interface PromoteSignalInput {
@@ -787,7 +992,40 @@ export type SpeciesConservationStatus =
   | "critically_endangered"
   | "data_deficient";
 
-export type VerificationState = "observed" | "estimated" | "modeled" | "unknown";
+export type VerificationState = "observed" | "estimated" | "modeled" | "pending" | "verified" | "rejected" | "unknown";
+
+// ─── Zero Trust Validation & Hardening ──────────────────────────────────────
+
+export type ValidationState =
+  | "UNVERIFIED"
+  | "CORROBORATED"
+  | "DIVERGENT"
+  | "CONFLICT"
+  | "MANUALLY_RESOLVED"
+  | "SUPPRESSED";
+
+export type TacticalMode =
+  | "STANDARD"
+  | "VERIFIED_FIRST"
+  | "HARDENED"
+  | "INCIDENT";
+
+export interface ValidationResolutionMetadata {
+  resolver: string;
+  timestamp: string;
+  reason: string;
+  evidenceNote?: string;
+}
+
+export interface ValidationPolicy {
+  signalType: string;
+  phenomenonClass: "fast" | "moderate" | "slow";
+  coastalWindowKm: number;
+  coastalWindowHours: number;
+  offshoreWindowKm: number;
+  offshoreWindowHours: number;
+}
+
 
 
 
@@ -1440,6 +1678,8 @@ export interface StationAdminSessionSummary {
   ip: string | null;
   userAgent: string | null;
   source: string | null;
+  amr: string[];
+  acr: string | null;
 }
 
 export interface StationAdminSessionsQuery {
@@ -1566,10 +1806,12 @@ export interface OperationalAlertItem {
   ruleType: OperationalAlertRuleType;
   severity: OperationalAlertSeverity;
   status: OperationalAlertStatus;
+  lifecycleStatus?: "open" | "ongoing" | "resolved";
   title: string;
   detail: string | null;
   detectedAt: number;
   resolvedAt: number | null;
+  validationState?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -1599,6 +1841,7 @@ export interface OperationalAlertsData {
   summary: OperationalAlertsSummary;
   activeAlerts: OperationalAlertItem[];
   recentHistory: OperationalAlertItem[];
+  systemIntegrity: SystemIntegrityStatus;
 }
 
 // ─── AI Lab ───────────────────────────────────────────────────────────────────
@@ -1848,6 +2091,7 @@ export interface MarineWorkflowEventItem {
   resolvedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  truthPartition: TruthPartition;
 }
 
 export interface MarineWorkflowInvestigationItem {
@@ -1866,6 +2110,7 @@ export interface MarineWorkflowInvestigationItem {
   acknowledgedAt: string | null;
   resolvedAt: string | null;
   dismissedAt: string | null;
+  truthPartition: TruthPartition;
 }
 
 export interface MarineWorkflowAlertItem {
@@ -1886,6 +2131,7 @@ export interface MarineWorkflowAlertItem {
   resolvedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  truthPartition: TruthPartition;
 }
 
 export interface MarineWorkflowEventsResponse {
@@ -2045,6 +2291,7 @@ export interface RegionsResponse {
     metrics: OceanMapRegionMetric[];
   }>;
   map: OceanMapWorkspaceData;
+  systemIntegrity: SystemIntegrityStatus;
 }
 
 export interface RegionsTelemetry {
@@ -2144,6 +2391,7 @@ export interface DatasetRecordsTelemetry {
 
 export interface InvestigationsResponse {
   workspace: InvestigationsWorkspaceData;
+  systemIntegrity: SystemIntegrityStatus;
 }
 
 export type InvestigationFallbackReason = "db_path_missing" | "db_open_failed" | "db_query_failed";
@@ -2323,7 +2571,7 @@ export interface SignalDismissTelemetry {
   validationError?: string;
 }
 
-export type SpeciesFallbackReason = "db_path_missing" | "db_open_failed" | "db_query_failed";
+export type SpeciesFallbackReason = "db_query_failed" | "db_open_failed" | "db_path_missing" | "invalid_credentials" | "forbidden" | "not_found" | "invalid_request";
 
 export interface SpeciesListResponse {
   species: SpeciesProfile[];
@@ -2989,6 +3237,7 @@ export interface MarineWorkflowDecisionSummaryTelemetry {
   result: "found" | "forbidden";
   decisionCount: number;
   telemetryEventCount: number;
+  windowType?: "live" | "trend";
   fallbackReason?: "db_path_missing" | "db_open_failed" | "db_query_failed";
 }
 
@@ -3019,6 +3268,7 @@ export interface DashboardActivityItem {
   type: DashboardActivityType;
   text: string;
   time: string;
+  href?: string;
 }
 
 export interface DashboardSpeciesActivityEntry {
@@ -3057,7 +3307,7 @@ export interface DashboardMetric {
   color: DataAccent;
 }
 
-export type MissionStatus = "In Progress" | "Pending" | "Complete";
+
 
 export interface DashboardMission {
   id: string;
@@ -3097,7 +3347,7 @@ export interface DashboardOverviewData {
 export type DataExplorerFetchSection = "workspace" | "detail" | "records";
 export type DataExplorerFetchSource = "db" | "mock";
 export type DataExplorerFetchState = "success" | "not_found" | "error";
-export type DataExplorerFetchDelivery = "bootstrap_api" | "browser_api" | "in_process" | "fallback_builder";
+export type DataExplorerFetchDelivery = "bootstrap_api" | "browser_api" | "in_process" | "fallback_builder" | "real_backend";
 
 export interface DataExplorerFetchMeta {
   section: DataExplorerFetchSection;
@@ -3153,4 +3403,474 @@ export function listMarineRegionConfigs(): MarineRegionConfig[] {
 export function getMarineRegionConfig(regionId: string): MarineRegionConfig | null {
   const normalizedRegionId = regionId.trim().toLowerCase();
   return MARINE_REGION_CONFIGS.find((config) => config.id === normalizedRegionId) ?? null;
+}
+
+export type MarineEventSeverity = "low" | "medium" | "high" | "critical";
+
+// ─── Platform Expansion: Canonical Models ───────────────────────────────────
+
+export type DataHonesty =
+  | "live"
+  | "delayed"
+  | "estimated"
+  | "modeled"
+  | "unavailable";
+
+export type FreshnessState =
+  | "live"
+  | "recent"
+  | "delayed"
+  | "stale"
+  | "historic"
+  | "invalid";
+
+export interface SourceCapability {
+  providerId: string;
+  latencyClass: "real-time" | "near-real-time" | "delayed" | "batch";
+  updateFrequencySeconds: number;
+  spatialResolutionKm: number | null;
+  licensing: string;
+  reliabilityScore: number;
+  freshnessClassificationSupported: boolean;
+}
+
+export type ObservationSignalType =
+  | "sea_surface_temp"
+  | "wave_height"
+  | "wind_speed"
+  | "air_pressure"
+  | "salinity"
+  | "dissolved_oxygen"
+  | "chlorophyll"
+  | "turbidity"
+  | "vessel_position"
+  | "vessel_density"
+  | "acoustic_detection"
+  | "animal_track";
+
+export interface CanonicalObservation {
+  id: string;
+  signalType: ObservationSignalType;
+  value: number | string | any;
+  unit: string | null;
+  location: {
+    lat: number;
+    lng: number;
+    depth?: number;
+  };
+  observedAt: string;
+  ingestedAt: string;
+  sourceId: string;
+  honesty: DataHonesty;
+  freshness: FreshnessState;
+  confidenceScore: number;
+  metadata?: Record<string, any>;
+  validationState?: ValidationState;
+  validationMetadata?: ValidationResolutionMetadata;
+}
+
+// ─── Tourism Intelligence ──────────────────────────────────────────────────
+
+export interface TourismHazard {
+  id: string;
+  type: "strong_current" | "high_surf" | "storm" | "poor_visibility" | "ecological_stress";
+  severity: MarineEventSeverity;
+  summary: string;
+  observedAt: string;
+  confidence: number;
+}
+
+export interface EcologicalSensitivity {
+  level: "low" | "moderate" | "high" | "critical";
+  reason: string;
+  protectedAreaId?: string;
+  isStressed: boolean;
+}
+
+export interface ViewingOpportunity {
+  speciesId: string;
+  commonName: string;
+  likelihood: number; // 0-1
+  explanation: string;
+  supportingSignals: string[];
+}
+
+export interface TourismSummary {
+  regionId: string;
+  overallRating: number; // 0-10
+  conditions: {
+    diving: number;
+    boating: number;
+    snorkeling: number;
+  };
+  hazards: TourismHazard[];
+  sensitivity: EcologicalSensitivity;
+  opportunities: ViewingOpportunity[];
+  confidence: number;
+  freshness: FreshnessState;
+  updatedAt: string;
+}
+
+// ─── Mission Trigger & Spatial Rules ─────────────────────────────────────────
+
+export type SpatialRuleType = "bounding_box" | "radius";
+
+export interface BoundingBox {
+  minLat: number;
+  maxLat: number;
+  minLng: number;
+  maxLng: number;
+}
+
+export interface RadiusCircle {
+  centerLat: number;
+  centerLng: number;
+  radiusKm: number;
+}
+
+export interface SpatialRule {
+  id: string;
+  type: SpatialRuleType;
+  label?: string;
+  config: BoundingBox | RadiusCircle;
+  notes?: string;
+  version: number;
+}
+
+export interface MissionTriggerRule {
+  missionId: string;
+  targetSpeciesId?: string;
+  targetSignalType?: SignalType;
+  spatial: SpatialRule;
+  timeWindowHours?: number;
+  minCorroborationCount: number;
+  minConfidenceThreshold: number;
+}
+
+// ─── Verification & Integrity ────────────────────────────────────────────────
+
+export interface ConfidenceAudit {
+  confidenceScore: number;
+  coverageScore: number;
+  freshnessState: FreshnessState;
+  sensorHealthImpact: number;
+  decayReasons: string[];
+  metadata?: Record<string, any>;
+}
+
+export interface ConfidenceDecayConfig {
+  baseDegradedPenalty: number;
+  baseFailingPenalty: number;
+  scalingFactors: {
+    sensorCountMultiplier: number;
+    sectorCoverageMultiplier: number;
+    corroborationMultiplier: number;
+    recencyMultiplier: number;
+  };
+}
+
+export interface RegionalImpactResult {
+  regionId: string;
+  environmentalRiskLevel: "low" | "medium" | "high";
+  environmentalRisk: number;
+  biologicalImpactLevel: "low" | "medium" | "high";
+  impactScore: number;
+  weightedImpact: number;
+  totalSensitivity: number;
+  confidence: ConfidenceAudit;
+  sensitiveSpeciesCount: number;
+  topSensitiveSpecies: Array<{ speciesId: string; commonName: string; impactContribution: number }>;
+  summary: string;
+}
+
+// ─── System Health ─────────────────────────────────────────────────────────
+
+export interface IngestionHealthStatus {
+  sourceId: string;
+  status: "healthy" | "degraded" | "failing";
+  lastSuccessfulIngest: string;
+  failureCount24h: number;
+  avgLatencyMs: number;
+  schemaDriftIncidents: number;
+  freshness: FreshnessState;
+}
+
+export type SimulatedSensorHealth = "nominal" | "degraded" | "failing";
+
+export interface PlatformHealthOverview {
+  overallStatus: "healthy" | "degraded" | "failing";
+  sources: IngestionHealthStatus[];
+  activeAlerts: number;
+  updatedAt: string;
+  systemIntegrity: SystemIntegrityStatus;
+  partitionPurity: string;
+  partitionPurityRatio: number;
+}
+
+// ─── Persistence & Workspace State ─────────────────────────────────────────
+
+export type DataExplorerPresetScope = "shared" | "personal";
+
+export type DataExplorerPresetFilters = Pick<
+  Required<DataExplorerDatasetFilters>,
+  "q" | "category" | "region" | "status" | "sortBy" | "sortDir" | "pageSize"
+>;
+
+export interface DataExplorerPresetRecord {
+  id: string;
+  name: string;
+  scope: DataExplorerPresetScope;
+  filters: DataExplorerPresetFilters;
+  createdAt: string;
+  updatedAt: string;
+  lastUsedAt?: string | null;
+  useCount?: number;
+}
+
+export interface DataExplorerPresetDraft {
+  name: string;
+  scope?: DataExplorerPresetScope;
+  filters: Partial<DataExplorerPresetFilters>;
+}
+
+export type DataExplorerPresetMutationReason =
+  | "storage_unavailable"
+  | "read_failed"
+  | "write_failed"
+  | "corrupt_json"
+  | "invalid_schema"
+  | "unsupported_version"
+  | "duplicate_name"
+  | "validation"
+  | "not_found";
+
+export interface DataExplorerPresetMutationResult {
+  ok: boolean;
+  presets: DataExplorerPresetRecord[];
+  error?: string;
+  reason?: DataExplorerPresetMutationReason;
+}
+
+export type DataExplorerPresetAuditAction = "created" | "updated" | "deleted" | "marked_used";
+
+export type DataExplorerPresetAuditActorType = "station_admin" | "unknown";
+
+export type DataExplorerPresetAuditOutcome = "success" | "failure";
+
+export interface DataExplorerPresetAuditEvent {
+  id: string;
+  presetId: string | null;
+  presetName: string;
+  scope: DataExplorerPresetScope;
+  action: DataExplorerPresetAuditAction;
+  actorId: string | null;
+  actorType: DataExplorerPresetAuditActorType;
+  ownerId: string | null;
+  outcome: DataExplorerPresetAuditOutcome;
+  reason?: string;
+  createdAt: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface DataExplorerPresetAuditListResult {
+  ok: boolean;
+  events: DataExplorerPresetAuditEvent[];
+  error?: string;
+  reason?: DataExplorerPresetMutationReason;
+}
+
+export type DataExplorerBehaviorEventType =
+  | "preset_applied"
+  | "dataset_selected"
+  | "dataset_detail_viewed";
+
+export interface DataExplorerBehaviorEvent {
+  id: string;
+  eventType: DataExplorerBehaviorEventType;
+  scope: DataExplorerPresetScope;
+  actorId: string | null;
+  actorLabel: string | null;
+  ownerId: string | null;
+  presetId: string | null;
+  presetName: string | null;
+  datasetId: string | null;
+  datasetName: string | null;
+  createdAt: string;
+  sourceContext?: Record<string, unknown>;
+}
+
+export interface DataExplorerBehaviorEventWriteResult {
+  ok: boolean;
+  error?: string;
+  reason?: DataExplorerPresetMutationReason;
+}
+
+export interface DataExplorerBehaviorEventListResult {
+  ok: boolean;
+  events: DataExplorerBehaviorEvent[];
+  error?: string;
+  reason?: DataExplorerPresetMutationReason;
+}
+
+export interface DataExplorerBehaviorDedupeDropSummaryItem {
+  datasetId: string;
+  dropCount: number;
+  mostRecentDroppedAt: string;
+}
+
+export interface DataExplorerBehaviorDedupeDropSummaryResult {
+  ok: boolean;
+  summary: DataExplorerBehaviorDedupeDropSummaryItem[];
+  windowMinutes: number;
+  error?: string;
+  reason?: DataExplorerPresetMutationReason;
+}
+
+export type DataExplorerBehaviorDedupeDropSummaryExportFormat = "json" | "csv";
+
+export function compareDataExplorerBehaviorDedupeDropSummaryItems(
+  left: DataExplorerBehaviorDedupeDropSummaryItem,
+  right: DataExplorerBehaviorDedupeDropSummaryItem,
+): number {
+  if (left.dropCount !== right.dropCount) {
+    return right.dropCount - left.dropCount;
+  }
+
+  return left.datasetId.localeCompare(right.datasetId);
+}
+
+export const DATA_EXPLORER_DEDUPE_EXPORT_LOG_NAMESPACE = "DataExplorer.dedupeExport";
+
+export interface DataExplorerBehaviorDedupeDropSummaryExportHistoryItem {
+  exportedAt: string;
+  format: DataExplorerBehaviorDedupeDropSummaryExportFormat;
+  scope: DataExplorerPresetScope;
+  totalDatasets: number;
+  actorId: string | null;
+}
+
+export interface DataExplorerBehaviorDedupeDropSummaryExportHistoryResult {
+  ok: boolean;
+  history: DataExplorerBehaviorDedupeDropSummaryExportHistoryItem[];
+  error?: string;
+  reason?: DataExplorerPresetMutationReason;
+}
+
+export const DATA_EXPLORER_DEFAULT_PRESET_FILTERS: DataExplorerPresetFilters = {
+  q: "",
+  category: "",
+  region: "",
+  status: "",
+  sortBy: "updated",
+  sortDir: "desc",
+  pageSize: 25,
+};
+
+export const DATA_EXPLORER_ALLOWED_SORTS: DataExplorerDatasetSortBy[] = [
+  "updated",
+  "name",
+  "records",
+  "status",
+];
+
+export const DATA_EXPLORER_ALLOWED_DIRECTIONS: DataExplorerSortDirection[] = [
+  "asc",
+  "desc",
+];
+
+// ─── Operational alerts ───────────────────────────────────────────────────────
+
+export type OperationalAlertRuleType =
+  | "source_failed"
+  | "source_stale"
+  | "repeated_degraded"
+  | "persistence_failure"
+  | "high_sea_temperature"
+  | "high_wave_height"
+  | "high_wind_speed"
+  | "low_pressure_system";
+
+export type OperationalAlertSeverity = "critical" | "warning" | "info";
+
+export type OperationalAlertStatus = "active" | "resolved";
+
+export interface OperationalAlertAction {
+  type: "create" | "resolve";
+  source: string;
+  ruleType: OperationalAlertRuleType;
+  severity: OperationalAlertSeverity;
+  title: string;
+  detail?: string;
+  stationId?: string | null;
+  validationState?: string;
+  validationMetadata?: Record<string, any> | null;
+}
+
+export interface OperationalAlert {
+  id: string;
+  source: string;
+  stationId: string | null;
+  ruleType: OperationalAlertRuleType;
+  severity: OperationalAlertSeverity;
+  status: OperationalAlertStatus;
+  lifecycleStatus: "open" | "ongoing" | "resolved";
+  title: string;
+  detail: string | null;
+  metadataJson: string | null;
+  detectedAt: number;
+  resolvedAt: number | null;
+  occurrenceCount: number;
+  windowStartedAt: number;
+  windowEndsAt: number;
+  validationState?: string;
+  validationMetadata?: Record<string, any> | null;
+  frozen_system_integrity: string;
+  createdAt: string;
+  updatedAt: string;
+  investigationId?: string | null;
+}
+
+export interface OperationalAlertItem {
+  id: string;
+  source: string;
+  ruleType: OperationalAlertRuleType;
+  severity: OperationalAlertSeverity;
+  status: OperationalAlertStatus;
+  lifecycleStatus: "open" | "ongoing" | "resolved";
+  title: string;
+  detail: string | null;
+  detectedAt: number;
+  resolvedAt: number | null;
+  validationState?: string;
+  createdAt: string;
+  updatedAt: string;
+  investigationId?: string;
+}
+
+export interface OperationalAlertsSummary {
+  activeAlertCount: number;
+  criticalCount: number;
+  warningCount: number;
+  infoCount: number;
+  failedSourceCount: number;
+  staleSourceCount: number;
+  lastUpdatedAt: string;
+}
+
+export interface OperationalAlertsData {
+  source: "db" | "unavailable";
+  fallbackReason: string | null;
+  generatedAt: string;
+  systemIntegrity: SystemIntegrityStatus;
+  summary: OperationalAlertsSummary;
+  activeAlerts: OperationalAlertItem[];
+  recentHistory: OperationalAlertItem[];
+}
+
+export interface OperationalAlertsFilters {
+  status?: OperationalAlertStatus;
+  source?: string;
+  ruleType?: OperationalAlertRuleType;
+  limit?: number;
+  historyLimit?: number;
 }

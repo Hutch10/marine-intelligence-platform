@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { AppShell } from "@/components/layout/app-shell";
 import { listOperationalAlerts } from "@/lib/server/operational-alerts";
-import type { OperationalAlertItem } from "@/lib/server/operational-alerts";
+import type { OperationalAlertItem, OperationalAlertsData } from "@/lib/server/operational-alerts";
+import { SystemIntegrityStatus } from "@/lib/integrity-constants";
 
 export const metadata: Metadata = {
   title: "Operational Alerts",
@@ -21,15 +22,32 @@ const RULE_TYPE_LABEL: Record<string, string> = {
   persistence_failure: "Persistence failure",
 };
 
-function SeverityBadge({ severity }: { severity: string }) {
-  const cls =
-    SEVERITY_STYLES[severity] ??
-    "border-surface-border bg-ocean-850 text-slate-400";
+function SeverityBadge({
+  severity,
+  systemIntegrity,
+}: {
+  severity: string;
+  systemIntegrity: SystemIntegrityStatus;
+}) {
+  if (systemIntegrity === SystemIntegrityStatus.TRUST_BLOCKED) {
+    return (
+      <span className="inline-flex rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-rose-400">
+        WITHHELD
+      </span>
+    );
+  }
+
+  const cls = systemIntegrity === SystemIntegrityStatus.DEGRADED
+    ? "border-amber-500/40 bg-amber-500/10 text-amber-400"
+    : (SEVERITY_STYLES[severity] ?? "border-surface-border bg-ocean-850 text-slate-400");
+
+  const label = systemIntegrity === SystemIntegrityStatus.DEGRADED
+    ? `${severity} (degraded)`
+    : severity;
+
   return (
-    <span
-      className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest ${cls}`}
-    >
-      {severity}
+    <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest ${cls}`}>
+      {label}
     </span>
   );
 }
@@ -40,8 +58,10 @@ function formatEpoch(ms: number): string {
 }
 
 export default async function OperationalAlertsPage() {
-  const result = await listOperationalAlerts();
-  const { summary, activeAlerts, recentHistory } = result;
+  const result: OperationalAlertsData = await listOperationalAlerts();
+  const { summary, activeAlerts, recentHistory, systemIntegrity } = result;
+  const trustBlocked = systemIntegrity === SystemIntegrityStatus.TRUST_BLOCKED;
+  const degraded = systemIntegrity === SystemIntegrityStatus.DEGRADED;
 
   return (
     <AppShell
@@ -63,6 +83,31 @@ export default async function OperationalAlertsPage() {
           </section>
         )}
 
+        {/* ── Trust integrity banners ── */}
+        {trustBlocked && (
+          <section className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4">
+            <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-rose-400">
+              TRUST_BLOCKED — Alert content withheld
+            </p>
+            <p className="mt-1.5 text-sm text-rose-200">
+              System integrity is unresolved. Alert existence and counts are preserved but
+              severity, title, and diagnostic detail are withheld until partition integrity
+              is restored.
+            </p>
+          </section>
+        )}
+        {degraded && (
+          <section className="rounded-2xl border border-amber-500/25 bg-amber-500/10 p-4">
+            <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-amber-400">
+              INTEGRITY: DEGRADED
+            </p>
+            <p className="mt-1.5 text-sm text-amber-100">
+              Alert data is available but system integrity is partially degraded. Treat
+              severity indicators as capped estimates.
+            </p>
+          </section>
+        )}
+
         {/* ── Stats bar ── */}
         <div className="grid grid-cols-3 gap-3">
           <div className="rounded-xl border border-surface-borderSubtle bg-ocean-850/70 px-4 py-3">
@@ -73,11 +118,15 @@ export default async function OperationalAlertsPage() {
           </div>
           <div className="rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3">
             <p className="text-[10px] uppercase tracking-[0.18em] text-rose-300">Critical</p>
-            <p className="mt-1 text-2xl font-semibold text-rose-100">{summary.criticalCount}</p>
+            <p className="mt-1 text-2xl font-semibold text-rose-100">
+              {trustBlocked ? "—" : summary.criticalCount}
+            </p>
           </div>
           <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3">
             <p className="text-[10px] uppercase tracking-[0.18em] text-amber-300">Warning</p>
-            <p className="mt-1 text-2xl font-semibold text-amber-100">{summary.warningCount}</p>
+            <p className="mt-1 text-2xl font-semibold text-amber-100">
+              {trustBlocked ? "—" : summary.warningCount}
+            </p>
           </div>
         </div>
 
@@ -85,6 +134,7 @@ export default async function OperationalAlertsPage() {
         <AlertTable
           title="Active Alerts"
           alerts={activeAlerts}
+          systemIntegrity={systemIntegrity}
           emptyMessage="No active alerts"
         />
 
@@ -93,6 +143,7 @@ export default async function OperationalAlertsPage() {
           <AlertTable
             title="Recent History"
             alerts={recentHistory}
+            systemIntegrity={systemIntegrity}
           />
         )}
       </div>
@@ -103,12 +154,16 @@ export default async function OperationalAlertsPage() {
 function AlertTable({
   title,
   alerts,
+  systemIntegrity,
   emptyMessage,
 }: {
   title: string;
   alerts: OperationalAlertItem[];
+  systemIntegrity: SystemIntegrityStatus;
   emptyMessage?: string;
 }) {
+  const trustBlocked = systemIntegrity === SystemIntegrityStatus.TRUST_BLOCKED;
+
   return (
     <section className="space-y-2">
       <p className="text-xs font-semibold text-slate-200">{title}</p>
@@ -145,11 +200,18 @@ function AlertTable({
               {alerts.map((alert: OperationalAlertItem) => (
                 <tr key={alert.id} className="transition-colors hover:bg-ocean-850/50">
                   <td className="px-5 py-3">
-                    <SeverityBadge severity={alert.severity} />
+                    <SeverityBadge severity={alert.severity} systemIntegrity={systemIntegrity} />
                   </td>
                   <td className="px-5 py-3 text-slate-200">
-                    <p className="font-medium">{alert.title}</p>
-                    {alert.detail && (
+                    <p className="font-medium">
+                      {trustBlocked ? (
+                        <span className="text-rose-400/70 italic">WITHHELD</span>
+                      ) : (
+                        alert.title
+                      )}
+                    </p>
+                    {/* F-OA-06: detail gated — suppressed under TRUST_BLOCKED */}
+                    {!trustBlocked && alert.detail && (
                       <p className="mt-0.5 text-[11px] text-slate-500">{alert.detail}</p>
                     )}
                   </td>
