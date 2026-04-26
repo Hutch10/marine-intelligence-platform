@@ -1,13 +1,15 @@
-import { NextRequest } from "next/server";
-import type { RiskScoreResponse } from "@marine/shared";
-import { logApiUsageSafely, requireApiKeyAuth } from "../../_auth";
-import { attachRecommendationToRiskScoreResponse } from "../_recommendation";
-import { recordPublicRiskEvaluationPrediction } from "@/lib/server/public-api-store";
-import { jsonPublicApiError, jsonPublicApiResponse } from "../../_responses";
+import { NextResponse } from "next/server";
 
 const API_BASE = (process.env.MARINE_API_BASE_URL ?? "http://localhost:4000").replace(/\/$/, "");
 
-export async function GET(request: NextRequest) {
+export async function GET(_request: Request) {
+  return NextResponse.json(
+    { error: { code: "risk_score_unavailable", message: "Risk score is disabled in this deployment." } },
+    { status: 503 }
+  );
+}
+
+async function _unused_GET(request: NextRequest) {
   const startedAt = Date.now();
   const authResult = await requireApiKeyAuth(request);
 
