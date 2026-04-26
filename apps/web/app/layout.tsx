@@ -9,6 +9,9 @@ export const metadata: Metadata = {
   description: "Ocean Intelligence Platform for marine biology research.",
 };
 
+import { TacticalModeProvider } from "@/lib/context/tactical-mode";
+import { MarineMapsProvider } from "@/lib/maps-provider";
+
 export default function RootLayout({
   children,
 }: {
@@ -16,7 +19,13 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        <MarineMapsProvider>
+          <TacticalModeProvider>
+            {children}
+          </TacticalModeProvider>
+        </MarineMapsProvider>
+      </body>
     </html>
   );
 }

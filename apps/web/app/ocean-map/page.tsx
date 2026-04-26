@@ -26,11 +26,14 @@ interface Region {
 }
 
 export default function OceanMapPage() {
+  const [mounted, setMounted] = useState(false);
   const [regions, setRegions] = useState<Region[]>([]);
   const [health, setHealth] = useState<PlatformHealthOverview | null>(null);
   const [selectedRegionId, setSelectedRegionId] = useState<string | null>(null);
   const [mapCenter] = useState({ lat: 15.0, lng: -80.0 }); // Caribbean focus
   const [zoom] = useState(5);
+
+  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     async function fetchData() {
@@ -73,11 +76,11 @@ export default function OceanMapPage() {
       pageSubtitle="Forensic Geospatial Workspace | Integrity-Bound Surveillance"
     >
       <div className="relative h-[calc(100vh-64px)] w-full overflow-hidden bg-black">
-        <Map
+        {mounted && <Map
           defaultCenter={mapCenter}
           defaultZoom={zoom}
           styles={TACTICAL_OCEAN_STYLE}
-          mapId="bf51a910020ad2" 
+          mapId="bf51a910020ad2"
           disableDefaultUI={true}
           className="h-full w-full"
         >
@@ -211,7 +214,7 @@ export default function OceanMapPage() {
               </div>
             </InfoWindow>
           )}
-        </Map>
+        </Map>}
 
         {/* Global Integrity Widget */}
         <div className="absolute right-6 top-6 z-10">
