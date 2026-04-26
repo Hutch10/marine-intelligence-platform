@@ -32,8 +32,8 @@ function StateBadge({ state }: { state: string }) {
 }
 
 export default async function InvestigationsPage() {
-  const { analysisTracks: investigations, systemIntegrity } = await listInvestigations();
-  const effectiveIntegrity = systemIntegrity || SystemIntegrityStatus.NORMAL;
+  const investigations = await listInvestigations();
+  const effectiveIntegrity = SystemIntegrityStatus.NORMAL;
 
   return (
     <AppShell
