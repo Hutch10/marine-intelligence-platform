@@ -74,6 +74,10 @@ export default async function DashboardPage() {
     notices,
   } = marineData;
 
+  const liveApiDisconnected =
+    liveConditionsStatus.source === "fallback" && reefAlertsStatus.source === "fallback";
+  const metricsWithheld = liveApiDisconnected;
+
   return (
     <AppShell
       pageTitle="Marine Intelligence"
@@ -81,6 +85,21 @@ export default async function DashboardPage() {
     >
       <div className="mx-auto flex max-w-[1400px] flex-col gap-6 p-6">
         <section className="rounded-2xl border border-surface-border bg-ocean-900 p-5">
+          {metricsWithheld && (
+            <article className="mb-4 rounded-xl border border-amber-500/35 bg-amber-500/10 p-4">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-amber-300">
+                System Integrity Notice
+              </p>
+              <h3 className="mt-2 text-base font-semibold text-amber-100">Metrics are intentionally hidden until live data is verified.</h3>
+              <div className="mt-3 grid gap-2 text-[11px] text-amber-50 sm:grid-cols-2">
+                <p className="rounded-md border border-amber-500/25 bg-black/20 px-3 py-2">Data source unavailable</p>
+                <p className="rounded-md border border-amber-500/25 bg-black/20 px-3 py-2">Live API disconnected</p>
+                <p className="rounded-md border border-amber-500/25 bg-black/20 px-3 py-2">Metrics withheld</p>
+                <p className="rounded-md border border-amber-500/25 bg-black/20 px-3 py-2">Awaiting verified telemetry</p>
+              </div>
+            </article>
+          )}
+
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="space-y-2">
               <p className="text-[11px] font-medium uppercase tracking-[0.28em] text-cyan-400">
@@ -131,7 +150,16 @@ export default async function DashboardPage() {
 
         <section>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {metrics.map((metric) => {
+            {(metricsWithheld
+              ? metrics.map((metric) => ({
+                  ...metric,
+                  value: "WITHHELD",
+                  caption: "Awaiting verified telemetry from the live API connection.",
+                  href: null,
+                  tone: "warning" as const,
+                }))
+              : metrics
+            ).map((metric) => {
               const content = (
                 <div className={cn("rounded-xl border p-4", METRIC_TONE[metric.tone])}>
                   <p className="text-[10px] uppercase tracking-[0.18em]">{metric.label}</p>
@@ -232,8 +260,9 @@ export default async function DashboardPage() {
               ))}
             </div>
           ) : (
-            <div className="rounded-xl border border-dashed border-surface-borderSubtle bg-ocean-850/60 p-4 text-sm text-slate-400">
-              No station conditions are available from the current source.
+            <div className="rounded-xl border border-dashed border-amber-500/30 bg-ocean-850/70 p-4 text-sm text-slate-300">
+              <p className="font-medium text-amber-200">Data source unavailable</p>
+              <p className="mt-1 text-[12px] text-slate-400">Station condition metrics withheld until live API telemetry is verified.</p>
             </div>
           )}
         </section>
@@ -303,8 +332,9 @@ export default async function DashboardPage() {
               })}
             </div>
           ) : (
-            <div className="rounded-xl border border-dashed border-surface-borderSubtle bg-ocean-850/60 p-4 text-sm text-slate-400">
-              No reef stress records are available from the current source.
+            <div className="rounded-xl border border-dashed border-amber-500/30 bg-ocean-850/70 p-4 text-sm text-slate-300">
+              <p className="font-medium text-amber-200">Live API disconnected</p>
+              <p className="mt-1 text-[12px] text-slate-400">Reef stress metrics withheld while awaiting verified telemetry.</p>
             </div>
           )}
         </section>
