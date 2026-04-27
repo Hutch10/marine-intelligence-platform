@@ -46,7 +46,7 @@ interface ServerRoute {
     body: unknown;
     query?: Record<string, string | undefined>;
     params?: Record<string, string>;
-  }) => RouteResponse<unknown> | Promise<RouteResponse<unknown>>;
+  }) => { status: number; json?: unknown; text?: string; headers?: Record<string, string> } | Promise<{ status: number; json?: unknown; text?: string; headers?: Record<string, string> }>;
 }
 
 const SERVER_STARTED_AT = Date.now();
@@ -223,7 +223,7 @@ const serverRoutes: ServerRoute[] = [
   {
     method: "GET",
     path: "/health",
-    handler: () => {
+    handler: async () => {
       let dbReachable = false;
       try {
         if (hasDatabasePath()) {
@@ -236,7 +236,7 @@ const serverRoutes: ServerRoute[] = [
         dbReachable = false;
       }
 
-      const feedHealthResponse = getFeedHealthRoute.handler({ body: undefined, query: {} });
+      const feedHealthResponse = await getFeedHealthRoute.handler({ body: undefined, query: {} });
 
       return {
         status: 200,
@@ -379,7 +379,7 @@ function sendJson(
   response.end(body);
 }
 
-const server = createServer(async (request, response) => {
+export async function handleRequest(request: IncomingMessage, response: ServerResponse<IncomingMessage>): Promise<void> {
   const method = request.method === "POST" ? "POST" : request.method === "GET" ? "GET" : null;
 
   if (!method) {
@@ -412,14 +412,18 @@ const server = createServer(async (request, response) => {
     const message = error instanceof Error ? error.message : "Internal server error";
     sendJson(response, 500, { message });
   }
-});
+}
 
-const port = getPort();
+const server = createServer(handleRequest);
 
-server.listen(port, () => {
-  process.stdout.write(`Marine API server listening on http://localhost:${port}\n`);
-  console.log('[server] listen callback reached, event loop alive');
-  setInterval(() => {}, 1000); // Keep event loop alive for debugging
-});
+if (!process.env.VERCEL) {
+  const port = getPort();
+
+  server.listen(port, () => {
+    process.stdout.write(`Marine API server listening on http://localhost:${port}\n`);
+    console.log('[server] listen callback reached, event loop alive');
+    setInterval(() => {}, 1000); // Keep event loop alive for debugging
+  });
+}
 
 console.log('[server] END OF FILE');
