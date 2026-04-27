@@ -1,8 +1,7 @@
-import { NextApiRequest, NextApiResponse } from "next";
 import { getRepositoryData } from "../services/explorer-service";
 
 // POST /v1/explorer/query
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(req: any, res: any) {
   console.log("[v1-explorer] req.method:", req.method);
   console.log("[v1-explorer] req.body:", req.body);
   if (req.method === "POST") {

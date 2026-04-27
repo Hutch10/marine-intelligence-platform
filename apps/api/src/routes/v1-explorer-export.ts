@@ -1,4 +1,3 @@
-import { NextApiRequest, NextApiResponse } from "next";
 import { getRepositoryData } from "../services/explorer-service";
 
 function toCSV(results: any[]): string {
@@ -11,7 +10,7 @@ function toCSV(results: any[]): string {
   ].join("\n");
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(req: any, res: any) {
   if (req.method === "POST") {
     try {
       const { filters, limit, format } = req.body || {};

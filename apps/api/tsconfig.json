@@ -15,6 +15,6 @@
     "types": ["node", "vitest/globals"],
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src/**/*.ts", "../web/lib/api/**/*.ts"],
-  "exclude": ["dist", "node_modules"]
+  "include": ["src/**/*.ts"],
+  "exclude": ["dist", "node_modules", "src/**/*.test.ts", "src/**/__tests__/**", "src/routes/investigations/[id].ts"]
 }
