@@ -1,7 +1,9 @@
 
 import {
   AnomalyListResponse,
+  DegradedDataReason,
   PublicAnomalyItem,
+  IntegrityStatus,
   RiskAppliedThreshold,
   RiskEvaluateRequest,
   RiskEvaluateResponse,
@@ -9,7 +11,9 @@ import {
   RiskSignalSummary,
   RiskTriggeredRule,
   SignalDetection,
+  SystemIntegrityStatus,
 } from "@marine/shared";
+import { SovereignTrustService } from "../services/sovereign-trust";
 import type { NdbcMappedObservation } from "../connectors/ndbc/map";
 import {
   openReadOnlyDatabase,
@@ -77,6 +81,8 @@ const FIELD_LABELS: Record<RiskSignalSummary["field"], string> = {
   salinityPsu: "salinity stress",
   dissolvedOxygenMgL: "low dissolved oxygen",
   crwSstAnomalyC: "CRW-derived warming",
+  crwHotspotC: "CRW hotspot",
+  crwDhw: "CRW DHW",
 };
 
 interface RiskScoreQuery {
@@ -104,6 +110,7 @@ interface ReadObservationHistoryResultFailure {
   ok: false;
   status: 404 | 503;
   message: string;
+  fallbackReason?: DegradedDataReason;
 }
 
 interface RiskTrustAssessment {
@@ -126,6 +133,12 @@ interface RiskAnalysisResult {
   overallRisk: RiskScoreResponse["overallRisk"] | "unknown";
   signals: RiskSignalSummary[];
   triggeredRules: RiskTriggeredRule[];
+  sovereignVerification?: {
+    status: IntegrityStatus;
+    claimId: string;
+    contradictions: string[];
+    verifiedAt: string;
+  };
 }
 
 interface CrwBaselineContext {
@@ -161,6 +174,121 @@ const PUBLIC_BASELINE_FIELDS: RiskSignalSummary["field"][] = [
   "pressureHpa",
   "crwSstAnomalyC",
 ];
+
+function mapDbFallbackReason(fallbackReason: string | undefined): DegradedDataReason {
+  return fallbackReason === "db_path_missing" ? "db_path_missing" : "db_unavailable";
+}
+
+function degradedRiskWarning(reason: DegradedDataReason): string {
+  return reason === "db_path_missing"
+    ? "Field-truth database path is missing; live truth-bearing risk data is unavailable in this deployment."
+    : "Field-truth database is unavailable; live truth-bearing risk data cannot be verified in this deployment.";
+}
+
+function buildDegradedRiskScoreResponse(
+  stationId: string,
+  window: number,
+  reason: DegradedDataReason,
+): { status: 200; json: RiskScoreResponse } {
+  return {
+    status: 200,
+    json: {
+      stationId,
+      window,
+      triggeredRules: [],
+      signals: [],
+      overallRisk: "unknown",
+      computedAt: new Date().toISOString(),
+      appliedThresholds: [],
+      confidenceScore: 0,
+      baselineQuality: "low",
+      sampleSize: 0,
+      sampleSufficiency: false,
+      warningMessages: [degradedRiskWarning(reason)],
+      operatorSummary: "Truth-bearing risk assessment is blocked until a production backing database is configured.",
+      confidenceClassification: "UNTRUSTED",
+      conflictTaxonomy: "none",
+      systemIntegrity: SystemIntegrityStatus.TRUST_BLOCKED,
+      integritySummary: {
+        verifiedCount: 0,
+        unverifiedCount: 0,
+        rejectedCount: 0,
+        exclusionReasonCounts: {},
+      },
+      coverage: {
+        acceptedCount: 0,
+        rejectedCount: 0,
+        conflictCount: 0,
+        missingCoverageSummary: degradedRiskWarning(reason),
+        sourcesConsidered: [],
+        stationsConsidered: [stationId],
+      },
+      degraded: true,
+      reason,
+      trustStatus: SystemIntegrityStatus.TRUST_BLOCKED,
+    },
+  };
+}
+
+function buildDegradedRiskEvaluateResponse(
+  stationId: string,
+  reason: DegradedDataReason,
+): { status: 200; json: RiskEvaluateResponse } {
+  return {
+    status: 200,
+    json: {
+      stationId,
+      triggeredRules: [],
+      baselineStats: [],
+      riskLevel: "unknown",
+      evaluatedAt: new Date().toISOString(),
+      appliedThresholds: [],
+      confidenceScore: 0,
+      baselineQuality: "low",
+      sampleSize: 0,
+      sampleSufficiency: false,
+      warningMessages: [degradedRiskWarning(reason)],
+      operatorSummary: "Truth-bearing risk evaluation is blocked until a production backing database is configured.",
+      degraded: true,
+      reason,
+      trustStatus: SystemIntegrityStatus.TRUST_BLOCKED,
+    },
+  };
+}
+
+function buildDegradedAnomaliesResponse(
+  stationId: string | null,
+  since: string,
+  limit: number,
+  defaultsApplied: string[],
+  reason: DegradedDataReason,
+): { status: 200; json: AnomalyListResponse } {
+  return {
+    status: 200,
+    json: {
+      anomalies: [],
+      total: 0,
+      stationId,
+      since,
+      appliedFilters: {
+        stationId,
+        since,
+        limit,
+      },
+      pagination: {
+        limit,
+        returned: 0,
+        total: 0,
+        hasMore: false,
+        maxLimit: MAX_LIMIT,
+        defaultsApplied,
+      },
+      degraded: true,
+      reason,
+      trustStatus: SystemIntegrityStatus.TRUST_BLOCKED,
+    },
+  };
+}
 
 function normalizeText(value: string | undefined | null): string | null {
   if (typeof value !== "string") {
@@ -816,6 +944,7 @@ export function readObservationHistory(
       ok: false,
       status: 503,
       message: "Observation database unavailable",
+      fallbackReason: "db_path_missing",
     };
   }
 
@@ -828,6 +957,7 @@ export function readObservationHistory(
       ok: false,
       status: 503,
       message: "Observation database unavailable",
+      fallbackReason: "db_unavailable",
     };
   }
 
@@ -951,6 +1081,7 @@ export function readObservationHistory(
       ok: false,
       status: 503,
       message: "Observation lookup failed",
+      fallbackReason: "db_unavailable",
     };
   } finally {
     db.close();
@@ -1047,7 +1178,7 @@ function mapRiskEvaluateBodyToObservation(
   };
 }
 
-export function buildRiskAnalysis(
+export async function buildRiskAnalysis(
   observation: NdbcMappedObservation,
   history: BaselineObservationInput[],
   windowDays: number,
@@ -1055,7 +1186,7 @@ export function buildRiskAnalysis(
   neighborContext: NeighborStationContext = { neighborStationIds: [], neighborObservations: [] },
   erddapContext: ErddapMetricContext = { salinity: [], dissolvedOxygen: [] },
   sourceAgreement: SourceAgreementAssessment = { confidenceAdjustment: 0, detail: null },
-): RiskAnalysisResult {
+): Promise<RiskAnalysisResult> {
   const resolvedThresholds = resolveStationRiskThresholds(observation.stationId);
   const fusion = fuseStationSignals({
     observation,
@@ -1146,6 +1277,22 @@ export function buildRiskAnalysis(
   }
   logFusionAssessment(observation, effectiveFusion, signals);
 
+  // ── Sovereign Trust Verification ──────────────────────────────────────────
+  const sovereignResult = await SovereignTrustService.verifyRiskClaim(
+    observation.stationId,
+    overallRisk,
+    adjustedConfidence,
+    effectiveFusion.reasons
+  );
+
+  if (sovereignResult.status === IntegrityStatus.REJECTED) {
+    overallRisk = "unknown";
+    operatorSummary = `[SOVEREIGN CONTRADICTION] ${operatorSummary}`;
+    if (!warningMessages.some(m => m.includes("Sovereign Verification failed"))) {
+      warningMessages.unshift("Sovereign Verification failed: Signal contradicts verified reality claims.");
+    }
+  }
+
   return {
     appliedThresholds: toAppliedThresholds(resolvedThresholds),
     confidenceScore: adjustedConfidence,
@@ -1158,6 +1305,12 @@ export function buildRiskAnalysis(
     overallRisk,
     signals,
     triggeredRules,
+    sovereignVerification: {
+      status: sovereignResult.status,
+      claimId: sovereignResult.claimId,
+      contradictions: sovereignResult.contradictions,
+      verifiedAt: new Date().toISOString()
+    }
   };
 }
 
@@ -1347,10 +1500,10 @@ function buildErddapMetricAnomalyItems(
     });
 }
 
-export function buildRiskScoreRouteResponse(query: RiskScoreQuery = {}): {
+export async function buildRiskScoreRouteResponse(query: RiskScoreQuery = {}): Promise<{
   status: 200 | 400 | 404 | 503;
   json: RiskScoreResponse | { message: string };
-} {
+}> {
   const stationId = normalizeText(query.stationId);
   const window = normalizePositiveInteger(query.window, DEFAULT_WINDOW_DAYS, 90);
 
@@ -1364,13 +1517,17 @@ export function buildRiskScoreRouteResponse(query: RiskScoreQuery = {}): {
   const result = readObservationHistory(stationId, window);
 
   if (!result.ok) {
+    if (result.fallbackReason) {
+      return buildDegradedRiskScoreResponse(stationId, window, result.fallbackReason);
+    }
+
     return {
       status: result.status,
       json: { message: result.message },
     };
   }
 
-  const analysis = buildRiskAnalysis(
+  const analysis = await buildRiskAnalysis(
     result.current,
     result.history,
     window,
@@ -1387,7 +1544,12 @@ export function buildRiskScoreRouteResponse(query: RiskScoreQuery = {}): {
       window: window,
       triggeredRules: analysis.triggeredRules,
       signals: analysis.signals,
-      overallRisk: analysis.overallRisk === "unknown" ? "low" : analysis.overallRisk,
+      overallRisk:
+        analysis.overallRisk === "unknown"
+        || analysis.overallRisk === "insufficient_data"
+        || analysis.overallRisk === "conflicting_signals"
+          ? "low"
+          : analysis.overallRisk,
       computedAt: new Date().toISOString(),
       appliedThresholds: analysis.appliedThresholds,
       confidenceScore: analysis.confidenceScore,
@@ -1396,14 +1558,41 @@ export function buildRiskScoreRouteResponse(query: RiskScoreQuery = {}): {
       sampleSufficiency: analysis.sampleSufficiency,
       warningMessages: analysis.warningMessages,
       operatorSummary: analysis.operatorSummary,
+      confidenceClassification: !analysis.sampleSufficiency
+        ? "INSUFFICIENT_DATA"
+        : analysis.overallRisk === "conflicting_signals"
+          ? "CONFLICTING_SIGNALS"
+          : analysis.confidenceScore >= 0.75
+            ? "VERIFIED"
+            : analysis.confidenceScore >= 0.5
+              ? "PARTIAL"
+              : analysis.confidenceScore >= 0.3
+                ? "WEAK"
+                : "UNTRUSTED",
+      conflictTaxonomy: analysis.overallRisk === "conflicting_signals" ? "conflict" : "none",
+      systemIntegrity: analysis.overallRisk === "conflicting_signals" ? "DEGRADED" : "NORMAL",
+      integritySummary: {
+        verifiedCount: 0,
+        unverifiedCount: 0,
+        rejectedCount: 0,
+        exclusionReasonCounts: {},
+      },
+      coverage: {
+        acceptedCount: analysis.signals.length,
+        rejectedCount: 0,
+        conflictCount: analysis.overallRisk === "conflicting_signals" ? 1 : 0,
+        missingCoverageSummary: "",
+        sourcesConsidered: [],
+        stationsConsidered: [result.current.stationId],
+      },
     },
   };
 }
 
-export function buildRiskEvaluateRouteResponse(body: RiskEvaluateRequest): {
+export async function buildRiskEvaluateRouteResponse(body: RiskEvaluateRequest): Promise<{
   status: 200 | 400 | 404 | 503;
   json: RiskEvaluateResponse | { message: string };
-} {
+}> {
   const mapped = mapRiskEvaluateBodyToObservation(body);
   if (!mapped.ok) {
     return {
@@ -1418,13 +1607,15 @@ export function buildRiskEvaluateRouteResponse(body: RiskEvaluateRequest): {
   const dbHistory = mapped.history ?? (dbHistoryResult?.ok ? dbHistoryResult.history : null);
 
   if (mapped.history === null && dbHistory === null) {
+    const reason = dbHistoryResult?.ok === false && dbHistoryResult.fallbackReason
+      ? dbHistoryResult.fallbackReason
+      : "db_unavailable";
     return {
-      status: 503,
-      json: { message: "Observation history unavailable" },
+      ...buildDegradedRiskEvaluateResponse(mapped.observation.stationId, reason),
     };
   }
 
-  const analysis = buildRiskAnalysis(
+  const analysis = await buildRiskAnalysis(
     mapped.observation,
     dbHistory ?? [],
     DEFAULT_WINDOW_DAYS,
@@ -1487,14 +1678,18 @@ export function buildAnomaliesRouteResponse(query: AnomaliesQuery = {}): {
     limit: MAX_LIMIT,
   });
 
+  const since = sinceMs ?? Date.parse(defaultSince);
+
   if (signalResult.source !== "db") {
-    return {
-      status: 503,
-      json: { message: "Anomaly repository unavailable" },
-    };
+    return buildDegradedAnomaliesResponse(
+      stationId ?? null,
+      new Date(since).toISOString(),
+      limit,
+      defaultsApplied,
+      mapDbFallbackReason(signalResult.fallbackReason),
+    );
   }
 
-  const since = sinceMs ?? Date.parse(defaultSince);
   const filteredSignals = signalResult.signals.filter((signal) => Date.parse(signal.detectedAt) >= since);
   const observationEvidence = readObservationEvidenceMap(
     filteredSignals.map((signal) => signal.stationId ?? ""),
@@ -1547,8 +1742,8 @@ export const getRiskScoreRoute: RouteDefinition<
 > = {
   method: "GET",
   path: "/risk/score",
-  handler(request) {
-    return buildRiskScoreRouteResponse(request.query ?? {});
+  async handler(request) {
+    return await buildRiskScoreRouteResponse(request.query ?? {});
   },
 };
 
@@ -1558,8 +1753,8 @@ export const postRiskEvaluateRoute: RouteDefinition<
 > = {
   method: "POST",
   path: "/risk/evaluate",
-  handler(request) {
-    return buildRiskEvaluateRouteResponse(request.body);
+  async handler(request) {
+    return await buildRiskEvaluateRouteResponse(request.body);
   },
 };
 

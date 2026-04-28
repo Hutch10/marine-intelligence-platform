@@ -1,15 +1,10 @@
-import { NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { logApiUsageSafely, requireApiKeyAuth } from "../../_auth";
+import { jsonPublicApiError, jsonPublicApiResponse } from "../../_responses";
 
 const API_BASE = (process.env.MARINE_API_BASE_URL ?? "http://localhost:4000").replace(/\/$/, "");
 
-export async function GET(_request: Request) {
-  return NextResponse.json(
-    { error: { code: "validation_summary_unavailable", message: "Validation summary is disabled in this deployment." } },
-    { status: 503 }
-  );
-}
-
-async function _unused_GET(request: NextRequest) {
+export async function GET(request: NextRequest) {
   const startedAt = Date.now();
   const authResult = await requireApiKeyAuth(request);
 

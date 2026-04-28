@@ -10,6 +10,7 @@
  */
 
 import type { RiskSignalSummary, RiskTriggeredRule, RouteDefinition } from "../types";
+import { SystemIntegrityStatus, type DegradedDataReason } from "@marine/shared";
 import { buildRiskAnalysis, readObservationHistory } from "./risk";
 
 // ─── Window ───────────────────────────────────────────────────────────────────
@@ -62,9 +63,11 @@ export interface V1Signal {
     | "wind_speed"
     | "pressure"
     | "crw_sst_anomaly"
+    | "crw_hotspot"
+    | "crw_dhw"
     | "salinity"
     | "dissolved_oxygen";
-  unit: "°C" | "m" | "m/s" | "hPa" | "psu" | "mg/L";
+  unit: "°C" | "°C-weeks" | "m" | "m/s" | "hPa" | "psu" | "mg/L";
   currentValue: number | null;
   anomalyScore: number | null;
   direction: V1SignalDirection;
@@ -112,6 +115,9 @@ export interface V1RiskAssessment {
    * available for this station, not a probability estimate.
    */
   baselineCoverage: V1BaselineCoverage;
+  degraded?: boolean;
+  reason?: DegradedDataReason;
+  trustStatus?: typeof SystemIntegrityStatus[keyof typeof SystemIntegrityStatus];
 }
 
 // ─── Mapping helpers ──────────────────────────────────────────────────────────
@@ -127,6 +133,8 @@ const METRIC_META: Record<
   salinityPsu: { metric: "salinity", unit: "psu" },
   dissolvedOxygenMgL: { metric: "dissolved_oxygen", unit: "mg/L" },
   crwSstAnomalyC: { metric: "crw_sst_anomaly", unit: "°C" },
+  crwHotspotC: { metric: "crw_hotspot", unit: "°C" },
+  crwDhw: { metric: "crw_dhw", unit: "°C-weeks" },
 };
 
 function toDirection(zScore: number | null): V1SignalDirection {
@@ -166,13 +174,13 @@ const COVERAGE_NOTE =
 
 // ─── Route builder ────────────────────────────────────────────────────────────
 
-export function buildV1RiskRouteResponse(
+export async function buildV1RiskRouteResponse(
   stationId: string,
-): {
+): Promise<{
   status: 200 | 400 | 404 | 503;
   json: V1RiskAssessment | { message: string };
   headers: Record<string, string>;
-} {
+}> {
   const normalized = stationId.trim();
 
   if (normalized.length === 0) {
@@ -186,6 +194,40 @@ export function buildV1RiskRouteResponse(
   const obsResult = readObservationHistory(normalized, BASELINE_WINDOW_DAYS);
 
   if (!obsResult.ok) {
+    if (obsResult.fallbackReason) {
+      return {
+        status: 200,
+        json: {
+          stationId: normalized,
+          evaluatedAt: new Date().toISOString(),
+          riskLevel: "unknown",
+          summary: "Truth-bearing public risk assessment is blocked until a production backing database is configured.",
+          conditions: {
+            observedAt: new Date().toISOString(),
+            seaSurfaceTemperatureC: null,
+            waveHeightM: null,
+            windSpeedMps: null,
+            pressureHpa: null,
+          },
+          alerts: [],
+          signals: [],
+          baselineCoverage: {
+            score: 0,
+            quality: "low",
+            historicalDataPoints: 0,
+            coverageNote: COVERAGE_NOTE,
+          },
+          degraded: true,
+          reason: obsResult.fallbackReason,
+          trustStatus: SystemIntegrityStatus.TRUST_BLOCKED,
+        },
+        headers: {
+          "X-Marine-Risk-API": "public-read-only",
+          "X-Data-Source": "TRUTH_BLOCKED",
+        },
+      };
+    }
+
     return {
       status: obsResult.status,
       json: { message: obsResult.message },
@@ -193,7 +235,7 @@ export function buildV1RiskRouteResponse(
     };
   }
 
-  const analysis = buildRiskAnalysis(
+  const analysis = await buildRiskAnalysis(
     obsResult.current,
     obsResult.history,
     BASELINE_WINDOW_DAYS,
@@ -206,7 +248,12 @@ export function buildV1RiskRouteResponse(
     json: {
       stationId: normalized,
       evaluatedAt: new Date().toISOString(),
-      riskLevel: analysis.overallRisk === "unknown" ? "low" : analysis.overallRisk,
+      riskLevel:
+        analysis.overallRisk === "unknown"
+        || analysis.overallRisk === "insufficient_data"
+        || analysis.overallRisk === "conflicting_signals"
+          ? "low"
+          : analysis.overallRisk,
       summary: analysis.operatorSummary,
       conditions: {
         observedAt: obsResult.current.sourceTimestamp,
@@ -223,6 +270,9 @@ export function buildV1RiskRouteResponse(
         historicalDataPoints: analysis.sampleSize,
         coverageNote: COVERAGE_NOTE,
       },
+      degraded: false,
+      reason: undefined,
+      trustStatus: SystemIntegrityStatus.NORMAL,
     },
     headers: {
       "X-Marine-Risk-API": "public-read-only",
@@ -239,7 +289,7 @@ export const getV1RiskRoute: RouteDefinition<
 > = {
   method: "GET",
   path: "/v1/risk/:stationId",
-  handler(request) {
+  async handler(request) {
     return buildV1RiskRouteResponse(request.body.stationId);
   },
 };

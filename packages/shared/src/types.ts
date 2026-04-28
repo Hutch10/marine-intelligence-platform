@@ -18,6 +18,8 @@ export const IntegrityStatus = {
   VERIFIED: "VERIFIED",
   UNVERIFIED: "UNVERIFIED",
   REJECTED: "REJECTED",
+  SOVEREIGN_VERIFIED: "SOVEREIGN_VERIFIED",
+  SOVEREIGN_CONTRADICTED: "SOVEREIGN_CONTRADICTED",
 } as const;
 export type IntegrityStatus = (typeof IntegrityStatus)[keyof typeof IntegrityStatus];
 
@@ -27,6 +29,7 @@ export const SystemIntegrityStatus = {
   TRUST_BLOCKED: "TRUST_BLOCKED",
 } as const;
 export type SystemIntegrityStatus = (typeof SystemIntegrityStatus)[keyof typeof SystemIntegrityStatus];
+export type DegradedDataReason = "db_path_missing" | "db_unavailable";
 
 /**
  * @marine/shared — canonical shared type definitions
@@ -436,6 +439,12 @@ export interface RiskScoreResponse {
   inputSnapshotHash?: string;
   causalGraph?: CausalEvidenceGraph;
   latentRiskLevel?: RiskScoreResponse["overallRisk"];
+  sovereignVerification?: {
+    status: IntegrityStatus;
+    claimId: string;
+    contradictions: string[];
+    verifiedAt: string;
+  };
   overrideReason?: string | null;
   coverage?: SignalCoverage;
   systemIntegrity: SystemIntegrityStatus;
@@ -455,13 +464,16 @@ export interface RiskScoreResponse {
     }>;
     isForensicTrace: boolean;
   };
+  degraded?: boolean;
+  reason?: DegradedDataReason;
+  trustStatus?: SystemIntegrityStatus;
 }
 
 export interface RiskEvaluateResponse {
   stationId: string;
   triggeredRules: RiskTriggeredRule[];
   baselineStats: RiskSignalSummary[];
-  riskLevel: "low" | "medium" | "high" | "critical";
+  riskLevel: "low" | "medium" | "high" | "critical" | "unknown";
   evaluatedAt: string;
   appliedThresholds?: RiskAppliedThreshold[];
   confidenceScore: number;
@@ -473,6 +485,9 @@ export interface RiskEvaluateResponse {
   calibrationAdjustedConfidenceScore?: number | null;
   evaluationId?: string | null;
   recommendation?: RiskRecommendation | null;
+  degraded?: boolean;
+  reason?: DegradedDataReason;
+  trustStatus?: SystemIntegrityStatus;
 }
 
 export interface PublicListPagination {
@@ -532,6 +547,9 @@ export interface AnomalyListResponse {
   since: string;
   appliedFilters: AnomalyAppliedFilters;
   pagination: PublicListPagination;
+  degraded?: boolean;
+  reason?: DegradedDataReason;
+  trustStatus?: SystemIntegrityStatus;
 }
 
 export interface AlertsAppliedFilters {
@@ -732,6 +750,9 @@ export interface ValidationSummaryResponse {
   calibrationCurve: ValidationCalibrationCurvePoint[];
   topFailureModes: ValidationFailureModeSummary[];
   feedbackTrendFlags: ValidationFeedbackTrendFlag[];
+  degraded?: boolean;
+  reason?: DegradedDataReason;
+  trustStatus?: SystemIntegrityStatus;
 }
 
 // ─── Investigations ───────────────────────────────────────────────────────────
@@ -946,6 +967,7 @@ export interface SignalDetection {
   linkedMissionId: string | null;
   validationState: ValidationState;
   validationMetadata: Record<string, any> | null;
+  sovereignStatus?: IntegrityStatus;
 }
 
 export interface SignalFilters {
@@ -1797,8 +1819,45 @@ export type OperationalAlertRuleType =
   | "high_wave_height"
   | "high_wind_speed"
   | "low_pressure_system";
+
 export type OperationalAlertSeverity = "critical" | "warning" | "info";
 export type OperationalAlertsFallbackReason = "db_path_missing" | "db_open_failed" | "db_query_failed";
+
+export interface OperationalAlertAction {
+  type: "create" | "resolve";
+  source: string;
+  ruleType: OperationalAlertRuleType;
+  severity: OperationalAlertSeverity;
+  title: string;
+  detail?: string;
+  stationId?: string | null;
+  validationState?: string;
+  validationMetadata?: Record<string, any> | null;
+}
+
+export interface OperationalAlert {
+  id: string;
+  source: string;
+  stationId: string | null;
+  ruleType: OperationalAlertRuleType;
+  severity: OperationalAlertSeverity;
+  status: OperationalAlertStatus;
+  lifecycleStatus: "open" | "ongoing" | "resolved";
+  title: string;
+  detail: string | null;
+  metadataJson: string | null;
+  detectedAt: number;
+  resolvedAt: number | null;
+  occurrenceCount: number;
+  windowStartedAt: number;
+  windowEndsAt: number;
+  validationState?: string;
+  validationMetadata?: Record<string, any> | null;
+  frozen_system_integrity: string;
+  createdAt: string;
+  updatedAt: string;
+  investigationId?: string | null;
+}
 
 export interface OperationalAlertItem {
   id: string;
@@ -1806,7 +1865,7 @@ export interface OperationalAlertItem {
   ruleType: OperationalAlertRuleType;
   severity: OperationalAlertSeverity;
   status: OperationalAlertStatus;
-  lifecycleStatus?: "open" | "ongoing" | "resolved";
+  lifecycleStatus: "open" | "ongoing" | "resolved";
   title: string;
   detail: string | null;
   detectedAt: number;
@@ -1814,6 +1873,7 @@ export interface OperationalAlertItem {
   validationState?: string;
   createdAt: string;
   updatedAt: string;
+  investigationId?: string | null;
 }
 
 export interface OperationalAlertsSummary {
@@ -1826,22 +1886,22 @@ export interface OperationalAlertsSummary {
   lastUpdatedAt: string;
 }
 
+export interface OperationalAlertsData {
+  source: "db" | "unavailable";
+  fallbackReason: OperationalAlertsFallbackReason | string | null;
+  generatedAt: string;
+  systemIntegrity: SystemIntegrityStatus;
+  summary: OperationalAlertsSummary;
+  activeAlerts: OperationalAlertItem[];
+  recentHistory: OperationalAlertItem[];
+}
+
 export interface OperationalAlertsFilters {
   status?: OperationalAlertStatus;
   source?: string;
   ruleType?: OperationalAlertRuleType;
   limit?: number;
   historyLimit?: number;
-}
-
-export interface OperationalAlertsData {
-  source: "db" | "unavailable";
-  fallbackReason: OperationalAlertsFallbackReason | null;
-  generatedAt: string;
-  summary: OperationalAlertsSummary;
-  activeAlerts: OperationalAlertItem[];
-  recentHistory: OperationalAlertItem[];
-  systemIntegrity: SystemIntegrityStatus;
 }
 
 // ─── AI Lab ───────────────────────────────────────────────────────────────────
@@ -3363,7 +3423,7 @@ export interface DataExplorerFetchMeta {
 }
 
 export interface DataExplorerWorkspaceFetchResult {
-  data: DataExplorerWorkspaceData;
+  data: DataExplorerWorkspaceData | null;
   meta: DataExplorerFetchMeta;
 }
 
@@ -3778,99 +3838,3 @@ export const DATA_EXPLORER_ALLOWED_DIRECTIONS: DataExplorerSortDirection[] = [
   "desc",
 ];
 
-// ─── Operational alerts ───────────────────────────────────────────────────────
-
-export type OperationalAlertRuleType =
-  | "source_failed"
-  | "source_stale"
-  | "repeated_degraded"
-  | "persistence_failure"
-  | "high_sea_temperature"
-  | "high_wave_height"
-  | "high_wind_speed"
-  | "low_pressure_system";
-
-export type OperationalAlertSeverity = "critical" | "warning" | "info";
-
-export type OperationalAlertStatus = "active" | "resolved";
-
-export interface OperationalAlertAction {
-  type: "create" | "resolve";
-  source: string;
-  ruleType: OperationalAlertRuleType;
-  severity: OperationalAlertSeverity;
-  title: string;
-  detail?: string;
-  stationId?: string | null;
-  validationState?: string;
-  validationMetadata?: Record<string, any> | null;
-}
-
-export interface OperationalAlert {
-  id: string;
-  source: string;
-  stationId: string | null;
-  ruleType: OperationalAlertRuleType;
-  severity: OperationalAlertSeverity;
-  status: OperationalAlertStatus;
-  lifecycleStatus: "open" | "ongoing" | "resolved";
-  title: string;
-  detail: string | null;
-  metadataJson: string | null;
-  detectedAt: number;
-  resolvedAt: number | null;
-  occurrenceCount: number;
-  windowStartedAt: number;
-  windowEndsAt: number;
-  validationState?: string;
-  validationMetadata?: Record<string, any> | null;
-  frozen_system_integrity: string;
-  createdAt: string;
-  updatedAt: string;
-  investigationId?: string | null;
-}
-
-export interface OperationalAlertItem {
-  id: string;
-  source: string;
-  ruleType: OperationalAlertRuleType;
-  severity: OperationalAlertSeverity;
-  status: OperationalAlertStatus;
-  lifecycleStatus: "open" | "ongoing" | "resolved";
-  title: string;
-  detail: string | null;
-  detectedAt: number;
-  resolvedAt: number | null;
-  validationState?: string;
-  createdAt: string;
-  updatedAt: string;
-  investigationId?: string;
-}
-
-export interface OperationalAlertsSummary {
-  activeAlertCount: number;
-  criticalCount: number;
-  warningCount: number;
-  infoCount: number;
-  failedSourceCount: number;
-  staleSourceCount: number;
-  lastUpdatedAt: string;
-}
-
-export interface OperationalAlertsData {
-  source: "db" | "unavailable";
-  fallbackReason: string | null;
-  generatedAt: string;
-  systemIntegrity: SystemIntegrityStatus;
-  summary: OperationalAlertsSummary;
-  activeAlerts: OperationalAlertItem[];
-  recentHistory: OperationalAlertItem[];
-}
-
-export interface OperationalAlertsFilters {
-  status?: OperationalAlertStatus;
-  source?: string;
-  ruleType?: OperationalAlertRuleType;
-  limit?: number;
-  historyLimit?: number;
-}

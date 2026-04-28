@@ -1,7 +1,9 @@
-import type {
+import {
+  type DegradedDataReason,
   MarineWorkflowValidationOutcomeResponse,
   RiskEvaluationFeedbackRequest,
   RiskEvaluationOutcomeRequest,
+  SystemIntegrityStatus,
   ValidationSummaryResponse,
 } from "@marine/shared";
 import type { OceanStationAdminAuthContext, OceanStationAdminPermission } from "@marine/shared";
@@ -84,9 +86,36 @@ export function buildValidationSummaryRouteResponse(
   });
 
   if (!resolvedSummary.ok) {
+    const reason: DegradedDataReason = resolvedSummary.fallbackReason === "db_path_missing"
+      ? "db_path_missing"
+      : "db_unavailable";
     return {
-      status: 503,
-      json: { message: "Validation summary unavailable" },
+      status: 200,
+      json: {
+        generatedAt: new Date().toISOString(),
+        summaryWindow: {
+          since,
+          stationId: normalizeText(query.stationId),
+        },
+        reliability: {
+          totalEvaluations: 0,
+          completedEvaluations: 0,
+          outcomeCoverage: 0,
+          empiricalAccuracy: null,
+          averagePredictedConfidence: null,
+          averageAdjustedConfidence: null,
+          overallCalibrationGap: null,
+          overconfidentBands: 0,
+          underconfidentBands: 0,
+        },
+        confidenceBands: [],
+        calibrationCurve: [],
+        topFailureModes: [],
+        feedbackTrendFlags: [],
+        degraded: true,
+        reason,
+        trustStatus: SystemIntegrityStatus.TRUST_BLOCKED,
+      },
     };
   }
 
