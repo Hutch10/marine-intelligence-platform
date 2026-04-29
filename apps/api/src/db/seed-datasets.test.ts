@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from 'node:test';
-import test from 'node:test';
 const { existsSync, mkdtempSync, rmSync } = require("node:fs");
 const { join } = require("node:path");
 const { tmpdir } = require("node:os");
@@ -32,10 +31,14 @@ test("seed datasets creates a usable demo database with station-linked signal ro
   const db = new DatabaseSync(dbPath, { open: true, readOnly: true });
   const stationRows = db.prepare("SELECT COUNT(*) AS total FROM stations").all();
   const signalRows = db.prepare("SELECT COUNT(*) AS total FROM signal_detections").all();
-  const stationLinkedSignalRows = db.prepare("SELECT COUNT(*) AS total FROM signal_detections WHERE station_id = 'STA-NPC-01'").all();
+  const regionRows = db.prepare("SELECT COUNT(*) AS total FROM regions").all();
+  const obsRows = db.prepare("SELECT COUNT(*) AS total FROM observations").all();
+  const stationLinkedSignalRows = db.prepare("SELECT COUNT(*) AS total FROM signal_detections WHERE station_id IS NOT NULL").all();
 
   assert.ok(Number(stationRows[0]?.total ?? 0) >= 4);
   assert.ok(Number(signalRows[0]?.total ?? 0) >= 3);
+  assert.ok(Number(regionRows[0]?.total ?? 0) >= 1, "at least one region must be seeded");
+  assert.ok(Number(obsRows[0]?.total ?? 0) >= 30, "at least 30 sample observations must be seeded");
   assert.ok(Number(stationLinkedSignalRows[0]?.total ?? 0) >= 1);
 
   db.close();

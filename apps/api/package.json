@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "dependencies": {
+    "@libsql/client": "^0.17.3",
     "@marine/shared": "workspace:*"
   },
   "scripts": {
@@ -10,10 +11,12 @@
     "start": "node dist/api/src/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --test src/security/**/*.test.ts src/connectors/**/*.test.ts src/db/**/*.test.ts src/repositories/**/*.test.ts src/routes/**/*.test.ts src/services/**/*.test.ts src/workers/**/*.test.ts src/vector/**/*.test.ts",
-    "seed:datasets": "npm run build && node dist/api/src/db/seed-datasets.js",
-    "ingest:live": "npm run build && node dist/api/src/workers/ingest-live-feeds.js"
+    "seed:datasets": "npx tsx src/db/seed-datasets.ts",
+    "ingest:live": "npx tsx src/workers/ingest-live-feeds.ts"
   },
   "devDependencies": {
-    "tsx": "^4.7.0"
+    "@types/node": "^20.19.9",
+    "tsx": "^4.7.0",
+    "vitest": "^4.1.0"
   }
 }

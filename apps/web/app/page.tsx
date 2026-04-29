@@ -9,9 +9,8 @@ import {
   getMarineRegionByName,
   getSignalDetailHref,
 } from "@/lib/marine-intelligence";
-import {
-  ChevronRight,
-} from "lucide-react";
+import { ChevronRight } from "lucide-react";
+import { DataCoverageMap } from "@/components/dashboard/CoverageMap";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Dashboard" };
@@ -194,6 +193,8 @@ export default async function DashboardPage() {
           emptyStateTitle="No live signal detections are open"
           emptyStateSubtitle="The persisted signal store returned no active detections. Use regional and station pages for direct risk output."
         />
+
+        <DataCoverageMap />
 
         <section className="rounded-2xl border border-surface-border bg-ocean-900 p-5 space-y-4">
           <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
