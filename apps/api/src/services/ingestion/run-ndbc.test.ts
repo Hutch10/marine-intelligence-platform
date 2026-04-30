@@ -9,21 +9,15 @@ import type { SqliteDatabaseLike } from "../../db/client";
 import type { NdbcMappedObservation } from "../../connectors/ndbc/map";
 import type { ResolvedStationRiskThreshold } from "../../repositories/station-risk-thresholds";
 
-function createDb(hasDuplicate = false): SqliteDatabaseLike {
+function createDb(hasDuplicate = false): any {
   return {
-    prepare(sql: string) {
-      return {
-        all() {
-          if (sql.includes("FROM observations") && hasDuplicate) {
-            return [{ found: 1 }];
-          }
-
-          return [];
-        },
-        run() {},
-      };
+    async execute(sql: string) {
+      if (sql.includes("FROM observations") && hasDuplicate) {
+        return [{ found: 1 }];
+      }
+      return [];
     },
-    close() {},
+    async close() {},
   };
 }
 
@@ -52,29 +46,29 @@ test("loadConfiguredNdbcStations parses comma-separated station ids", () => {
   ]);
 });
 
-test("validateMappedObservation rejects stale timestamps", () => {
+test("validateMappedObservation rejects stale timestamps", async () => {
   const now = Date.parse("2026-03-18T20:00:00.000Z");
   const observation = baseObservation({ observedAt: Date.parse("2026-03-18T10:50:00.000Z") });
 
-  const reason = validateMappedObservation(observation, now, 2 * 60 * 60 * 1000, createDb(false));
+  const reason = await validateMappedObservation(observation, now, 2 * 60 * 60 * 1000, createDb(false));
 
   assert.equal(reason, "timestamp_stale");
 });
 
-test("validateMappedObservation rejects impossible values", () => {
+test("validateMappedObservation rejects impossible values", async () => {
   const now = Date.parse("2026-03-18T11:00:00.000Z");
   const observation = baseObservation({ seaSurfaceTempC: 65 });
 
-  const reason = validateMappedObservation(observation, now, 6 * 60 * 60 * 1000, createDb(false));
+  const reason = await validateMappedObservation(observation, now, 6 * 60 * 60 * 1000, createDb(false));
 
   assert.equal(reason, "impossible_values");
 });
 
-test("validateMappedObservation rejects duplicate station timestamp rows", () => {
+test("validateMappedObservation rejects duplicate station timestamp rows", async () => {
   const now = Date.parse("2026-03-18T11:00:00.000Z");
   const observation = baseObservation();
 
-  const reason = validateMappedObservation(observation, now, 6 * 60 * 60 * 1000, createDb(true));
+  const reason = await validateMappedObservation(observation, now, 6 * 60 * 60 * 1000, createDb(true));
 
   assert.equal(reason, "duplicate_row");
 });
@@ -173,6 +167,17 @@ test("runNdbcIngestion resolves thresholds once per observation and passes them 
       anomalyCalls.push({ thresholds: options.thresholds });
       return [];
     },
+    getAdapter: () => {
+      return {
+        async execute(sql: string, params: unknown[] = []) {
+          if (sql.includes("FROM observations") && Date.now() % 2 === 0) { // dummy condition
+            // In the real test we might want to check params
+          }
+          return [];
+        },
+        async close() {},
+      } as any;
+    },
   });
 
   assert.equal(result.status, "completed");
@@ -201,6 +206,12 @@ test("runNdbcIngestion fails loudly when no stations are configured", async () =
     resolvePath: () => "test.sqlite",
     openWritable: () => db,
     stations: [],
+    getAdapter: () => {
+      return {
+        async execute() { return []; },
+        async close() {},
+      } as any;
+    },
   });
 
   assert.equal(result.status, "failed");
@@ -230,6 +241,12 @@ test("runNdbcIngestion fails loudly when a fetch yields no usable records", asyn
     mapRows: () => [],
     logLine: (line) => {
       logs.push(line);
+    },
+    getAdapter: () => {
+      return {
+        async execute() { return []; },
+        async close() {},
+      } as any;
     },
   });
 

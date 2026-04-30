@@ -1,10 +1,8 @@
 import {
   hasDatabasePath,
-  openReadOnlyDatabase,
   resolveDatabasePath,
-  type SqliteDatabaseLike,
-  type SqliteStatementLike,
 } from "../db/client";
+import { getAsyncAdapter, type AsyncDbAdapter } from "../db/async-client";
 import type { LiveConditionsFallbackReason } from "../types";
 import type { LiveMarineCondition } from "@marine/shared";
 
@@ -66,25 +64,12 @@ function toObservationHistoryItem(
 interface ObservationRepositoryDependencies {
   resolvePath?: typeof resolveDatabasePath;
   hasPath?: typeof hasDatabasePath;
-  openDatabase?: typeof openReadOnlyDatabase;
+  getAdapter?: typeof getAsyncAdapter;
 }
 
 export type LiveConditionsReadResult =
   | { source: "db"; conditions: LiveMarineCondition[] }
   | { source: "mock"; fallbackReason: LiveConditionsFallbackReason };
-
-function toStatement(db: SqliteDatabaseLike, sql: string): SqliteStatementLike {
-  return db.prepare(sql);
-}
-
-function runStatement(statement: SqliteStatementLike, ...params: unknown[]) {
-  if (typeof statement.run === "function") {
-    statement.run(...params);
-    return;
-  }
-
-  statement.all(...params);
-}
 
 function toNumber(value: number | string | null): number | null {
   if (value === null || value === undefined) {
@@ -148,99 +133,92 @@ function toLiveCondition(row: ObservationRow): LiveMarineCondition {
   };
 }
 
-export function ensureObservationsTable(db: SqliteDatabaseLike) {
-  runStatement(
-    toStatement(
-      db,
-      `CREATE TABLE IF NOT EXISTS observations (
-        id TEXT PRIMARY KEY,
-        station_id TEXT NOT NULL,
-        source TEXT NOT NULL,
-        observed_at INTEGER NOT NULL,
-        sea_surface_temp_c REAL,
-        wave_height_m REAL,
-        wind_speed_mps REAL,
-        pressure_hpa REAL,
-        ingestion_run_id TEXT NOT NULL,
-        source_timestamp TEXT NOT NULL,
-        source_reference TEXT NOT NULL,
-        raw_line TEXT NOT NULL,
-        created_at INTEGER NOT NULL
-      )`,
-    ),
+export async function ensureObservationsTable(adapter: AsyncDbAdapter) {
+  await adapter.execute(
+    `CREATE TABLE IF NOT EXISTS observations (
+      id TEXT PRIMARY KEY,
+      station_id TEXT NOT NULL,
+      source TEXT NOT NULL,
+      observed_at INTEGER NOT NULL,
+      sea_surface_temp_c REAL,
+      wave_height_m REAL,
+      wind_speed_mps REAL,
+      pressure_hpa REAL,
+      ingestion_run_id TEXT NOT NULL,
+      source_timestamp TEXT NOT NULL,
+      source_reference TEXT NOT NULL,
+      raw_line TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )`
   );
 
-  runStatement(
-    toStatement(
-      db,
-      "CREATE INDEX IF NOT EXISTS idx_observations_station_observed_at ON observations (station_id, observed_at)",
-    ),
+  await adapter.execute(
+    "CREATE INDEX IF NOT EXISTS idx_observations_station_observed_at ON observations (station_id, observed_at)"
   );
 }
 
-export function observationExists(
-  db: SqliteDatabaseLike,
+export async function observationExists(
+  adapter: AsyncDbAdapter,
   stationId: string,
   observedAt: number,
   source?: string,
-): boolean {
+): Promise<boolean> {
   const sql = source
     ? "SELECT 1 AS found FROM observations WHERE station_id = ? AND observed_at = ? AND source = ? LIMIT 1"
     : "SELECT 1 AS found FROM observations WHERE station_id = ? AND observed_at = ? LIMIT 1";
+  
   const rows = (source
-    ? toStatement(db, sql).all(stationId, observedAt, source)
-    : toStatement(db, sql).all(stationId, observedAt)) as Array<{ found?: number }>;
+    ? await adapter.execute(sql, [stationId, observedAt, source])
+    : await adapter.execute(sql, [stationId, observedAt])) as Array<{ found?: number }>;
 
   return rows.length > 0;
 }
 
-export function insertObservation(db: SqliteDatabaseLike, input: ObservationInsertInput): string {
+export async function insertObservation(adapter: AsyncDbAdapter, input: ObservationInsertInput): Promise<string> {
   const normalizedSource = input.source.replace(/[^a-zA-Z0-9_-]/g, "_");
   const observationId = `OBS-${normalizedSource}-${input.stationId}-${input.observedAt}`;
 
-  runStatement(
-    toStatement(
-      db,
-      `INSERT INTO observations (
-        id,
-        station_id,
-        source,
-        observed_at,
-        sea_surface_temp_c,
-        wave_height_m,
-        wind_speed_mps,
-        pressure_hpa,
-        ingestion_run_id,
-        source_timestamp,
-        source_reference,
-        raw_line,
-        created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ),
-    observationId,
-    input.stationId,
-    input.source,
-    input.observedAt,
-    input.seaSurfaceTempC,
-    input.waveHeightM,
-    input.windSpeedMps,
-    input.pressureHpa,
-    input.ingestionRunId,
-    input.sourceTimestamp,
-    input.sourceReference,
-    input.rawLine,
-    input.createdAt,
+  await adapter.execute(
+    `INSERT INTO observations (
+      id,
+      station_id,
+      source,
+      observed_at,
+      sea_surface_temp_c,
+      wave_height_m,
+      wind_speed_mps,
+      pressure_hpa,
+      ingestion_run_id,
+      source_timestamp,
+      source_reference,
+      raw_line,
+      created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      observationId,
+      input.stationId,
+      input.source,
+      input.observedAt,
+      input.seaSurfaceTempC,
+      input.waveHeightM,
+      input.windSpeedMps,
+      input.pressureHpa,
+      input.ingestionRunId,
+      input.sourceTimestamp,
+      input.sourceReference,
+      input.rawLine,
+      input.createdAt,
+    ]
   );
 
   return observationId;
 }
 
-export function readLatestLiveConditionsFromDb(
-  db: SqliteDatabaseLike,
+export async function readLatestLiveConditionsFromDb(
+  adapter: AsyncDbAdapter,
   limit = 20,
-): LiveMarineCondition[] {
-  const rows = toStatement(
-    db,
+): Promise<LiveMarineCondition[]> {
+  const rows = await adapter.execute(
     `SELECT o.station_id,
             o.observed_at,
             o.sea_surface_temp_c,
@@ -260,22 +238,22 @@ export function readLatestLiveConditionsFromDb(
      ) latest
        ON latest.station_id = o.station_id
       AND latest.observed_at = o.observed_at
-     ORDER BY o.observed_at DESC
+     ORDER BY o.observed_at DESC, o.id ASC
      LIMIT ?`,
-  ).all(limit) as ObservationRow[];
+    [limit]
+  ) as ObservationRow[];
 
   return rows.map(toLiveCondition);
 }
 
-export function readRecentObservationHistoryFromDb(
-  db: SqliteDatabaseLike,
+export async function readRecentObservationHistoryFromDb(
+  adapter: AsyncDbAdapter,
   stationId: string,
   sinceObservedAt: number,
   limit = 120,
-): ObservationHistoryItem[] {
+): Promise<ObservationHistoryItem[]> {
   try {
-    const rows = toStatement(
-      db,
+    const rows = await adapter.execute(
       `SELECT station_id,
               observed_at,
               sea_surface_temp_c,
@@ -289,9 +267,10 @@ export function readRecentObservationHistoryFromDb(
        WHERE station_id = ?
          AND observed_at >= ?
          ${syntheticObservationPredicate()}
-       ORDER BY observed_at DESC
+       ORDER BY observed_at DESC, id ASC
        LIMIT ?`,
-    ).all(stationId, sinceObservedAt, limit) as Array<ObservationRow & { source_timestamp: string }>;
+      [stationId, sinceObservedAt, limit]
+    ) as Array<ObservationRow & { source_timestamp: string }>;
 
     return rows.map(toObservationHistoryItem);
   } catch {
@@ -299,11 +278,11 @@ export function readRecentObservationHistoryFromDb(
   }
 }
 
-export function readLatestObservationSnapshotsFromDb(
-  db: SqliteDatabaseLike,
+export async function readLatestObservationSnapshotsFromDb(
+  adapter: AsyncDbAdapter,
   stationIds: string[],
   observedAtUpperBound = Number.POSITIVE_INFINITY,
-): ObservationHistoryItem[] {
+): Promise<ObservationHistoryItem[]> {
   const normalizedStationIds = stationIds
     .map((stationId) => stationId.trim())
     .filter((stationId) => stationId.length > 0);
@@ -314,8 +293,7 @@ export function readLatestObservationSnapshotsFromDb(
 
   try {
     const placeholders = normalizedStationIds.map(() => "?").join(", ");
-    const rows = toStatement(
-      db,
+    const rows = await adapter.execute(
       `SELECT o.station_id,
               o.observed_at,
               o.sea_surface_temp_c,
@@ -336,8 +314,9 @@ export function readLatestObservationSnapshotsFromDb(
        ) latest
          ON latest.station_id = o.station_id
         AND latest.observed_at = o.observed_at
-       ORDER BY o.observed_at DESC`,
-    ).all(...normalizedStationIds, observedAtUpperBound) as Array<ObservationRow & { source_timestamp: string }>;
+       ORDER BY o.observed_at DESC, o.id ASC`,
+      [...normalizedStationIds, observedAtUpperBound]
+    ) as Array<ObservationRow & { source_timestamp: string }>;
 
     return rows.map(toObservationHistoryItem);
   } catch {
@@ -345,22 +324,23 @@ export function readLatestObservationSnapshotsFromDb(
   }
 }
 
-export function listLatestLiveConditions(
+export async function listLatestLiveConditions(
   dependencies: ObservationRepositoryDependencies = {},
-): LiveConditionsReadResult {
+): Promise<LiveConditionsReadResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openDatabase = dependencies.openDatabase ?? openReadOnlyDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const databasePath = resolvePath();
 
-  if (!hasPath(databasePath)) {
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
+  if (!isTurso && !hasPath(databasePath)) {
     return { source: "mock", fallbackReason: "db_path_missing" };
   }
 
-  let db: SqliteDatabaseLike;
+  let adapter: AsyncDbAdapter;
 
   try {
-    db = openDatabase(databasePath);
+    adapter = getAdapter(true);
   } catch {
     return { source: "mock", fallbackReason: "db_open_failed" };
   }
@@ -368,11 +348,11 @@ export function listLatestLiveConditions(
   try {
     return {
       source: "db",
-      conditions: readLatestLiveConditionsFromDb(db),
+      conditions: await readLatestLiveConditionsFromDb(adapter),
     };
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   } finally {
-    db.close();
+    adapter.close();
   }
 }

@@ -4,12 +4,9 @@ import type {
 } from "@marine/shared";
 import {
   hasDatabasePath,
-  openReadOnlyDatabase,
-  openWritableDatabase,
   resolveDatabasePath,
-  type SqliteDatabaseLike,
-  type SqliteStatementLike,
 } from "../db/client";
+import { getAsyncAdapter, type AsyncDbAdapter } from "../db/async-client";
 import type { InvestigationFallbackReason } from "../types";
 
 interface InvestigationEventRow {
@@ -60,27 +57,12 @@ export type RecordInvestigationEventResult =
 interface InvestigationEventsDependencies {
   resolvePath?: typeof resolveDatabasePath;
   hasPath?: typeof hasDatabasePath;
-  openReadOnly?: typeof openReadOnlyDatabase;
-  openWritable?: typeof openWritableDatabase;
+  getAdapter?: typeof getAsyncAdapter;
   now?: () => number;
 }
 
-function toStatement(db: SqliteDatabaseLike, sql: string): SqliteStatementLike {
-  return db.prepare(sql);
-}
-
-function runStatement(statement: SqliteStatementLike, ...params: unknown[]) {
-  if (typeof statement.run === "function") {
-    statement.run(...params);
-    return;
-  }
-
-  statement.all(...params);
-}
-
-function ensureInvestigationEventsTable(db: SqliteDatabaseLike) {
-  const createStatement = toStatement(
-    db,
+async function ensureInvestigationEventsTable(adapter: AsyncDbAdapter) {
+  await adapter.execute(
     `CREATE TABLE IF NOT EXISTS investigation_events (
       id TEXT PRIMARY KEY,
       investigation_id TEXT NOT NULL REFERENCES investigations(id),
@@ -93,8 +75,6 @@ function ensureInvestigationEventsTable(db: SqliteDatabaseLike) {
       created_at INTEGER NOT NULL
     )`,
   );
-
-  runStatement(createStatement);
 }
 
 function normalizeEventType(value: string): InvestigationTimelineEventType {
@@ -158,24 +138,19 @@ function createEventId(now: number): string {
   return `INV-EVT-${now}-${randomUUID()}`;
 }
 
-function investigationExists(db: SqliteDatabaseLike, investigationId: string): boolean {
-  const stmt = toStatement(
-    db,
+async function investigationExists(adapter: AsyncDbAdapter, investigationId: string): Promise<boolean> {
+  const rows = await adapter.execute(
     "SELECT id FROM investigations WHERE id = ? LIMIT 1",
-  );
-  let rows: Array<{ id: string }> = [];
-  if (stmt && typeof stmt.all === "function") {
-    rows = stmt.all(investigationId) as Array<{ id: string }>;
-  }
+    [investigationId]
+  ) as Array<{ id: string }>;
   return rows.length > 0;
 }
 
-function findDuplicateEvent(
-  db: SqliteDatabaseLike,
+async function findDuplicateEvent(
+  adapter: AsyncDbAdapter,
   input: RecordInvestigationEventInput,
-): InvestigationEventRow | null {
-  const stmt = toStatement(
-    db,
+): Promise<InvestigationEventRow | null> {
+  const rows = await adapter.execute(
     `SELECT id, event_type, source, summary, detail, created_at
      FROM investigation_events
      WHERE investigation_id = ?
@@ -184,60 +159,57 @@ function findDuplicateEvent(
        AND summary = ?
      ORDER BY created_at DESC
      LIMIT 1`,
-  );
-  let rows: InvestigationEventRow[] = [];
-  if (stmt && typeof stmt.all === "function") {
-    rows = stmt.all(input.investigationId, input.eventType, input.source, input.summary) as InvestigationEventRow[];
-  }
+    [input.investigationId, input.eventType, input.source, input.summary]
+  ) as InvestigationEventRow[];
   return rows[0] ?? null;
 }
 
-export function getInvestigationTimeline(
+export async function getInvestigationTimeline(
   investigationId: string,
   filters: InvestigationTimelineFilters = {},
   dependencies: InvestigationEventsDependencies = {},
-): InvestigationTimelineResult {
+): Promise<InvestigationTimelineResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openReadOnly = dependencies.openReadOnly ?? openReadOnlyDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const now = dependencies.now ?? Date.now;
   const databasePath = resolvePath();
 
-  if (!hasPath(databasePath)) {
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
+  if (!isTurso && !hasPath(databasePath)) {
     return { source: "mock", fallbackReason: "db_path_missing" };
   }
 
-  let db: SqliteDatabaseLike;
+  let adapter: AsyncDbAdapter;
 
   try {
-    db = openReadOnly(databasePath);
+    adapter = getAdapter(true);
   } catch {
     return { source: "mock", fallbackReason: "db_open_failed" };
   }
 
   try {
-    ensureInvestigationEventsTable(db);
+    await ensureInvestigationEventsTable(adapter);
 
     const limit = normalizeLimit(filters.limit);
 
-    const rows =
-      filters.eventType
-        ? (toStatement(
-          db,
-          `SELECT id, event_type, source, summary, detail, created_at
-           FROM investigation_events
-           WHERE investigation_id = ? AND event_type = ?
-           ORDER BY created_at DESC, id DESC
-           LIMIT ?`,
-        ).all(investigationId, filters.eventType, limit) as InvestigationEventRow[])
-        : (toStatement(
-          db,
-          `SELECT id, event_type, source, summary, detail, created_at
-           FROM investigation_events
-           WHERE investigation_id = ?
-           ORDER BY created_at DESC, id DESC
-           LIMIT ?`,
-        ).all(investigationId, limit) as InvestigationEventRow[]);
+    const sql = filters.eventType
+      ? `SELECT id, event_type, source, summary, detail, created_at
+         FROM investigation_events
+         WHERE investigation_id = ? AND event_type = ?
+         ORDER BY created_at DESC, id DESC
+         LIMIT ?`
+      : `SELECT id, event_type, source, summary, detail, created_at
+         FROM investigation_events
+         WHERE investigation_id = ?
+         ORDER BY created_at DESC, id DESC
+         LIMIT ?`;
+
+    const params = filters.eventType
+      ? [investigationId, filters.eventType, limit]
+      : [investigationId, limit];
+
+    const rows = await adapter.execute(sql, params) as InvestigationEventRow[];
 
     return {
       source: "db",
@@ -246,40 +218,41 @@ export function getInvestigationTimeline(
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   } finally {
-    db.close();
+    await adapter.close();
   }
 }
 
-export function recordInvestigationEvent(
+export async function recordInvestigationEvent(
   input: RecordInvestigationEventInput,
   dependencies: InvestigationEventsDependencies = {},
-): RecordInvestigationEventResult {
+): Promise<RecordInvestigationEventResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openWritable = dependencies.openWritable ?? openWritableDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const now = dependencies.now ?? Date.now;
   const databasePath = resolvePath();
 
-  if (!hasPath(databasePath)) {
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
+  if (!isTurso && !hasPath(databasePath)) {
     return { source: "mock", fallbackReason: "db_path_missing" };
   }
 
-  let db: SqliteDatabaseLike;
+  let adapter: AsyncDbAdapter;
 
   try {
-    db = openWritable(databasePath);
+    adapter = getAdapter(false);
   } catch {
     return { source: "mock", fallbackReason: "db_open_failed" };
   }
 
   try {
-    ensureInvestigationEventsTable(db);
+    await ensureInvestigationEventsTable(adapter);
 
-    if (!investigationExists(db, input.investigationId)) {
+    if (!(await investigationExists(adapter, input.investigationId))) {
       return { source: "db", result: "not_found" };
     }
 
-    const duplicate = findDuplicateEvent(db, input);
+    const duplicate = await findDuplicateEvent(adapter, input);
     if (duplicate) {
       return {
         source: "db",
@@ -291,22 +264,21 @@ export function recordInvestigationEvent(
     const createdAt = now();
     const id = createEventId(createdAt);
 
-    runStatement(
-      toStatement(
-        db,
-        `INSERT INTO investigation_events
-          (id, investigation_id, event_type, source, actor, summary, detail, confidence, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ),
-      id,
-      input.investigationId,
-      input.eventType,
-      input.source,
-      input.actor ?? null,
-      input.summary,
-      input.detail ?? null,
-      input.confidence ?? null,
-      createdAt,
+    await adapter.execute(
+      `INSERT INTO investigation_events
+        (id, investigation_id, event_type, source, actor, summary, detail, confidence, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        input.investigationId,
+        input.eventType,
+        input.source,
+        input.actor ?? null,
+        input.summary,
+        input.detail ?? null,
+        input.confidence ?? null,
+        createdAt,
+      ]
     );
 
     return {
@@ -324,6 +296,6 @@ export function recordInvestigationEvent(
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   } finally {
-    db.close();
+    await adapter.close();
   }
 }

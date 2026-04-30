@@ -2438,6 +2438,7 @@ export const apiClient = {
           acknowledgedAt: null,
           resolvedAt: null,
           dismissedAt: null,
+          truthPartition: "FIELD_TRUTH",
         },
       };
     },

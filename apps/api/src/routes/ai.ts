@@ -102,6 +102,17 @@ function resolveRegionIdFromRequest(request: AnalyzeRequestBody): string {
   return "reg-pac-001";
 }
 
+function resolveInvestigationIdFromRequest(request: AnalyzeRequestBody): string {
+  const candidates = [request.prompt, ...(request.context ?? [])].filter(Boolean).join(" ");
+  const match = candidates.match(/miid-[a-z0-9-]+|inv-[a-z0-9-]+/i);
+
+  if (match) {
+    return match[0].toUpperCase();
+  }
+
+  return "MIID-AI-AUTO";
+}
+
 function recordAiAnalysisEvents(request: AnalyzeRequestBody) {
   try {
     const runtimeRequire = eval("require") as NodeRequire;
@@ -158,36 +169,39 @@ export const postAiAnalyzeRoute: RouteDefinition<AnalyzeResponse, AnalyzeRequest
     // Record events for traceability
     recordAiAnalysisEvents(request.body ?? { prompt: "" });
 
+    const sections = apiMockData.aiLabWorkspaceData.results;
+    const response: AnalyzeResponse = {
+      prompt: request.body?.prompt ?? "",
+      summary: {
+        ...getSectionByTitle(sections, "summary"),
+        body: synthesis.sections.summary,
+      },
+      findings: {
+        ...getSectionByTitle(sections, "findings"),
+        body: synthesis.sections.findings,
+      },
+      evidence: {
+        ...getSectionByTitle(sections, "evidence"),
+        body: synthesis.sections.evidence,
+      },
+      confidence: {
+        ...getSectionByTitle(sections, "confidence"),
+        body: synthesis.sections.confidence,
+      },
+      uncertainty: {
+        ...getSectionByTitle(sections, "uncertainty"),
+        body: synthesis.sections.uncertainty,
+      },
+      suggestedNextActions: {
+        ...getSectionByTitle(sections, "suggestedNextActions"),
+        body: synthesis.sections.suggestedNextActions,
+      },
+      sources: synthesis.sources as AnalyzeResponse["sources"],
+    };
+
     return {
       status: 200,
-      json: {
-        prompt: request.body?.prompt ?? "",
-        summary: {
-          title: "Summary",
-          body: synthesis.sections.summary
-        },
-        findings: {
-          title: "Findings",
-          body: synthesis.sections.findings
-        },
-        evidence: {
-          title: "Evidence",
-          body: synthesis.sections.evidence
-        },
-        confidence: {
-          title: "Confidence",
-          body: synthesis.sections.confidence
-        },
-        uncertainty: {
-          title: "Uncertainty",
-          body: synthesis.sections.uncertainty
-        },
-        suggestedNextActions: {
-          title: "Suggested Next Actions",
-          body: synthesis.sections.suggestedNextActions
-        },
-        sources: synthesis.sources as any,
-      },
+      json: response,
     };
   },
 };

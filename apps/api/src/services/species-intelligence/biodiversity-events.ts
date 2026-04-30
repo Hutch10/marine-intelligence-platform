@@ -12,7 +12,7 @@ export interface BiodiversityEventService {
 
 export function createBiodiversityEventService(
   dependencies: {
-    impactService?: typeof calculateRegionalImpact;
+    impactService?: (regionId: string, environmentalRiskScore: number) => Promise<import("./regional-impact").RegionalImpactResult>;
     eventService?: MarineEventFoundationService;
     now?: () => number;
   } = {}
@@ -21,7 +21,7 @@ export function createBiodiversityEventService(
   const now = dependencies.now ?? Date.now;
 
   async function evaluateRegionalBiodiversityRisk(regionId: string): Promise<MarineEventCreateInput | null> {
-    const impact = calculateImpact(regionId, 0.5);
+    const impact = await calculateImpact(regionId, 0.5);
     
     // Threshold-based deterministic event generation
     // Rule: Total sensitivity > 5 AND Weighted Impact > 1.5 triggers an event

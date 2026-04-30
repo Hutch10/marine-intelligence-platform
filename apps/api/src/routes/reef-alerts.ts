@@ -6,32 +6,34 @@ import type {
 } from "../types";
 import type { ReefStressReadResult } from "../repositories/reef-stress";
 
-function readDatabaseReefStress(): ReefStressReadResult {
+async function readDatabaseReefStress(): Promise<ReefStressReadResult> {
   try {
     const runtimeRequire = eval("require") as NodeRequire;
     const repository = runtimeRequire("../repositories/reef-stress") as {
-      listLatestReefStress: () => ReefStressReadResult;
+      listLatestReefStress: () => Promise<ReefStressReadResult>;
     };
 
-    return repository.listLatestReefStress();
+    return await repository.listLatestReefStress();
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   }
 }
 
-export function buildReefAlertsRouteResponse(
-  readResult = readDatabaseReefStress(),
-): { status: number; json: ReefAlertsResponse; telemetry: ReefAlertsTelemetry } {
-  if (readResult.source === "db") {
+export async function buildReefAlertsRouteResponse(
+  readResult?: ReefStressReadResult,
+): Promise<{ status: number; json: ReefAlertsResponse; telemetry: ReefAlertsTelemetry }> {
+  const actualReadResult = readResult ?? await readDatabaseReefStress();
+
+  if (actualReadResult.source === "db") {
     return {
       status: 200,
       json: {
-        alerts: readResult.alerts,
+        alerts: actualReadResult.alerts,
       },
       telemetry: {
         route: "GET /reef-alerts",
         source: "db",
-        alertCount: readResult.alerts.length,
+        alertCount: actualReadResult.alerts.length,
       },
     };
   }
@@ -45,7 +47,7 @@ export function buildReefAlertsRouteResponse(
       route: "GET /reef-alerts",
       source: "mock",
       alertCount: apiMockData.reefStressWatchData.length,
-      fallbackReason: readResult.fallbackReason,
+      fallbackReason: actualReadResult.fallbackReason,
     },
   };
 }
@@ -53,7 +55,7 @@ export function buildReefAlertsRouteResponse(
 export const getReefAlertsRoute: RouteDefinition<ReefAlertsResponse> = {
   method: "GET",
   path: "/reef-alerts",
-  handler() {
-    return buildReefAlertsRouteResponse();
+  async handler() {
+    return await buildReefAlertsRouteResponse();
   },
 };

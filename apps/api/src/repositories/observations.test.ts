@@ -4,22 +4,18 @@ import {
   listLatestLiveConditions,
   readLatestLiveConditionsFromDb,
 } from "./observations";
-import type { SqliteDatabaseLike } from "../db/client";
+import type { AsyncDbAdapter } from "../db/async-client";
 
-function createDatabase(rows: unknown[]): SqliteDatabaseLike {
+function createDatabase(rows: unknown[]): AsyncDbAdapter {
   return {
-    prepare() {
-      return {
-        all() {
-          return rows;
-        },
-      };
+    async execute() {
+      return rows;
     },
     close() {},
-  };
+  } as unknown as AsyncDbAdapter;
 }
 
-test("readLatestLiveConditionsFromDb maps latest observation rows", () => {
+test("readLatestLiveConditionsFromDb maps latest observation rows", async () => {
   const db = createDatabase([
     {
       station_id: "46042",
@@ -31,15 +27,15 @@ test("readLatestLiveConditionsFromDb maps latest observation rows", () => {
     },
   ]);
 
-  const rows = readLatestLiveConditionsFromDb(db);
+  const rows = await readLatestLiveConditionsFromDb(db);
 
   assert.equal(rows.length, 1);
   assert.equal(rows[0]?.stationId, "46042");
   assert.equal(rows[0]?.sstC, 17.1);
 });
 
-test("listLatestLiveConditions returns db_path_missing when no db file exists", () => {
-  const result = listLatestLiveConditions({
+test("listLatestLiveConditions returns db_path_missing when no db file exists", async () => {
+  const result = await listLatestLiveConditions({
     resolvePath: () => "missing.sqlite",
     hasPath: () => false,
   });
@@ -47,11 +43,11 @@ test("listLatestLiveConditions returns db_path_missing when no db file exists", 
   assert.deepEqual(result, { source: "mock", fallbackReason: "db_path_missing" });
 });
 
-test("listLatestLiveConditions returns db source when read succeeds", () => {
-  const result = listLatestLiveConditions({
+test("listLatestLiveConditions returns db source when read succeeds", async () => {
+  const result = await listLatestLiveConditions({
     resolvePath: () => "ok.sqlite",
     hasPath: () => true,
-    openDatabase: () =>
+    getAdapter: () =>
       createDatabase([
         {
           station_id: "41009",

@@ -51,7 +51,7 @@ function makeOutcome(
 // Phase 1 + Phase 3: manual-only calibration
 // ---------------------------------------------------------------------------
 
-test("calculateCalibrationAdjustedConfidence excludes simulated outcomes from band adjustment", () => {
+test("calculateCalibrationAdjustedConfidence excludes simulated outcomes from band adjustment", async () => {
   // 3 simulated=correct evaluations in 0.80-1.00 band → would suggest well-calibrated
   // 3 manual=incorrect evaluations in 0.80-1.00 band → overconfident
   // With fix: only manual count (3 incorrect) → bandAccuracy=0, gap=0.9, adjusted ≈ 0.45
@@ -66,7 +66,7 @@ test("calculateCalibrationAdjustedConfidence excludes simulated outcomes from ba
   ];
 
   const readResult = { source: "db" as const, result: { ok: true as const, evaluations } };
-  const result = calculateCalibrationAdjustedConfidence(
+  const result = await calculateCalibrationAdjustedConfidence(
     { stationId: "46042", confidenceScore: 0.9, contributingSignals: [] },
     readResult,
   );
@@ -77,7 +77,7 @@ test("calculateCalibrationAdjustedConfidence excludes simulated outcomes from ba
   assert.ok(result < 0.6, `adjusted confidence should reflect manual-only overconfidence: got ${result}`);
 });
 
-test("calculateCalibrationAdjustedConfidence applies no band adjustment when only simulated outcomes exist", () => {
+test("calculateCalibrationAdjustedConfidence applies no band adjustment when only simulated outcomes exist", async () => {
   // If all completed outcomes are simulated, the completed set (manual-only) is empty → no adjustment
   const evaluations: RiskEvaluationRecord[] = [
     makeEvaluation({ confidenceScore: 0.85, actualOutcome: makeOutcome("incorrect", "simulated") }),
@@ -86,7 +86,7 @@ test("calculateCalibrationAdjustedConfidence applies no band adjustment when onl
   ];
 
   const readResult = { source: "db" as const, result: { ok: true as const, evaluations } };
-  const result = calculateCalibrationAdjustedConfidence(
+  const result = await calculateCalibrationAdjustedConfidence(
     { stationId: "46042", confidenceScore: 0.9, contributingSignals: [] },
     readResult,
   );
@@ -100,7 +100,7 @@ test("calculateCalibrationAdjustedConfidence applies no band adjustment when onl
 // Phase 2: station-scoped calibration
 // ---------------------------------------------------------------------------
 
-test("calculateCalibrationAdjustedConfidence uses injected station-scoped data correctly", () => {
+test("calculateCalibrationAdjustedConfidence uses injected station-scoped data correctly", async () => {
   // Station 46042: 5 evaluations all high confidence, all incorrect (overconfident)
   // Station 46080: 5 evaluations all well-calibrated
   // When station-scoped data is injected for 46042, confidence should be reduced significantly
@@ -122,12 +122,12 @@ test("calculateCalibrationAdjustedConfidence uses injected station-scoped data c
     }),
   );
 
-  const result42 = calculateCalibrationAdjustedConfidence(
+  const result42 = await calculateCalibrationAdjustedConfidence(
     { stationId: "46042", confidenceScore: 0.9, contributingSignals: [] },
     { source: "db", result: { ok: true, evaluations: station42Evaluations } },
   );
 
-  const result80 = calculateCalibrationAdjustedConfidence(
+  const result80 = await calculateCalibrationAdjustedConfidence(
     { stationId: "46080", confidenceScore: 0.9, contributingSignals: [] },
     { source: "db", result: { ok: true, evaluations: station80Evaluations } },
   );
@@ -145,7 +145,7 @@ test("calculateCalibrationAdjustedConfidence uses injected station-scoped data c
 // Phase 3: signal penalty quality — only completed manual records
 // ---------------------------------------------------------------------------
 
-test("calculateCalibrationAdjustedConfidence signal penalties exclude incomplete records", () => {
+test("calculateCalibrationAdjustedConfidence signal penalties exclude incomplete records", async () => {
   // 4 evaluations with a "Low pressure" signal: feedbackUseful=false but NO actualOutcome
   // Without fix: these would generate a signal penalty
   // With fix: incomplete records excluded → no penalty
@@ -161,12 +161,12 @@ test("calculateCalibrationAdjustedConfidence signal penalties exclude incomplete
   );
 
   const readResult = { source: "db" as const, result: { ok: true as const, evaluations } };
-  const withSignal = calculateCalibrationAdjustedConfidence(
+  const withSignal = await calculateCalibrationAdjustedConfidence(
     { stationId: "46042", confidenceScore: 0.75, contributingSignals: [signal] },
     readResult,
   );
 
-  const withoutSignal = calculateCalibrationAdjustedConfidence(
+  const withoutSignal = await calculateCalibrationAdjustedConfidence(
     { stationId: "46042", confidenceScore: 0.75, contributingSignals: [] },
     readResult,
   );
@@ -179,7 +179,7 @@ test("calculateCalibrationAdjustedConfidence signal penalties exclude incomplete
   );
 });
 
-test("calculateCalibrationAdjustedConfidence signal penalties apply when completed manual records warrant it", () => {
+test("calculateCalibrationAdjustedConfidence signal penalties apply when completed manual records warrant it", async () => {
   // 4 evaluations: same signal, completed manual outcome, feedbackUseful=false
   // Penalty SHOULD be applied (stat.total >= 3, negative/total >= 0.5)
   const signal = { kind: "observation" as const, label: "Low pressure", source: "station:46042", timestamp: "2026-03-24T11:00:00.000Z", detail: "" };
@@ -194,12 +194,12 @@ test("calculateCalibrationAdjustedConfidence signal penalties apply when complet
   );
 
   const readResult = { source: "db" as const, result: { ok: true as const, evaluations } };
-  const withSignal = calculateCalibrationAdjustedConfidence(
+  const withSignal = await calculateCalibrationAdjustedConfidence(
     { stationId: "46042", confidenceScore: 0.75, contributingSignals: [signal] },
     readResult,
   );
 
-  const withoutSignal = calculateCalibrationAdjustedConfidence(
+  const withoutSignal = await calculateCalibrationAdjustedConfidence(
     { stationId: "46042", confidenceScore: 0.75, contributingSignals: [] },
     readResult,
   );
@@ -216,7 +216,7 @@ test("calculateCalibrationAdjustedConfidence signal penalties apply when complet
 // Phase 1 + Phase 3: summary excludes simulated from completed metrics
 // ---------------------------------------------------------------------------
 
-test("buildValidationSummary completed metrics exclude simulated outcomes", () => {
+test("buildValidationSummary completed metrics exclude simulated outcomes", async () => {
   const evaluations: RiskEvaluationRecord[] = [
     makeEvaluation({ id: "M1", confidenceScore: 0.8, actualOutcome: makeOutcome("correct", "manual") }),
     makeEvaluation({ id: "M2", confidenceScore: 0.7, actualOutcome: makeOutcome("incorrect", "manual") }),
@@ -225,7 +225,7 @@ test("buildValidationSummary completed metrics exclude simulated outcomes", () =
     makeEvaluation({ id: "N1", confidenceScore: 0.6, actualOutcome: null }), // no outcome
   ];
 
-  const result = buildValidationSummary(
+  const result = await buildValidationSummary(
     {},
     { source: "db", result: { ok: true, evaluations } },
   );

@@ -114,7 +114,7 @@ function alertsFiltersApplied(filters: MarineWorkflowAlertFilters | undefined): 
 export function buildMarineWorkflowDecisionRouteResponse(
   auth: OceanStationAdminAuthContext | undefined,
   body: MarineWorkflowDecisionRequest,
-  createResult: MarineIntelligenceDecisionCreateResult = recordMarineIntelligenceDecision(body),
+  createResult: MarineIntelligenceDecisionCreateResult,
 ): {
   status: 200 | 400 | 403 | 404 | 503;
   json: MarineWorkflowDecisionResponse | { message: string };
@@ -179,7 +179,7 @@ export function buildMarineWorkflowDecisionRouteResponse(
 export function buildMarineWorkflowTelemetryRouteResponse(
   auth: OceanStationAdminAuthContext | undefined,
   body: MarineWorkflowTelemetryEventRequest,
-  createResult: MarineIntelligenceTelemetryEventCreateResult = recordMarineIntelligenceTelemetryEvent(body),
+  createResult: MarineIntelligenceTelemetryEventCreateResult,
 ): {
   status: 200 | 400 | 403 | 503;
   json: MarineWorkflowTelemetryEventResponse | { message: string };
@@ -248,7 +248,7 @@ export function buildMarineWorkflowTelemetryRouteResponse(
 export function buildMarineWorkflowFeedbackRouteResponse(
   auth: OceanStationAdminAuthContext | undefined,
   body: MarineWorkflowFeedbackRequest,
-  createResult: MarineIntelligenceFeedbackCreateResult = recordMarineIntelligenceFeedback(body),
+  createResult: MarineIntelligenceFeedbackCreateResult,
 ): {
   status: 200 | 400 | 403 | 503;
   json: MarineWorkflowFeedbackResponse | { message: string };
@@ -312,8 +312,8 @@ export function buildMarineWorkflowFeedbackRouteResponse(
 
 export function buildMarineWorkflowSummaryRouteResponse(
   auth: OceanStationAdminAuthContext | undefined,
-  query: { windowType?: "live" | "trend"; windowDays?: number } = {},
-  summaryResult: MarineIntelligenceDecisionSummaryResult = getMarineIntelligenceDecisionSummary(query),
+  query: { windowType?: "live" | "trend"; windowDays?: number } | undefined,
+  summaryResult: MarineIntelligenceDecisionSummaryResult,
 ): {
   status: 200 | 403 | 503;
   json: MarineWorkflowDecisionSummaryResponse | { message: string };
@@ -329,7 +329,7 @@ export function buildMarineWorkflowSummaryRouteResponse(
         result: "forbidden",
         decisionCount: 0,
         telemetryEventCount: 0,
-        windowType: (query.windowType ?? "live") as any,
+        windowType: (query?.windowType ?? "live") as any,
       },
     };
   }
@@ -344,7 +344,7 @@ export function buildMarineWorkflowSummaryRouteResponse(
         result: "found",
         decisionCount: 0,
         telemetryEventCount: 0,
-        windowType: (query.windowType ?? "live") as any,
+        windowType: (query?.windowType ?? "live") as any,
         fallbackReason: summaryResult.fallbackReason,
       },
     };
@@ -359,15 +359,15 @@ export function buildMarineWorkflowSummaryRouteResponse(
       result: "found",
       decisionCount: summaryResult.result.summary.decisionCount,
       telemetryEventCount: summaryResult.result.summary.telemetryEventCount,
-      windowType: (query.windowType ?? "live") as any,
+      windowType: (query?.windowType ?? "live") as any,
     },
   };
 }
 
 export function buildMarineWorkflowEventsRouteResponse(
   auth: OceanStationAdminAuthContext | undefined,
-  query: MarineWorkflowEventFilters = {},
-  readResult: MarineWorkflowListEventsResult = workflowService.listEvents(query),
+  query: MarineWorkflowEventFilters,
+  readResult: MarineWorkflowListEventsResult,
 ): {
   status: 200 | 403;
   json: MarineWorkflowEventsResponse | { message: string };
@@ -402,8 +402,8 @@ export function buildMarineWorkflowEventsRouteResponse(
 
 export function buildMarineWorkflowInvestigationsRouteResponse(
   auth: OceanStationAdminAuthContext | undefined,
-  query: MarineWorkflowInvestigationFilters = {},
-  readResult: MarineWorkflowListInvestigationsResult = workflowService.listInvestigations(query),
+  query: MarineWorkflowInvestigationFilters,
+  readResult: MarineWorkflowListInvestigationsResult,
 ): {
   status: 200 | 403;
   json: MarineWorkflowInvestigationsResponse | { message: string };
@@ -439,7 +439,7 @@ export function buildMarineWorkflowInvestigationsRouteResponse(
 export function buildMarineWorkflowCreateInvestigationRouteResponse(
   auth: OceanStationAdminAuthContext | undefined,
   body: MarineWorkflowCreateInvestigationRequest,
-  createResult: MarineWorkflowCreateInvestigationResult = workflowService.createInvestigation(body),
+  createResult: MarineWorkflowCreateInvestigationResult,
 ): {
   status: 200 | 400 | 403 | 404 | 503;
   json: MarineWorkflowCreateInvestigationResponse | { message: string };
@@ -497,7 +497,7 @@ export function buildMarineWorkflowCreateInvestigationRouteResponse(
   };
 }
 
-function buildMarineWorkflowAlertMutationRouteResponse(
+export function buildMarineWorkflowAlertMutationRouteResponse(
   route:
     | "POST /marine-intelligence/alerts/:alertId/acknowledge"
     | "POST /marine-intelligence/alerts/:alertId/resolve",
@@ -561,10 +561,36 @@ function buildMarineWorkflowAlertMutationRouteResponse(
   };
 }
 
+export function buildMarineWorkflowAcknowledgeAlertRouteResponse(
+  auth: OceanStationAdminAuthContext | undefined,
+  body: MarineWorkflowAlertActionRequest,
+  mutationResult: MarineWorkflowAlertMutationResult,
+) {
+  return buildMarineWorkflowAlertMutationRouteResponse(
+    "POST /marine-intelligence/alerts/:alertId/acknowledge",
+    auth,
+    body,
+    mutationResult,
+  );
+}
+
+export function buildMarineWorkflowResolveAlertRouteResponse(
+  auth: OceanStationAdminAuthContext | undefined,
+  body: MarineWorkflowAlertActionRequest,
+  mutationResult: MarineWorkflowAlertMutationResult,
+) {
+  return buildMarineWorkflowAlertMutationRouteResponse(
+    "POST /marine-intelligence/alerts/:alertId/resolve",
+    auth,
+    body,
+    mutationResult,
+  );
+}
+
 export function buildMarineWorkflowAlertsRouteResponse(
   auth: OceanStationAdminAuthContext | undefined,
-  query: MarineWorkflowAlertFilters = {},
-  readResult: MarineWorkflowListAlertsResult = workflowService.listAlerts(query),
+  query: MarineWorkflowAlertFilters,
+  readResult: MarineWorkflowListAlertsResult,
 ): {
   status: 200 | 403;
   json: MarineWorkflowAlertsResponse | { message: string };
@@ -597,32 +623,6 @@ export function buildMarineWorkflowAlertsRouteResponse(
   };
 }
 
-export function buildMarineWorkflowAcknowledgeAlertRouteResponse(
-  auth: OceanStationAdminAuthContext | undefined,
-  body: MarineWorkflowAlertActionRequest,
-  mutationResult: MarineWorkflowAlertMutationResult = workflowService.acknowledgeAlert(body.alertId),
-) {
-  return buildMarineWorkflowAlertMutationRouteResponse(
-    "POST /marine-intelligence/alerts/:alertId/acknowledge",
-    auth,
-    body,
-    mutationResult,
-  );
-}
-
-export function buildMarineWorkflowResolveAlertRouteResponse(
-  auth: OceanStationAdminAuthContext | undefined,
-  body: MarineWorkflowAlertActionRequest,
-  mutationResult: MarineWorkflowAlertMutationResult = workflowService.resolveAlert(body.alertId),
-) {
-  return buildMarineWorkflowAlertMutationRouteResponse(
-    "POST /marine-intelligence/alerts/:alertId/resolve",
-    auth,
-    body,
-    mutationResult,
-  );
-}
-
 export const getMarineWorkflowEventsRoute: RouteDefinition<
   MarineWorkflowEventsResponse | { message: string },
   undefined,
@@ -630,9 +630,10 @@ export const getMarineWorkflowEventsRoute: RouteDefinition<
 > = {
   method: "GET",
   path: "/marine-intelligence/events",
-  handler(request) {
+  async handler(request) {
     const { includeAllPartitions, truthPartition, ...query } = (request.query ?? {}) as any;
-    return buildMarineWorkflowEventsRouteResponse(request.auth, query);
+    const readResult = await workflowService.listEvents(query);
+    return buildMarineWorkflowEventsRouteResponse(request.auth, query, readResult);
   },
 };
 
@@ -643,9 +644,10 @@ export const getMarineWorkflowInvestigationsRoute: RouteDefinition<
 > = {
   method: "GET",
   path: "/marine-intelligence/investigations",
-  handler(request) {
+  async handler(request) {
     const { includeAllPartitions, truthPartition, ...query } = (request.query ?? {}) as any;
-    return buildMarineWorkflowInvestigationsRouteResponse(request.auth, query);
+    const readResult = await workflowService.listInvestigations(query);
+    return buildMarineWorkflowInvestigationsRouteResponse(request.auth, query, readResult);
   },
 };
 
@@ -655,8 +657,9 @@ export const postMarineWorkflowCreateInvestigationRoute: RouteDefinition<
 > = {
   method: "POST",
   path: "/marine-intelligence/investigations",
-  handler(request) {
-    return buildMarineWorkflowCreateInvestigationRouteResponse(request.auth, request.body);
+  async handler(request) {
+    const createResult = await workflowService.createInvestigation(request.body);
+    return buildMarineWorkflowCreateInvestigationRouteResponse(request.auth, request.body, createResult);
   },
 };
 
@@ -667,9 +670,10 @@ export const getMarineWorkflowAlertsRoute: RouteDefinition<
 > = {
   method: "GET",
   path: "/marine-intelligence/alerts",
-  handler(request) {
+  async handler(request) {
     const { includeAllPartitions, truthPartition, ...query } = (request.query ?? {}) as any;
-    return buildMarineWorkflowAlertsRouteResponse(request.auth, query);
+    const readResult = await workflowService.listAlerts(query);
+    return buildMarineWorkflowAlertsRouteResponse(request.auth, query, readResult);
   },
 };
 
@@ -679,8 +683,14 @@ export const postMarineWorkflowAcknowledgeAlertRoute: RouteDefinition<
 > = {
   method: "POST",
   path: "/marine-intelligence/alerts/:alertId/acknowledge",
-  handler(request) {
-    return buildMarineWorkflowAcknowledgeAlertRouteResponse(request.auth, request.body);
+  async handler(request) {
+    const mutationResult = await workflowService.acknowledgeAlert(request.body.alertId);
+    return buildMarineWorkflowAlertMutationRouteResponse(
+      "POST /marine-intelligence/alerts/:alertId/acknowledge",
+      request.auth,
+      request.body,
+      mutationResult,
+    );
   },
 };
 
@@ -690,8 +700,14 @@ export const postMarineWorkflowResolveAlertRoute: RouteDefinition<
 > = {
   method: "POST",
   path: "/marine-intelligence/alerts/:alertId/resolve",
-  handler(request) {
-    return buildMarineWorkflowResolveAlertRouteResponse(request.auth, request.body);
+  async handler(request) {
+    const mutationResult = await workflowService.resolveAlert(request.body.alertId);
+    return buildMarineWorkflowAlertMutationRouteResponse(
+      "POST /marine-intelligence/alerts/:alertId/resolve",
+      request.auth,
+      request.body,
+      mutationResult,
+    );
   },
 };
 
@@ -701,8 +717,9 @@ export const postMarineWorkflowDecisionRoute: RouteDefinition<
 > = {
   method: "POST",
   path: "/marine-intelligence/decisions",
-  handler(request) {
-    return buildMarineWorkflowDecisionRouteResponse(request.auth, request.body);
+  async handler(request) {
+    const createResult = await recordMarineIntelligenceDecision(request.body);
+    return buildMarineWorkflowDecisionRouteResponse(request.auth, request.body, createResult);
   },
 };
 
@@ -712,8 +729,9 @@ export const postMarineWorkflowFeedbackRoute: RouteDefinition<
 > = {
   method: "POST",
   path: "/marine-intelligence/feedback",
-  handler(request) {
-    return buildMarineWorkflowFeedbackRouteResponse(request.auth, request.body);
+  async handler(request) {
+    const createResult = await recordMarineIntelligenceFeedback(request.body);
+    return buildMarineWorkflowFeedbackRouteResponse(request.auth, request.body, createResult);
   },
 };
 
@@ -723,8 +741,9 @@ export const postMarineWorkflowTelemetryRoute: RouteDefinition<
 > = {
   method: "POST",
   path: "/marine-intelligence/telemetry",
-  handler(request) {
-    return buildMarineWorkflowTelemetryRouteResponse(request.auth, request.body);
+  async handler(request) {
+    const createResult = await recordMarineIntelligenceTelemetryEvent(request.body);
+    return buildMarineWorkflowTelemetryRouteResponse(request.auth, request.body, createResult);
   },
 };
 
@@ -734,8 +753,9 @@ export const getMarineWorkflowSummaryRoute: RouteDefinition<
 > = {
   method: "GET",
   path: "/marine-intelligence/summary",
-  handler(request) {
+  async handler(request) {
     const { includeAllPartitions, truthPartition, ...query } = (request.query ?? {}) as any;
-    return buildMarineWorkflowSummaryRouteResponse(request.auth, query);
+    const summaryResult = await getMarineIntelligenceDecisionSummary(query);
+    return buildMarineWorkflowSummaryRouteResponse(request.auth, query, summaryResult);
   },
 };

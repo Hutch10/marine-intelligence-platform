@@ -23,11 +23,9 @@ import type {
 } from "@marine/shared";
 import {
   hasDatabasePath,
-  openReadOnlyDatabase,
-  openWritableDatabase,
   resolveDatabasePath,
-  type SqliteDatabaseLike,
 } from "../db/client";
+import { getAsyncAdapter, type AsyncDbAdapter } from "../db/async-client";
 import type { OceanStationsFallbackReason } from "../types";
 
 interface StationRow {
@@ -117,8 +115,7 @@ interface StationAdminAuditRow {
 interface StationRepositoryDependencies {
   resolvePath?: typeof resolveDatabasePath;
   hasPath?: typeof hasDatabasePath;
-  openDatabase?: typeof openReadOnlyDatabase;
-  openWritable?: typeof openWritableDatabase;
+  getAdapter?: typeof getAsyncAdapter;
   now?: () => number;
 }
 
@@ -568,16 +565,15 @@ function toStationSummary(row: StationRow, now: number): OceanStationSummary {
   };
 }
 
-function querySpecies(db: SqliteDatabaseLike, stationId: string, now: number): OceanStationSpecies[] {
+async function querySpecies(adapter: AsyncDbAdapter, stationId: string, now: number): Promise<OceanStationSpecies[]> {
   try {
-    const rows = db
-      .prepare(
-        `SELECT id, name, status, population_trend, observed_at, notes
-         FROM station_species
-         WHERE station_id = ?
-         ORDER BY sort_order ASC, observed_at DESC, id ASC`,
-      )
-      .all(stationId) as SpeciesRow[];
+    const rows = await adapter.execute(
+      `SELECT id, name, status, population_trend, observed_at, notes
+       FROM station_species
+       WHERE station_id = ?
+       ORDER BY sort_order ASC, observed_at DESC, id ASC`,
+      [stationId],
+    ) as SpeciesRow[];
 
     return rows.map((row) => ({
       id: row.id,
@@ -592,16 +588,15 @@ function querySpecies(db: SqliteDatabaseLike, stationId: string, now: number): O
   }
 }
 
-function querySensors(db: SqliteDatabaseLike, stationId: string, now: number): OceanStationSensor[] {
+async function querySensors(adapter: AsyncDbAdapter, stationId: string, now: number): Promise<OceanStationSensor[]> {
   try {
-    const rows = db
-      .prepare(
-        `SELECT id, name, category, value, unit, status, sampled_at
-         FROM station_sensors
-         WHERE station_id = ?
-         ORDER BY sort_order ASC, sampled_at DESC, id ASC`,
-      )
-      .all(stationId) as SensorRow[];
+    const rows = await adapter.execute(
+      `SELECT id, name, category, value, unit, status, sampled_at
+       FROM station_sensors
+       WHERE station_id = ?
+       ORDER BY sort_order ASC, sampled_at DESC, id ASC`,
+      [stationId],
+    ) as SensorRow[];
 
     return rows.map((row) => ({
       id: row.id,
@@ -617,16 +612,15 @@ function querySensors(db: SqliteDatabaseLike, stationId: string, now: number): O
   }
 }
 
-function queryAlerts(db: SqliteDatabaseLike, stationId: string, now: number): OceanStationAlert[] {
+async function queryAlerts(adapter: AsyncDbAdapter, stationId: string, now: number): Promise<OceanStationAlert[]> {
   try {
-    const rows = db
-      .prepare(
-        `SELECT id, title, severity, status, detail, detected_at, acknowledged_at, acknowledged_by
-         FROM station_alerts
-         WHERE station_id = ?
-         ORDER BY detected_at DESC, id ASC`,
-      )
-      .all(stationId) as AlertRow[];
+    const rows = await adapter.execute(
+      `SELECT id, title, severity, status, detail, detected_at, acknowledged_at, acknowledged_by
+       FROM station_alerts
+       WHERE station_id = ?
+       ORDER BY detected_at DESC, id ASC`,
+      [stationId],
+    ) as AlertRow[];
 
     return rows.map((row) => ({
       id: row.id,
@@ -657,16 +651,15 @@ function formatTimelineTime(value: string | null): string {
   return timestamp.toISOString().replace("T", " ").replace(".000Z", " UTC");
 }
 
-function queryTimeline(db: SqliteDatabaseLike, stationId: string): OceanStationTimelineItem[] {
+async function queryTimeline(adapter: AsyncDbAdapter, stationId: string): Promise<OceanStationTimelineItem[]> {
   try {
-    const rows = db
-      .prepare(
-        `SELECT id, label, phase, detail, happened_at
-         FROM station_timelines
-         WHERE station_id = ?
-         ORDER BY sort_order ASC, happened_at DESC, id ASC`,
-      )
-      .all(stationId) as TimelineRow[];
+    const rows = await adapter.execute(
+      `SELECT id, label, phase, detail, happened_at
+       FROM station_timelines
+       WHERE station_id = ?
+       ORDER BY sort_order ASC, happened_at DESC, id ASC`,
+      [stationId],
+    ) as TimelineRow[];
 
     return rows.map((row) => ({
       id: row.id,
@@ -680,16 +673,15 @@ function queryTimeline(db: SqliteDatabaseLike, stationId: string): OceanStationT
   }
 }
 
-function queryContent(db: SqliteDatabaseLike, stationId: string, now: number): OceanStationContentItem[] {
+async function queryContent(adapter: AsyncDbAdapter, stationId: string, now: number): Promise<OceanStationContentItem[]> {
   try {
-    const rows = db
-      .prepare(
-        `SELECT id, content_type, title, summary, href, published_at
-         FROM station_content
-         WHERE station_id = ?
-         ORDER BY sort_order ASC, published_at DESC, id ASC`,
-      )
-      .all(stationId) as ContentRow[];
+    const rows = await adapter.execute(
+      `SELECT id, content_type, title, summary, href, published_at
+       FROM station_content
+       WHERE station_id = ?
+       ORDER BY sort_order ASC, published_at DESC, id ASC`,
+      [stationId],
+    ) as ContentRow[];
 
     return rows.map((row) => ({
       id: row.id,
@@ -704,17 +696,16 @@ function queryContent(db: SqliteDatabaseLike, stationId: string, now: number): O
   }
 }
 
-function queryStationAdminAudits(db: SqliteDatabaseLike, stationId: string): OceanStationAdminAuditEntry[] {
+async function queryStationAdminAudits(adapter: AsyncDbAdapter, stationId: string): Promise<OceanStationAdminAuditEntry[]> {
   try {
-    const rows = db
-      .prepare(
-        `SELECT id, station_id, actor_id, actor_role, area, changed_fields, changed_at
-         FROM station_admin_audits
-         WHERE station_id = ?
-         ORDER BY changed_at DESC, id DESC
-         LIMIT 25`,
-      )
-      .all(stationId) as StationAdminAuditRow[];
+    const rows = await adapter.execute(
+      `SELECT id, station_id, actor_id, actor_role, area, changed_fields, changed_at
+       FROM station_admin_audits
+       WHERE station_id = ?
+       ORDER BY changed_at DESC, id DESC
+       LIMIT 25`,
+      [stationId],
+    ) as StationAdminAuditRow[];
 
     return rows
       .filter((row) => row.area === "branding" || row.area === "content")
@@ -749,9 +740,177 @@ function buildAnalytics(stationId: string, row: AnalyticsAggregateRow | undefine
   };
 }
 
-function resolveStationRow(db: SqliteDatabaseLike, stationIdOrSlug: string): StationRow | null {
-  const rows = db
-    .prepare(
+async function resolveStationRow(adapter: AsyncDbAdapter, stationIdOrSlug: string): Promise<StationRow | null> {
+  const rows = await adapter.execute(
+    `SELECT
+      s.id,
+      s.slug,
+      s.name,
+      r.name AS region,
+      s.status,
+      s.summary,
+      s.location_label,
+      s.depth_m,
+      s.last_reported_at,
+      s.hero_metric,
+      s.sponsor_name,
+      s.operator_name,
+      s.logo_url,
+      s.logo_label,
+      s.exhibit_title,
+      s.accent_color,
+      s.public_description
+     FROM stations s
+     LEFT JOIN regions r ON r.id = s.region_id
+     WHERE s.id = ? OR s.slug = ?
+     ORDER BY s.updated_at DESC, s.created_at DESC, s.id ASC
+     LIMIT 1`,
+    [stationIdOrSlug, stationIdOrSlug],
+  ) as StationRow[];
+
+  return rows[0] ?? null;
+}
+
+async function buildStationDetailFromRow(adapter: AsyncDbAdapter, stationRow: StationRow, now: number): Promise<OceanStationDetail> {
+  const summary = toStationSummary(stationRow, now);
+
+  return {
+    ...summary,
+    species: await querySpecies(adapter, stationRow.id, now),
+    sensors: await querySensors(adapter, stationRow.id, now),
+    alerts: await queryAlerts(adapter, stationRow.id, now),
+    timeline: await queryTimeline(adapter, stationRow.id),
+    content: await queryContent(adapter, stationRow.id, now),
+  };
+}
+
+async function replaceStationSpecies(
+  adapter: AsyncDbAdapter,
+  stationId: string,
+  species: NormalizedSpeciesItem[],
+  nowIso: string,
+) {
+  await adapter.execute("DELETE FROM station_species WHERE station_id = ?", [stationId]);
+
+  for (const [index, item] of species.entries()) {
+    await adapter.execute(
+      `INSERT INTO station_species (id, station_id, name, status, population_trend, observed_at, notes, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        `SPC-${stationId}-${String(index + 1).padStart(3, "0")}`,
+        stationId,
+        item.name,
+        item.status,
+        item.populationTrend,
+        nowIso,
+        item.notes,
+        index + 1,
+      ],
+    );
+  }
+}
+
+async function replaceStationAlerts(
+  adapter: AsyncDbAdapter,
+  stationId: string,
+  alerts: NormalizedAlertItem[],
+  nowIso: string,
+) {
+  await adapter.execute("DELETE FROM station_alerts WHERE station_id = ?", [stationId]);
+
+  for (const [index, item] of alerts.entries()) {
+    await adapter.execute(
+      `INSERT INTO station_alerts (id, station_id, title, severity, status, detail, detected_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        `STA-ALT-${stationId}-${String(index + 1).padStart(3, "0")}`,
+        stationId,
+        item.title,
+        item.severity,
+        item.status,
+        item.detail,
+        nowIso,
+      ],
+    );
+  }
+}
+
+async function replaceStationTimeline(
+  adapter: AsyncDbAdapter,
+  stationId: string,
+  timeline: NormalizedTimelineItem[],
+  nowIso: string,
+) {
+  await adapter.execute("DELETE FROM station_timelines WHERE station_id = ?", [stationId]);
+
+  for (const [index, item] of timeline.entries()) {
+    await adapter.execute(
+      `INSERT INTO station_timelines (id, station_id, label, phase, detail, happened_at, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        `STL-${stationId}-${String(index + 1).padStart(3, "0")}`,
+        stationId,
+        item.label,
+        item.phase,
+        item.detail,
+        nowIso,
+        index + 1,
+      ],
+    );
+  }
+}
+
+async function replaceStationContent(
+  adapter: AsyncDbAdapter,
+  stationId: string,
+  content: NormalizedContentItem[],
+  nowIso: string,
+) {
+  await adapter.execute("DELETE FROM station_content WHERE station_id = ?", [stationId]);
+
+  for (const [index, item] of content.entries()) {
+    await adapter.execute(
+      `INSERT INTO station_content (id, station_id, content_type, title, summary, href, published_at, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        `CNT-${stationId}-${String(index + 1).padStart(3, "0")}`,
+        stationId,
+        item.contentType,
+        item.title,
+        item.summary,
+        item.href,
+        nowIso,
+        index + 1,
+      ],
+    );
+  }
+}
+
+export async function listStations(
+  dependencies: StationRepositoryDependencies = {},
+): Promise<StationListReadResult> {
+  const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
+  const hasPath = dependencies.hasPath ?? hasDatabasePath;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
+  const now = dependencies.now ?? Date.now;
+  const databasePath = resolvePath();
+
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
+  if (!isTurso && !hasPath(databasePath)) {
+    return { source: "mock", fallbackReason: "db_path_missing" };
+  }
+
+  let adapter: AsyncDbAdapter | undefined;
+
+  try {
+    adapter = getAdapter(true);
+  } catch (e) {
+    console.log("[stations] DB open failed:", e);
+    return { source: "mock", fallbackReason: "db_open_failed" };
+  }
+
+  try {
+    const rows = await adapter.execute(
       `SELECT
         s.id,
         s.slug,
@@ -772,209 +931,9 @@ function resolveStationRow(db: SqliteDatabaseLike, stationIdOrSlug: string): Sta
         s.public_description
        FROM stations s
        LEFT JOIN regions r ON r.id = s.region_id
-       WHERE s.id = ? OR s.slug = ?
-       ORDER BY s.updated_at DESC, s.created_at DESC, s.id ASC
-       LIMIT 1`,
-    )
-    .all(stationIdOrSlug, stationIdOrSlug) as StationRow[];
+       ORDER BY s.updated_at DESC, s.created_at DESC, s.id ASC`,
+    ) as StationRow[];
 
-  return rows[0] ?? null;
-}
-
-function buildStationDetailFromRow(db: SqliteDatabaseLike, stationRow: StationRow, now: number): OceanStationDetail {
-  const summary = toStationSummary(stationRow, now);
-
-  return {
-    ...summary,
-    species: querySpecies(db, stationRow.id, now),
-    sensors: querySensors(db, stationRow.id, now),
-    alerts: queryAlerts(db, stationRow.id, now),
-    timeline: queryTimeline(db, stationRow.id),
-    content: queryContent(db, stationRow.id, now),
-  };
-}
-
-function replaceStationSpecies(
-  db: SqliteDatabaseLike,
-  stationId: string,
-  species: NormalizedSpeciesItem[],
-  nowIso: string,
-) {
-  const deleteStatement = db.prepare("DELETE FROM station_species WHERE station_id = ?");
-  const insertStatement = db.prepare(
-    `INSERT INTO station_species (id, station_id, name, status, population_trend, observed_at, notes, sort_order)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  );
-
-  if (!deleteStatement.run || !insertStatement.run) {
-    throw new Error("Writable station species statements are unavailable");
-  }
-
-  deleteStatement.run(stationId);
-
-  for (const [index, item] of species.entries()) {
-    insertStatement.run(
-      `SPC-${stationId}-${String(index + 1).padStart(3, "0")}`,
-      stationId,
-      item.name,
-      item.status,
-      item.populationTrend,
-      nowIso,
-      item.notes,
-      index + 1,
-    );
-  }
-}
-
-function replaceStationAlerts(
-  db: SqliteDatabaseLike,
-  stationId: string,
-  alerts: NormalizedAlertItem[],
-  nowIso: string,
-) {
-  const deleteStatement = db.prepare("DELETE FROM station_alerts WHERE station_id = ?");
-  const insertStatement = db.prepare(
-    `INSERT INTO station_alerts (id, station_id, title, severity, status, detail, detected_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  );
-
-  if (!deleteStatement.run || !insertStatement.run) {
-    throw new Error("Writable station alert statements are unavailable");
-  }
-
-  deleteStatement.run(stationId);
-
-  for (const [index, item] of alerts.entries()) {
-    insertStatement.run(
-      `STA-ALT-${stationId}-${String(index + 1).padStart(3, "0")}`,
-      stationId,
-      item.title,
-      item.severity,
-      item.status,
-      item.detail,
-      nowIso,
-    );
-  }
-}
-
-function replaceStationTimeline(
-  db: SqliteDatabaseLike,
-  stationId: string,
-  timeline: NormalizedTimelineItem[],
-  nowIso: string,
-) {
-  const deleteStatement = db.prepare("DELETE FROM station_timelines WHERE station_id = ?");
-  const insertStatement = db.prepare(
-    `INSERT INTO station_timelines (id, station_id, label, phase, detail, happened_at, sort_order)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  );
-
-  if (!deleteStatement.run || !insertStatement.run) {
-    throw new Error("Writable station timeline statements are unavailable");
-  }
-
-  deleteStatement.run(stationId);
-
-  for (const [index, item] of timeline.entries()) {
-    insertStatement.run(
-      `STL-${stationId}-${String(index + 1).padStart(3, "0")}`,
-      stationId,
-      item.label,
-      item.phase,
-      item.detail,
-      nowIso,
-      index + 1,
-    );
-  }
-}
-
-function replaceStationContent(
-  db: SqliteDatabaseLike,
-  stationId: string,
-  content: NormalizedContentItem[],
-  nowIso: string,
-) {
-  const deleteStatement = db.prepare("DELETE FROM station_content WHERE station_id = ?");
-  const insertStatement = db.prepare(
-    `INSERT INTO station_content (id, station_id, content_type, title, summary, href, published_at, sort_order)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  );
-
-  if (!deleteStatement.run || !insertStatement.run) {
-    throw new Error("Writable station content statements are unavailable");
-  }
-
-  deleteStatement.run(stationId);
-
-  for (const [index, item] of content.entries()) {
-    insertStatement.run(
-      `CNT-${stationId}-${String(index + 1).padStart(3, "0")}`,
-      stationId,
-      item.contentType,
-      item.title,
-      item.summary,
-      item.href,
-      nowIso,
-      index + 1,
-    );
-  }
-}
-
-export function listStations(
-  dependencies: StationRepositoryDependencies = {},
-): StationListReadResult {
-  const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
-  const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openDatabase = dependencies.openDatabase ?? openReadOnlyDatabase;
-  const now = dependencies.now ?? Date.now;
-  const databasePath = resolvePath();
-  console.log("[stations] resolved databasePath:", databasePath);
-  const has = hasPath(databasePath);
-  console.log("[stations] hasPath:", has);
-  if (!has) {
-    console.log("[stations] DB path missing, returning fallback");
-    return { source: "mock", fallbackReason: "db_path_missing" };
-  }
-
-  let db: SqliteDatabaseLike;
-
-  try {
-    console.log("[stations] opening database");
-    db = openDatabase(databasePath);
-    console.log("[stations] database opened");
-  } catch (e) {
-    console.log("[stations] DB open failed:", e);
-    return { source: "mock", fallbackReason: "db_open_failed" };
-  }
-
-  try {
-    console.log("[stations] preparing and running query");
-    const rows = db
-      .prepare(
-        `SELECT
-          s.id,
-          s.slug,
-          s.name,
-          r.name AS region,
-          s.status,
-          s.summary,
-          s.location_label,
-          s.depth_m,
-          s.last_reported_at,
-          s.hero_metric,
-          s.sponsor_name,
-          s.operator_name,
-          s.logo_url,
-          s.logo_label,
-          s.exhibit_title,
-          s.accent_color,
-          s.public_description
-         FROM stations s
-         LEFT JOIN regions r ON r.id = s.region_id
-         ORDER BY s.updated_at DESC, s.created_at DESC, s.id ASC`,
-      )
-      .all() as StationRow[];
-    console.log("[stations] query returned rows:", rows.length);
     return {
       source: "db",
       stations: rows.map((row) => toStationSummary(row, now())),
@@ -983,35 +942,35 @@ export function listStations(
     console.log("[stations] DB query failed:", e);
     return { source: "mock", fallbackReason: "db_query_failed" };
   } finally {
-    db.close();
-    console.log("[stations] db closed");
+    if (adapter) await adapter.close();
   }
 }
 
-export function getStationById(
+export async function getStationById(
   stationIdOrSlug: string,
   dependencies: StationRepositoryDependencies = {},
-): StationDetailReadResult {
+): Promise<StationDetailReadResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openDatabase = dependencies.openDatabase ?? openReadOnlyDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const now = dependencies.now ?? Date.now;
   const databasePath = resolvePath();
 
-  if (!hasPath(databasePath)) {
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
+  if (!isTurso && !hasPath(databasePath)) {
     return { source: "mock", fallbackReason: "db_path_missing" };
   }
 
-  let db: SqliteDatabaseLike;
+  let adapter: AsyncDbAdapter | undefined;
 
   try {
-    db = openDatabase(databasePath);
+    adapter = getAdapter(true);
   } catch {
     return { source: "mock", fallbackReason: "db_open_failed" };
   }
 
   try {
-    const stationRow = resolveStationRow(db, stationIdOrSlug);
+    const stationRow = await resolveStationRow(adapter, stationIdOrSlug);
 
     if (!stationRow) {
       return { source: "db", result: "not_found" };
@@ -1022,40 +981,41 @@ export function getStationById(
     return {
       source: "db",
       result: "found",
-      station: buildStationDetailFromRow(db, stationRow, nowMs),
+      station: await buildStationDetailFromRow(adapter, stationRow, nowMs),
     };
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   } finally {
-    db.close();
+    if (adapter) await adapter.close();
   }
 }
 
-export function recordStationPageView(
+export async function recordStationPageView(
   stationIdOrSlug: string,
   viewType: OceanStationViewType,
   dependencies: StationRepositoryDependencies = {},
-): StationViewTrackResult {
+): Promise<StationViewTrackResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openWritable = dependencies.openWritable ?? openWritableDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const now = dependencies.now ?? Date.now;
   const databasePath = resolvePath();
 
-  if (!hasPath(databasePath)) {
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
+  if (!isTurso && !hasPath(databasePath)) {
     return { source: "mock", fallbackReason: "db_path_missing" };
   }
 
-  let db: SqliteDatabaseLike;
+  let adapter: AsyncDbAdapter | undefined;
 
   try {
-    db = openWritable(databasePath);
+    adapter = getAdapter(false);
   } catch {
     return { source: "mock", fallbackReason: "db_open_failed" };
   }
 
   try {
-    const stationRow = resolveStationRow(db, stationIdOrSlug);
+    const stationRow = await resolveStationRow(adapter, stationIdOrSlug);
 
     if (!stationRow) {
       return { source: "db", result: "not_found" };
@@ -1068,20 +1028,15 @@ export function recordStationPageView(
     }
 
     const viewedAt = new Date(now()).toISOString();
-    const insertStatement = db.prepare(
+    await adapter.execute(
       `INSERT INTO station_page_views (id, station_id, view_type, viewed_at)
        VALUES (?, ?, ?, ?)`,
-    );
-
-    if (!insertStatement.run) {
-      throw new Error("Writable statement does not support run");
-    }
-
-    insertStatement.run(
-      `SPV-${stationRow.id}-${normalizedViewType}-${now()}-${Math.round(Math.random() * 1_000_000)}`,
-      stationRow.id,
-      normalizedViewType,
-      viewedAt,
+      [
+        `SPV-${stationRow.id}-${normalizedViewType}-${now()}-${Math.round(Math.random() * 1_000_000)}`,
+        stationRow.id,
+        normalizedViewType,
+        viewedAt,
+      ],
     );
 
     return {
@@ -1094,49 +1049,49 @@ export function recordStationPageView(
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   } finally {
-    db.close();
+    if (adapter) await adapter.close();
   }
 }
 
-export function getStationAnalytics(
+export async function getStationAnalytics(
   stationIdOrSlug: string,
   dependencies: StationRepositoryDependencies = {},
-): StationAnalyticsReadResult {
+): Promise<StationAnalyticsReadResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openDatabase = dependencies.openDatabase ?? openReadOnlyDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const databasePath = resolvePath();
 
-  if (!hasPath(databasePath)) {
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
+  if (!isTurso && !hasPath(databasePath)) {
     return { source: "mock", fallbackReason: "db_path_missing" };
   }
 
-  let db: SqliteDatabaseLike;
+  let adapter: AsyncDbAdapter | undefined;
 
   try {
-    db = openDatabase(databasePath);
+    adapter = getAdapter(true);
   } catch {
     return { source: "mock", fallbackReason: "db_open_failed" };
   }
 
   try {
-    const stationRow = resolveStationRow(db, stationIdOrSlug);
+    const stationRow = await resolveStationRow(adapter, stationIdOrSlug);
 
     if (!stationRow) {
       return { source: "db", result: "not_found" };
     }
 
-    const rows = db
-      .prepare(
-        `SELECT
-          COALESCE(SUM(CASE WHEN view_type = 'detail' THEN 1 ELSE 0 END), 0) AS detail_views,
-          COALESCE(SUM(CASE WHEN view_type = 'exhibit' THEN 1 ELSE 0 END), 0) AS exhibit_views,
-          COALESCE(SUM(CASE WHEN view_type = 'public' THEN 1 ELSE 0 END), 0) AS public_views,
-          MAX(viewed_at) AS last_viewed_at
-         FROM station_page_views
-         WHERE station_id = ?`,
-      )
-      .all(stationRow.id) as AnalyticsAggregateRow[];
+    const rows = await adapter.execute(
+      `SELECT
+        COALESCE(SUM(CASE WHEN view_type = 'detail' THEN 1 ELSE 0 END), 0) AS detail_views,
+        COALESCE(SUM(CASE WHEN view_type = 'exhibit' THEN 1 ELSE 0 END), 0) AS exhibit_views,
+        COALESCE(SUM(CASE WHEN view_type = 'public' THEN 1 ELSE 0 END), 0) AS public_views,
+        MAX(viewed_at) AS last_viewed_at
+       FROM station_page_views
+       WHERE station_id = ?`,
+      [stationRow.id],
+    ) as AnalyticsAggregateRow[];
 
     return {
       source: "db",
@@ -1146,40 +1101,41 @@ export function getStationAnalytics(
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   } finally {
-    db.close();
+    if (adapter) await adapter.close();
   }
 }
 
-export function getStationAdminById(
+export async function getStationAdminById(
   stationIdOrSlug: string,
   dependencies: StationRepositoryDependencies = {},
-): StationAdminReadResult {
-  return getStationById(stationIdOrSlug, dependencies);
+): Promise<StationAdminReadResult> {
+  return await getStationById(stationIdOrSlug, dependencies);
 }
 
-export function getStationAdminAuditById(
+export async function getStationAdminAuditById(
   stationIdOrSlug: string,
   dependencies: StationRepositoryDependencies = {},
-): StationAdminAuditReadResult {
+): Promise<StationAdminAuditReadResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openDatabase = dependencies.openDatabase ?? openReadOnlyDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const databasePath = resolvePath();
 
-  if (!hasPath(databasePath)) {
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
+  if (!isTurso && !hasPath(databasePath)) {
     return { source: "mock", fallbackReason: "db_path_missing" };
   }
 
-  let db: SqliteDatabaseLike;
+  let adapter: AsyncDbAdapter | undefined;
 
   try {
-    db = openDatabase(databasePath);
+    adapter = getAdapter(true);
   } catch {
     return { source: "mock", fallbackReason: "db_open_failed" };
   }
 
   try {
-    const stationRow = resolveStationRow(db, stationIdOrSlug);
+    const stationRow = await resolveStationRow(adapter, stationIdOrSlug);
 
     if (!stationRow) {
       return { source: "db", result: "not_found" };
@@ -1188,21 +1144,21 @@ export function getStationAdminAuditById(
     return {
       source: "db",
       result: "found",
-      entries: queryStationAdminAudits(db, stationRow.id),
+      entries: await queryStationAdminAudits(adapter, stationRow.id),
     };
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   } finally {
-    db.close();
+    if (adapter) await adapter.close();
   }
 }
 
-export function updateStationAdmin(
+export async function updateStationAdmin(
   stationIdOrSlug: string,
   patch: OceanStationAdminPatch,
   dependencies: StationRepositoryDependencies = {},
   authContext?: OceanStationAdminAuthContext,
-): StationAdminUpdateResult {
+): Promise<StationAdminUpdateResult> {
   const normalized = normalizeAdminPatch(patch);
 
   if (!normalized.ok) {
@@ -1215,30 +1171,31 @@ export function updateStationAdmin(
 
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openWritable = dependencies.openWritable ?? openWritableDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const now = dependencies.now ?? Date.now;
   const databasePath = resolvePath();
 
-  if (!hasPath(databasePath)) {
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
+  if (!isTurso && !hasPath(databasePath)) {
     return { source: "mock", fallbackReason: "db_path_missing" };
   }
 
-  let db: SqliteDatabaseLike;
+  let adapter: AsyncDbAdapter | undefined;
 
   try {
-    db = openWritable(databasePath);
+    adapter = getAdapter(false);
   } catch {
     return { source: "mock", fallbackReason: "db_open_failed" };
   }
 
   try {
-    const stationRow = resolveStationRow(db, stationIdOrSlug);
+    const stationRow = await resolveStationRow(adapter, stationIdOrSlug);
 
     if (!stationRow) {
       return { source: "db", result: "not_found" };
     }
 
-    const updateStationStatement = db.prepare(
+    await adapter.execute(
       `UPDATE stations
        SET
          sponsor_name = COALESCE(?, sponsor_name),
@@ -1248,19 +1205,14 @@ export function updateStationAdmin(
          public_description = COALESCE(?, public_description),
          updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-    );
-
-    if (!updateStationStatement.run) {
-      throw new Error("Writable station update statement is unavailable");
-    }
-
-    updateStationStatement.run(
-      normalized.value.sponsorName ?? null,
-      normalized.value.operatorName ?? null,
-      normalized.value.exhibitTitle ?? null,
-      normalized.value.accentColor ?? null,
-      normalized.value.publicDescription ?? null,
-      stationRow.id,
+      [
+        normalized.value.sponsorName ?? null,
+        normalized.value.operatorName ?? null,
+        normalized.value.exhibitTitle ?? null,
+        normalized.value.accentColor ?? null,
+        normalized.value.publicDescription ?? null,
+        stationRow.id,
+      ],
     );
 
     const nowIso = new Date(now()).toISOString();
@@ -1268,51 +1220,46 @@ export function updateStationAdmin(
     const auditAreas = deriveAuditAreas(patch);
 
     if (normalized.value.species) {
-      replaceStationSpecies(db, stationRow.id, normalized.value.species, nowIso);
+      await replaceStationSpecies(adapter, stationRow.id, normalized.value.species, nowIso);
     }
 
     if (normalized.value.alerts) {
-      replaceStationAlerts(db, stationRow.id, normalized.value.alerts, nowIso);
+      await replaceStationAlerts(adapter, stationRow.id, normalized.value.alerts, nowIso);
     }
 
     if (normalized.value.timeline) {
-      replaceStationTimeline(db, stationRow.id, normalized.value.timeline, nowIso);
+      await replaceStationTimeline(adapter, stationRow.id, normalized.value.timeline, nowIso);
     }
 
     if (normalized.value.content) {
-      replaceStationContent(db, stationRow.id, normalized.value.content, nowIso);
+      await replaceStationContent(adapter, stationRow.id, normalized.value.content, nowIso);
     }
 
     if (auditAreas.length > 0 && changedFields.length > 0) {
-      const insertAuditStatement = db.prepare(
-        `INSERT INTO station_admin_audits
-           (id, station_id, actor_id, actor_role, area, changed_fields, changed_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-      );
-
-      if (!insertAuditStatement.run) {
-        throw new Error("Writable station admin audit statement is unavailable");
-      }
-
       const actorId = authContext?.actorId?.trim() || "system";
       const actorRole = authContext?.role ?? "unknown";
 
       for (const area of auditAreas) {
         const scopedFields = changedFieldsForArea(area, changedFields);
 
-        insertAuditStatement.run(
-          `AUD-${stationRow.id}-${area}-${Date.now()}-${Math.round(Math.random() * 1_000_000)}`,
-          stationRow.id,
-          actorId,
-          actorRole,
-          area,
-          JSON.stringify(scopedFields),
-          nowIso,
+        await adapter.execute(
+          `INSERT INTO station_admin_audits
+             (id, station_id, actor_id, actor_role, area, changed_fields, changed_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+          [
+            `AUD-${stationRow.id}-${area}-${Date.now()}-${Math.round(Math.random() * 1_000_000)}`,
+            stationRow.id,
+            actorId,
+            actorRole,
+            area,
+            JSON.stringify(scopedFields),
+            nowIso,
+          ],
         );
       }
     }
 
-    const refreshedStationRow = resolveStationRow(db, stationRow.id);
+    const refreshedStationRow = await resolveStationRow(adapter, stationRow.id);
 
     if (!refreshedStationRow) {
       return { source: "db", result: "not_found" };
@@ -1321,31 +1268,31 @@ export function updateStationAdmin(
     return {
       source: "db",
       result: "updated",
-      station: buildStationDetailFromRow(db, refreshedStationRow, now()),
+      station: await buildStationDetailFromRow(adapter, refreshedStationRow, now()),
     };
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   } finally {
-    db.close();
+    if (adapter) await adapter.close();
   }
 }
 
-export function updateStationBranding(
+export async function updateStationBranding(
   stationIdOrSlug: string,
   patch: OceanStationAdminBrandingPatch,
   dependencies: StationRepositoryDependencies = {},
   authContext?: OceanStationAdminAuthContext,
-): StationAdminUpdateResult {
-  return updateStationAdmin(stationIdOrSlug, patch, dependencies, authContext);
+): Promise<StationAdminUpdateResult> {
+  return await updateStationAdmin(stationIdOrSlug, patch, dependencies, authContext);
 }
 
-export function updateStationContent(
+export async function updateStationContent(
   stationIdOrSlug: string,
   patch: OceanStationAdminContentPatch,
   dependencies: StationRepositoryDependencies = {},
   authContext?: OceanStationAdminAuthContext,
-): StationAdminUpdateResult {
-  return updateStationAdmin(stationIdOrSlug, patch, dependencies, authContext);
+): Promise<StationAdminUpdateResult> {
+  return await updateStationAdmin(stationIdOrSlug, patch, dependencies, authContext);
 }
 
 export type StationAlertAcknowledgeResult =
@@ -1354,40 +1301,42 @@ export type StationAlertAcknowledgeResult =
   | { source: "db"; result: "already_acknowledged"; alert: OceanStationAlert }
   | { source: "mock"; fallbackReason: string };
 
-export function acknowledgeStationAlert(
+export async function acknowledgeStationAlert(
   stationIdOrSlug: string,
   alertId: string,
   actorId: string,
   dependencies: StationRepositoryDependencies = {},
-): StationAlertAcknowledgeResult {
+): Promise<StationAlertAcknowledgeResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openWritable = dependencies.openWritable ?? openWritableDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const nowFn = dependencies.now ?? Date.now;
   const databasePath = resolvePath();
 
-  if (!hasPath(databasePath)) {
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
+  if (!isTurso && !hasPath(databasePath)) {
     return { source: "mock", fallbackReason: "db_path_missing" };
   }
 
-  let db: SqliteDatabaseLike;
+  let adapter: AsyncDbAdapter | undefined;
 
   try {
-    db = openWritable(databasePath);
+    adapter = getAdapter(false);
   } catch {
     return { source: "mock", fallbackReason: "db_open_failed" };
   }
 
   try {
-    const stationRow = resolveStationRow(db, stationIdOrSlug);
+    const stationRow = await resolveStationRow(adapter, stationIdOrSlug);
 
     if (!stationRow) {
       return { source: "db", result: "not_found" };
     }
 
-    const alertCheckRows = db
-      .prepare("SELECT id, title, acknowledged_at FROM station_alerts WHERE id = ? AND station_id = ?")
-      .all(alertId, stationRow.id) as Array<{ id: string; title: string; acknowledged_at: string | null }>;
+    const alertCheckRows = await adapter.execute(
+      "SELECT id, title, acknowledged_at FROM station_alerts WHERE id = ? AND station_id = ?",
+      [alertId, stationRow.id],
+    ) as Array<{ id: string; title: string; acknowledged_at: string | null }>;
     const alertCheck = alertCheckRows[0];
 
     if (!alertCheck) {
@@ -1398,7 +1347,7 @@ export function acknowledgeStationAlert(
     const nowIso = new Date(nowMs).toISOString();
 
     if (alertCheck.acknowledged_at !== null) {
-      const existing = queryAlerts(db, stationRow.id, nowMs).find((a) => a.id === alertId);
+      const existing = (await queryAlerts(adapter, stationRow.id, nowMs)).find((a) => a.id === alertId);
       return {
         source: "db",
         result: "already_acknowledged",
@@ -1406,21 +1355,17 @@ export function acknowledgeStationAlert(
       };
     }
 
-    const updateStatement = db.prepare(
+    await adapter.execute(
       `UPDATE station_alerts
        SET status = 'acknowledged', acknowledged_at = ?, acknowledged_by = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ? AND station_id = ?`,
+      [nowIso, actorId, alertId, stationRow.id],
     );
 
-    if (!updateStatement.run) {
-      throw new Error("Writable alert update statement is unavailable");
-    }
-
-    updateStatement.run(nowIso, actorId, alertId, stationRow.id);
-
-    const timelineSummaryRows = db
-      .prepare("SELECT COALESCE(MAX(sort_order), 0) AS max_sort_order FROM station_timelines WHERE station_id = ?")
-      .all(stationRow.id) as Array<{ max_sort_order: number | null }>;
+    const timelineSummaryRows = await adapter.execute(
+      "SELECT COALESCE(MAX(sort_order), 0) AS max_sort_order FROM station_timelines WHERE station_id = ?",
+      [stationRow.id],
+    ) as Array<{ max_sort_order: number | null }>;
     const nextSortOrder = Number(timelineSummaryRows[0]?.max_sort_order ?? 0) + 1;
     const timelineId = `STL-ACK-${alertId}-${nowMs}`;
     const timelineEvent: OceanStationTimelineItem = {
@@ -1430,26 +1375,22 @@ export function acknowledgeStationAlert(
       detail: `${alertCheck.title} acknowledged by ${actorId}.`,
       happenedAt: nowIso,
     };
-    const insertTimelineStatement = db.prepare(
+    
+    await adapter.execute(
       `INSERT INTO station_timelines (id, station_id, label, phase, detail, happened_at, sort_order)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        timelineEvent.id,
+        stationRow.id,
+        timelineEvent.label,
+        timelineEvent.phase,
+        timelineEvent.detail,
+        timelineEvent.happenedAt,
+        nextSortOrder,
+      ],
     );
 
-    if (!insertTimelineStatement.run) {
-      throw new Error("Writable station timeline statement is unavailable");
-    }
-
-    insertTimelineStatement.run(
-      timelineEvent.id,
-      stationRow.id,
-      timelineEvent.label,
-      timelineEvent.phase,
-      timelineEvent.detail,
-      timelineEvent.happenedAt,
-      nextSortOrder,
-    );
-
-    const updated = queryAlerts(db, stationRow.id, nowMs).find((a) => a.id === alertId);
+    const updated = (await queryAlerts(adapter, stationRow.id, nowMs)).find((a) => a.id === alertId);
 
     if (!updated) {
       return { source: "db", result: "not_found" };
@@ -1459,6 +1400,6 @@ export function acknowledgeStationAlert(
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   } finally {
-    db.close();
+    if (adapter) await adapter.close();
   }
 }

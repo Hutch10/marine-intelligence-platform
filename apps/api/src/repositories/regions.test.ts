@@ -195,6 +195,7 @@ test("regions repository returns DB rows with core region fields", () => {
       nearestBuoyLabel: null,
       thermalAnomalyLabel: null,
       currentDirectionLabel: null,
+      centroid: null,
     });
     assert.deepEqual(result.regions[1], {
       id: "REG-ES",
@@ -213,6 +214,7 @@ test("regions repository returns DB rows with core region fields", () => {
       nearestBuoyLabel: null,
       thermalAnomalyLabel: null,
       currentDirectionLabel: null,
+      centroid: null,
     });
     assert.deepEqual(result.mapStats, {
       trackedBuoys: 0,

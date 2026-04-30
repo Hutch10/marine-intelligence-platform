@@ -142,10 +142,10 @@ export function parseOperationalAlertsQuery(query: OperationalAlertsQuery | unde
   };
 }
 
-export function readDatabaseOperationalAlerts(
+export async function readDatabaseOperationalAlerts(
   query: OperationalAlertsQuery | undefined,
   dependencies: OperationalAlertsReadDependencies = {},
-): OperationalAlertsReadResultResponse {
+): Promise<OperationalAlertsReadResultResponse> {
   const parsedQuery = parseOperationalAlertsQuery(query);
 
   try {
@@ -157,13 +157,13 @@ export function readDatabaseOperationalAlerts(
           source?: string;
           ruleType?: OperationalAlertRuleType;
           limit?: number;
-        }) => OperationalAlertsReadResultResponse;
+        }) => Promise<OperationalAlertsReadResultResponse> | OperationalAlertsReadResultResponse;
       };
 
       return repository.getOperationalAlerts;
     })();
 
-    return readOperationalAlerts({
+    return await readOperationalAlerts({
       status: parsedQuery.status,
       source: parsedQuery.source,
       ruleType: parsedQuery.ruleType,
@@ -222,14 +222,15 @@ function buildEmptySummary(): OperationalAlertsSummaryResponse {
   };
 }
 
-export function buildOperationalAlertsRouteResponse(
-  readResult = readDatabaseOperationalAlerts(undefined),
+export async function buildOperationalAlertsRouteResponse(
+  readResultPromise: Promise<OperationalAlertsReadResultResponse> | OperationalAlertsReadResultResponse = readDatabaseOperationalAlerts(undefined),
   query?: OperationalAlertsQuery,
-): {
+): Promise<{
   status: number;
   json: OperationalAlertsResponse;
   telemetry: OperationalAlertsTelemetry;
-} {
+}> {
+  const readResult = await readResultPromise;
   const parsedQuery = parseOperationalAlertsQuery(query);
   void parsedQuery;
 
@@ -302,8 +303,8 @@ export const getOperationalAlertsRoute: RouteDefinition<
 > = {
   method: "GET",
   path: "/operational-alerts",
-  handler(request) {
-    const readResult = readDatabaseOperationalAlerts(request.query);
-    return buildOperationalAlertsRouteResponse(readResult, request.query);
+  async handler(request) {
+    const readResult = await readDatabaseOperationalAlerts(request.query);
+    return await buildOperationalAlertsRouteResponse(readResult, request.query);
   },
 };

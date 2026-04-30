@@ -9,7 +9,7 @@ import type { CrwParsedRecord } from "../../connectors/coral-reef-watch/parse";
 import type { SqliteDatabaseLike } from "../../db/client";
 import { CRW_SOURCE } from "../../connectors/coral-reef-watch/constants";
 
-function createDb(hasDuplicate = false): SqliteDatabaseLike {
+function createDb(hasDuplicate = false): any {
   return {
     prepare(sql: string) {
       return {
@@ -17,13 +17,19 @@ function createDb(hasDuplicate = false): SqliteDatabaseLike {
           if (sql.includes("FROM derived_signals") && hasDuplicate) {
             return [{ found: 1 }];
           }
-
           return [];
         },
         run() {},
       };
     },
-    close() {},
+    async execute(sql: string) {
+      if (sql.includes("FROM derived_signals") && hasDuplicate) {
+        return [{ found: 1 }];
+      }
+
+      return [];
+    },
+    async close() {},
   };
 }
 
@@ -52,8 +58,8 @@ test("loadConfiguredCrwTargets parses region configuration", () => {
   ]);
 });
 
-test("validateCrwRecord rejects schema drift when required metrics are missing", () => {
-  const reason = validateCrwRecord(
+test("validateCrwRecord rejects schema drift when required metrics are missing", async () => {
+  const reason = await validateCrwRecord(
     baseRecord({ dhw: null }),
     Date.parse("2026-03-18T11:00:00.000Z"),
     24 * 60 * 60 * 1000,
@@ -63,8 +69,8 @@ test("validateCrwRecord rejects schema drift when required metrics are missing",
   assert.equal(reason, "schema_drift");
 });
 
-test("validateCrwRecord rejects stale timestamps", () => {
-  const reason = validateCrwRecord(
+test("validateCrwRecord rejects stale timestamps", async () => {
+  const reason = await validateCrwRecord(
     baseRecord(),
     Date.parse("2026-03-20T12:00:00.000Z"),
     6 * 60 * 60 * 1000,
@@ -74,8 +80,8 @@ test("validateCrwRecord rejects stale timestamps", () => {
   assert.equal(reason, "timestamp_stale");
 });
 
-test("validateCrwRecord rejects impossible value ranges", () => {
-  const reason = validateCrwRecord(
+test("validateCrwRecord rejects impossible value ranges", async () => {
+  const reason = await validateCrwRecord(
     baseRecord({ hotSpotC: 44 }),
     Date.parse("2026-03-18T11:00:00.000Z"),
     24 * 60 * 60 * 1000,
@@ -85,8 +91,8 @@ test("validateCrwRecord rejects impossible value ranges", () => {
   assert.equal(reason, "impossible_values");
 });
 
-test("validateCrwRecord rejects duplicate records", () => {
-  const reason = validateCrwRecord(
+test("validateCrwRecord rejects duplicate records", async () => {
+  const reason = await validateCrwRecord(
     baseRecord(),
     Date.parse("2026-03-18T11:00:00.000Z"),
     24 * 60 * 60 * 1000,
@@ -98,7 +104,7 @@ test("validateCrwRecord rejects duplicate records", () => {
 
 test("runCrwIngestion persists CRW metrics, signals, and provenance with canonical source", async () => {
   const captured: Array<{ sql: string; params: unknown[] }> = [];
-  const db: SqliteDatabaseLike = {
+  const db: any = {
     prepare(sql: string) {
       return {
         run(...params: unknown[]) {
@@ -123,6 +129,15 @@ test("runCrwIngestion persists CRW metrics, signals, and provenance with canonic
   const result = await runCrwIngestion({
     resolvePath: () => "marine.sqlite",
     openWritable: () => db,
+    getAdapter: () => {
+      return {
+        async execute(sql: string, params: unknown[] = []) {
+          captured.push({ sql, params });
+          return [];
+        },
+        async close() {},
+      } as any;
+    },
     now: () => observedAt,
     fetchData: async () => ({
       body: "{}",
@@ -206,6 +221,12 @@ test("runCrwIngestion fails loudly when no targets are configured", async () => 
   const result = await runCrwIngestion({
     resolvePath: () => "marine.sqlite",
     openWritable: () => db,
+    getAdapter: () => {
+      return {
+        async execute() { return []; },
+        async close() {},
+      } as any;
+    },
     targets: [],
   });
 
@@ -221,6 +242,12 @@ test("runCrwIngestion fails loudly when the feed yields no usable records", asyn
   const result = await runCrwIngestion({
     resolvePath: () => "marine.sqlite",
     openWritable: () => db,
+    getAdapter: () => {
+      return {
+        async execute() { return []; },
+        async close() {},
+      } as any;
+    },
     fetchData: async () => ({
       body: "{}",
       sourceUrl: "https://example.invalid/crw.json",

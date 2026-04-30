@@ -1,13 +1,9 @@
-import { NextResponse } from "next/server";
+import type { RiskEvaluationFeedbackRequest } from "@marine/shared";
+import { requireApiKeyAuth, logApiUsageSafely } from "../../_auth";
+import { jsonPublicApiError, jsonPublicApiResponse } from "../../_responses";
+import { postValidationFeedbackRoute } from "../../../../../../api/src/routes/validation";
 
-export async function POST(_request: Request) {
-  return NextResponse.json(
-    { error: { code: "validation_feedback_unavailable", message: "Validation feedback is disabled in this deployment." } },
-    { status: 503 }
-  );
-}
-
-async function _unused_POST(request: Request) {
+export async function POST(request: Request) {
   const startedAt = Date.now();
   const authResult = await requireApiKeyAuth(request);
 
@@ -26,7 +22,7 @@ async function _unused_POST(request: Request) {
     });
   }
 
-  const routeResponse = postValidationFeedbackRoute.handler({
+  const routeResponse = await postValidationFeedbackRoute.handler({
     auth: authResult.auth,
     body,
   });

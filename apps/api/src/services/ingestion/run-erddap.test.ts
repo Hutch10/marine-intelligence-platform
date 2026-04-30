@@ -10,29 +10,24 @@ import type { SqliteDatabaseLike } from "../../db/client";
 
 // ─── DB stubs ─────────────────────────────────────────────────────────────────
 
-function createDb(hasObservationDuplicate = false, hasMetricDuplicate = false): SqliteDatabaseLike {
+function createDb(hasObservationDuplicate = false, hasMetricDuplicate = false): any {
   return {
-    prepare(sql: string) {
-      return {
-        all() {
-          if (sql.includes("FROM observations") && hasObservationDuplicate) {
-            return [{ found: 1 }];
-          }
+    async execute(sql: string, params: unknown[] = []) {
+      if (sql.includes("FROM observations") && hasObservationDuplicate) {
+        return [{ found: 1 }];
+      }
 
-          if (sql.includes("FROM station_metrics") && hasMetricDuplicate) {
-            return [{ found: 1 }];
-          }
+      if (sql.includes("FROM station_metrics") && hasMetricDuplicate) {
+        return [{ found: 1 }];
+      }
 
-          return [];
-        },
-        run() {},
-      };
+      return [];
     },
-    close() {},
+    async close() {},
   };
 }
 
-function createCaptureDb(captured: Array<{ sql: string; params: unknown[] }>): SqliteDatabaseLike {
+function createCaptureDb(captured: Array<{ sql: string; params: unknown[] }>): any {
   return {
     prepare(sql: string) {
       return {
@@ -96,13 +91,13 @@ test("loadConfiguredErddapSources returns a single unfiltered source when no sta
 const RECENT_NOW = Date.parse("2026-03-28T12:00:00Z");
 const STALE_MS = 48 * 60 * 60 * 1000;
 
-test("validateErddapRecord passes a valid record", () => {
+test("validateErddapRecord passes a valid record", async () => {
   const db = createDb(false, false);
-  const result = validateErddapRecord(baseRecord(), RECENT_NOW, STALE_MS, db, "southeast-florida");
+  const result = await validateErddapRecord(baseRecord(), RECENT_NOW, STALE_MS, db, "southeast-florida");
   assert.equal(result, null);
 });
 
-test("validateErddapRecord returns schema_drift when no measurements present", () => {
+test("validateErddapRecord returns schema_drift when no measurements present", async () => {
   const db = createDb(false, false);
   const record = baseRecord({
     seaSurfaceTempC: null,
@@ -114,42 +109,39 @@ test("validateErddapRecord returns schema_drift when no measurements present", (
     chlorophyllMgM3: null,
   });
 
-  assert.equal(validateErddapRecord(record, RECENT_NOW, STALE_MS, db, "r"), "schema_drift");
+  const result = await validateErddapRecord(record, RECENT_NOW, STALE_MS, db, "r");
+  assert.equal(result, "schema_drift");
 });
 
-test("validateErddapRecord returns schema_drift when stationId is null", () => {
+test("validateErddapRecord returns schema_drift when stationId is null", async () => {
   const db = createDb(false, false);
-  assert.equal(
-    validateErddapRecord(baseRecord({ stationId: null }), RECENT_NOW, STALE_MS, db, "r"),
-    "schema_drift",
-  );
+  const result = await validateErddapRecord(baseRecord({ stationId: null }), RECENT_NOW, STALE_MS, db, "r");
+  assert.equal(result, "schema_drift");
 });
 
-test("validateErddapRecord returns schema_drift when observedAt is null", () => {
+test("validateErddapRecord returns schema_drift when observedAt is null", async () => {
   const db = createDb(false, false);
-  assert.equal(
-    validateErddapRecord(baseRecord({ observedAt: null }), RECENT_NOW, STALE_MS, db, "r"),
-    "schema_drift",
-  );
+  const result = await validateErddapRecord(baseRecord({ observedAt: null }), RECENT_NOW, STALE_MS, db, "r");
+  assert.equal(result, "schema_drift");
 });
 
-test("validateErddapRecord returns timestamp_stale for old observation", () => {
+test("validateErddapRecord returns timestamp_stale for old observation", async () => {
   const db = createDb(false, false);
   const oldRecord = baseRecord({ observedAt: RECENT_NOW - STALE_MS - 1000 });
-  assert.equal(validateErddapRecord(oldRecord, RECENT_NOW, STALE_MS, db, "r"), "timestamp_stale");
+  const result = await validateErddapRecord(oldRecord, RECENT_NOW, STALE_MS, db, "r");
+  assert.equal(result, "timestamp_stale");
 });
 
-test("validateErddapRecord returns impossible_values for out-of-range SST", () => {
+test("validateErddapRecord returns impossible_values for out-of-range SST", async () => {
   const db = createDb(false, false);
-  assert.equal(
-    validateErddapRecord(baseRecord({ seaSurfaceTempC: 60 }), RECENT_NOW, STALE_MS, db, "r"),
-    "impossible_values",
-  );
+  const result = await validateErddapRecord(baseRecord({ seaSurfaceTempC: 60 }), RECENT_NOW, STALE_MS, db, "r");
+  assert.equal(result, "impossible_values");
 });
 
-test("validateErddapRecord returns duplicate_record when observation already exists", () => {
+test("validateErddapRecord returns duplicate_record when observation already exists", async () => {
   const db = createDb(true, false);
-  assert.equal(validateErddapRecord(baseRecord(), RECENT_NOW, STALE_MS, db, "r"), "duplicate_record");
+  const result = await validateErddapRecord(baseRecord(), RECENT_NOW, STALE_MS, db, "r");
+  assert.equal(result, "duplicate_record");
 });
 
 // ─── runErddapIngestion — happy path ──────────────────────────────────────────
@@ -164,6 +156,15 @@ test("runErddapIngestion inserts one observation for a valid record", async () =
   const result = await runErddapIngestion({
     resolvePath: () => "/tmp/test.sqlite",
     openWritable: () => db,
+    getAdapter: () => {
+      return {
+        async execute(sql: string, params: unknown[] = []) {
+          captured.push({ sql, params });
+          return [];
+        },
+        async close() {},
+      } as any;
+    },
     now: nowFn,
     staleAfterMs: STALE_MS,
     sources: [{ baseUrl: "https://erddap.test/erddap", regionKey: "southeast-florida" }],
@@ -202,6 +203,12 @@ test("runErddapIngestion counts schema_drift when columns are missing", async ()
   const result = await runErddapIngestion({
     resolvePath: () => "/tmp/test.sqlite",
     openWritable: () => db,
+    getAdapter: () => {
+      return {
+        async execute() { return []; },
+        async close() {},
+      } as any;
+    },
     now: () => tick++,
     staleAfterMs: STALE_MS,
     sources: [{ regionKey: "r" }],
@@ -228,6 +235,12 @@ test("runErddapIngestion returns failed status when fetch throws", async () => {
   const result = await runErddapIngestion({
     resolvePath: () => "/tmp/test.sqlite",
     openWritable: () => db,
+    getAdapter: () => {
+      return {
+        async execute() { return []; },
+        async close() {},
+      } as any;
+    },
     now: () => tick++,
     staleAfterMs: STALE_MS,
     sources: [{ regionKey: "r" }],
@@ -250,6 +263,12 @@ test("runErddapIngestion skips disabled sources", async () => {
   await runErddapIngestion({
     resolvePath: () => "/tmp/test.sqlite",
     openWritable: () => db,
+    getAdapter: () => {
+      return {
+        async execute() { return []; },
+        async close() {},
+      } as any;
+    },
     now: () => tick++,
     staleAfterMs: STALE_MS,
     sources: [{ regionKey: "r", enabled: false }],

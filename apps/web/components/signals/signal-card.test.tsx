@@ -29,7 +29,7 @@ test("signal card renders title, severity, and status", () => {
 
   expect(screen.getByRole("heading", { level: 3 })).toHaveTextContent("Thermal anomaly at station 41009");
   expect(screen.getByText("HIGH")).toBeInTheDocument();
-  expect(screen.getByText("open")).toBeInTheDocument();
+  expect(screen.getByText("OPEN")).toBeInTheDocument();
 });
 
 test("signal card renders detail link when detailHref is provided", () => {

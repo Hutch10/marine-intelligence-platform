@@ -191,7 +191,7 @@ export async function buildV1RiskRouteResponse(
     };
   }
 
-  const obsResult = readObservationHistory(normalized, BASELINE_WINDOW_DAYS);
+  const obsResult = await readObservationHistory(normalized, BASELINE_WINDOW_DAYS);
 
   if (!obsResult.ok) {
     if (obsResult.fallbackReason) {

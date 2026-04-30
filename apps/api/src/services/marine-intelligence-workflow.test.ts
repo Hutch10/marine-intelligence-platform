@@ -115,9 +115,9 @@ const ALERT_B: MarineAlertRecord = {
   updatedAt: "2026-03-20T12:08:00.000Z",
 };
 
-test("marine intelligence workflow service sorts and filters events deterministically", () => {
+test("marine intelligence workflow service sorts and filters events deterministically", async () => {
   const service = createMarineIntelligenceWorkflowService({
-    readEvents(filters) {
+    async listMarineEvents(_adapter, filters) {
       const events = [EVENT_A, EVENT_B].filter((event) => {
         if (filters?.id && event.id !== filters.id) return false;
         if (filters?.stationId && event.stationId !== filters.stationId) return false;
@@ -125,32 +125,36 @@ test("marine intelligence workflow service sorts and filters events deterministi
         return true;
       });
 
-      return { source: "db", result: { ok: true, events } };
+      return { ok: true, events };
     },
   });
 
-  const listed = service.listEvents({ stationId: "STA-002" });
+  const listed = await service.listEvents({ stationId: "STA-002" });
   assert.equal(listed.ok, true);
-  assert.equal(listed.events.length, 1);
-  assert.equal(listed.events[0]?.id, "MEV-001");
+  if (listed.ok) {
+    assert.equal(listed.events.length, 1);
+    assert.equal(listed.events[0]?.id, "MEV-001");
+  }
 
-  const ordered = service.listEvents();
-  assert.deepEqual(
-    ordered.events.map((event) => event.id),
-    ["MEV-001", "MEV-002"],
-  );
+  const ordered = await service.listEvents();
+  if (ordered.ok) {
+    assert.deepEqual(
+      ordered.events.map((event) => event.id),
+      ["MEV-001", "MEV-002"],
+    );
+  }
 });
 
-test("marine intelligence workflow service filters investigations by linked event station and enriches event metadata", () => {
+test("marine intelligence workflow service filters investigations by linked event station and enriches event metadata", async () => {
   const service = createMarineIntelligenceWorkflowService({
-    readEvents(filters) {
+    async listMarineEvents(_adapter, filters) {
       const events = [EVENT_A, EVENT_B].filter((event) => {
         if (filters?.stationId && event.stationId !== filters.stationId) return false;
         return true;
       });
-      return { source: "db", result: { ok: true, events } };
+      return { ok: true, events };
     },
-    readInvestigations() {
+    async listMarineInvestigations() {
       return {
         source: "db",
         result: { ok: true, investigations: [INVESTIGATION_A, INVESTIGATION_B] },
@@ -158,32 +162,36 @@ test("marine intelligence workflow service filters investigations by linked even
     },
   });
 
-  const listed = service.listInvestigations({ stationId: "STA-001" });
+  const listed = await service.listInvestigations({ stationId: "STA-001" });
   assert.equal(listed.ok, true);
-  assert.equal(listed.investigations.length, 1);
-  assert.equal(listed.investigations[0]?.id, "MIID-2");
-  assert.equal(listed.investigations[0]?.eventTitle, EVENT_A.title);
-  assert.equal(listed.investigations[0]?.region, EVENT_A.region);
+  if (listed.ok) {
+    assert.equal(listed.investigations.length, 1);
+    assert.equal(listed.investigations[0]?.id, "MIID-2");
+    assert.equal(listed.investigations[0]?.eventTitle, EVENT_A.title);
+    assert.equal(listed.investigations[0]?.region, EVENT_A.region);
+  }
 });
 
-test("marine intelligence workflow service rejects investigation creation when linked event is missing", () => {
+test("marine intelligence workflow service rejects investigation creation when linked event is missing", async () => {
   const service = createMarineIntelligenceWorkflowService({
-    readEvents() {
-      return { source: "db", result: { ok: true, events: [] } };
+    async listMarineEvents() {
+      return { ok: true, events: [] };
     },
   });
 
-  const created = service.createInvestigation({
+  const created = await service.createInvestigation({
     eventId: "MEV-MISSING",
     title: "Missing event",
   });
 
   assert.equal(created.ok, false);
-  assert.equal(created.reason, "not_found");
-  assert.equal(created.investigation, null);
+  if (!created.ok) {
+    assert.equal(created.reason, "not_found");
+    assert.equal(created.investigation, null);
+  }
 });
 
-test("marine intelligence workflow service creates investigations and enriches the response with event context", () => {
+test("marine intelligence workflow service creates investigations and enriches the response with event context", async () => {
   const createdRecord: MarineInvestigationRecord = {
     ...INVESTIGATION_A,
     id: "MIID-NEW",
@@ -197,11 +205,11 @@ test("marine intelligence workflow service creates investigations and enriches t
   };
 
   const service = createMarineIntelligenceWorkflowService({
-    readEvents(filters) {
+    async listMarineEvents(_adapter, filters) {
       const events = [EVENT_A, EVENT_B].filter((event) => !filters?.id || event.id === filters.id);
-      return { source: "db", result: { ok: true, events } };
+      return { ok: true, events };
     },
-    createInvestigation() {
+    async createMarineInvestigation() {
       return {
         source: "db",
         result: { ok: true, investigation: createdRecord },
@@ -209,46 +217,52 @@ test("marine intelligence workflow service creates investigations and enriches t
     },
   });
 
-  const created = service.createInvestigation({
+  const created = await service.createInvestigation({
     eventId: EVENT_B.id,
     title: createdRecord.title,
     ownerId: createdRecord.ownerId,
   });
 
   assert.equal(created.ok, true);
-  assert.equal(created.investigation?.id, "MIID-NEW");
-  assert.equal(created.investigation?.eventTitle, EVENT_B.title);
-  assert.equal(created.investigation?.stationId, EVENT_B.stationId);
+  if (created.ok) {
+    assert.equal(created.investigation?.id, "MIID-NEW");
+    assert.equal(created.investigation?.eventTitle, EVENT_B.title);
+    assert.equal(created.investigation?.stationId, EVENT_B.stationId);
+  }
 });
 
-test("marine intelligence workflow service filters alerts by linked station and sorts them deterministically", () => {
+test("marine intelligence workflow service filters alerts by linked station and sorts them deterministically", async () => {
   const service = createMarineIntelligenceWorkflowService({
-    readEvents(filters) {
+    async listMarineEvents(_adapter, filters) {
       const events = [EVENT_A, EVENT_B].filter((event) => {
         if (filters?.stationId && event.stationId !== filters.stationId) return false;
         return true;
       });
-      return { source: "db", result: { ok: true, events } };
+      return { ok: true, events };
     },
-    readAlerts() {
+    async listMarineAlerts() {
       return { source: "db", result: { ok: true, alerts: [ALERT_A, ALERT_B] } };
     },
   });
 
-  const filtered = service.listAlerts({ stationId: "STA-002" });
+  const filtered = await service.listAlerts({ stationId: "STA-002" });
   assert.equal(filtered.ok, true);
-  assert.equal(filtered.alerts.length, 1);
-  assert.equal(filtered.alerts[0]?.id, "MALT-1");
-  assert.equal(filtered.alerts[0]?.eventTitle, EVENT_B.title);
+  if (filtered.ok) {
+    assert.equal(filtered.alerts.length, 1);
+    assert.equal(filtered.alerts[0]?.id, "MALT-1");
+    assert.equal(filtered.alerts[0]?.eventTitle, EVENT_B.title);
+  }
 
-  const ordered = service.listAlerts();
-  assert.deepEqual(
-    ordered.alerts.map((alert) => alert.id),
-    ["MALT-1", "MALT-2"],
-  );
+  const ordered = await service.listAlerts();
+  if (ordered.ok) {
+    assert.deepEqual(
+      ordered.alerts.map((alert) => alert.id),
+      ["MALT-1", "MALT-2"],
+    );
+  }
 });
 
-test("marine intelligence workflow service acknowledges and resolves alerts with event enrichment", () => {
+test("marine intelligence workflow service acknowledges and resolves alerts with event enrichment", async () => {
   const acknowledged: MarineAlertRecord = {
     ...ALERT_A,
     status: "acknowledged",
@@ -264,25 +278,29 @@ test("marine intelligence workflow service acknowledges and resolves alerts with
   };
 
   const service = createMarineIntelligenceWorkflowService({
-    readEvents(filters) {
+    async listMarineEvents(_adapter, filters) {
       const events = [EVENT_A].filter((event) => !filters?.id || event.id === filters.id);
-      return { source: "db", result: { ok: true, events } };
+      return { ok: true, events };
     },
-    acknowledgeAlert() {
+    async acknowledgeMarineAlert() {
       return { source: "db", result: { ok: true, alert: acknowledged } };
     },
-    resolveAlert() {
+    async resolveMarineAlert() {
       return { source: "db", result: { ok: true, alert: resolved } };
     },
   });
 
-  const acked = service.acknowledgeAlert(ALERT_A.id);
+  const acked = await service.acknowledgeAlert(ALERT_A.id);
   assert.equal(acked.ok, true);
-  assert.equal(acked.alert?.status, "acknowledged");
-  assert.equal(acked.alert?.stationId, EVENT_A.stationId);
+  if (acked.ok) {
+    assert.equal(acked.alert?.status, "acknowledged");
+    assert.equal(acked.alert?.stationId, EVENT_A.stationId);
+  }
 
-  const done = service.resolveAlert(ALERT_A.id);
+  const done = await service.resolveAlert(ALERT_A.id);
   assert.equal(done.ok, true);
-  assert.equal(done.alert?.status, "resolved");
-  assert.equal(done.alert?.eventStatus, EVENT_A.status);
+  if (done.ok) {
+    assert.equal(done.alert?.status, "resolved");
+    assert.equal(done.alert?.eventStatus, EVENT_A.status);
+  }
 });

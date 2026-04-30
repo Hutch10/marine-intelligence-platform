@@ -21,31 +21,31 @@ import {
 export interface MarineInvestigationWorkflowService {
   openInvestigation(
     input: MarineInvestigationCreateInput,
-  ): MarineInvestigationCreateResult;
-  getInvestigation(id: string): MarineInvestigationGetResult;
+  ): Promise<MarineInvestigationCreateResult>;
+  getInvestigation(id: string): Promise<MarineInvestigationGetResult>;
   listInvestigations(
     filters?: MarineInvestigationListFilters,
-  ): MarineInvestigationListResult;
+  ): Promise<MarineInvestigationListResult>;
   transitionInvestigation(
     id: string,
     transition: MarineInvestigationTransition,
     notes?: string,
-  ): MarineInvestigationTransitionResult;
+  ): Promise<MarineInvestigationTransitionResult>;
 }
 
 interface MarineInvestigationWorkflowDependencies {
   createInvestigation?: (
     input: MarineInvestigationCreateInput,
-  ) => MarineInvestigationsRepositoryCreateResult;
-  getInvestigation?: (id: string) => MarineInvestigationsRepositoryGetResult;
+  ) => Promise<MarineInvestigationsRepositoryCreateResult>;
+  getInvestigation?: (id: string) => Promise<MarineInvestigationsRepositoryGetResult>;
   listInvestigations?: (
     filters?: MarineInvestigationListFilters,
-  ) => MarineInvestigationsRepositoryListResult;
+  ) => Promise<MarineInvestigationsRepositoryListResult>;
   transitionInvestigation?: (
     id: string,
     transition: MarineInvestigationTransition,
     notes: string | null,
-  ) => MarineInvestigationsRepositoryTransitionResult;
+  ) => Promise<MarineInvestigationsRepositoryTransitionResult>;
 }
 
 function unavailableCreate(): MarineInvestigationCreateResult {
@@ -91,34 +91,34 @@ export function createMarineInvestigationWorkflowService(
     ((id, transition, notes) =>
       transitionMarineInvestigation(id, transition, notes));
 
-  function openInvestigation(
+  async function openInvestigation(
     input: MarineInvestigationCreateInput,
-  ): MarineInvestigationCreateResult {
-    const result = doCreate(input);
+  ): Promise<MarineInvestigationCreateResult> {
+    const result = await doCreate(input);
     if (result.source !== "db") return unavailableCreate();
     return result.result;
   }
 
-  function getInvestigation(id: string): MarineInvestigationGetResult {
-    const result = doGet(id);
+  async function getInvestigation(id: string): Promise<MarineInvestigationGetResult> {
+    const result = await doGet(id);
     if (result.source !== "db") return unavailableGet();
     return result.result;
   }
 
-  function listInvestigations(
+  async function listInvestigations(
     filters: MarineInvestigationListFilters = {},
-  ): MarineInvestigationListResult {
-    const result = doList(filters);
+  ): Promise<MarineInvestigationListResult> {
+    const result = await doList(filters);
     if (result.source !== "db") return unavailableList();
     return result.result;
   }
 
-  function transitionInvestigation(
+  async function transitionInvestigation(
     id: string,
     transition: MarineInvestigationTransition,
     notes?: string,
-  ): MarineInvestigationTransitionResult {
-    const result = doTransition(id, transition, notes ?? null);
+  ): Promise<MarineInvestigationTransitionResult> {
+    const result = await doTransition(id, transition, notes ?? null);
     if (result.source !== "db") {
       return unavailableTransition(
         `Investigation storage unavailable: ${result.fallbackReason}`,

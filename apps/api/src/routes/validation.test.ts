@@ -13,8 +13,8 @@ const AUTH: OceanStationAdminAuthContext = {
   csrfToken: "csrf-token",
 };
 
-test("validation summary route validates since timestamps", () => {
-  const response = buildValidationSummaryRouteResponse({
+test("validation summary route validates since timestamps", async () => {
+  const response = await buildValidationSummaryRouteResponse({
     since: "not-a-date",
   });
 
@@ -22,8 +22,8 @@ test("validation summary route validates since timestamps", () => {
   assert.deepEqual(response.json, { message: "since must be a valid ISO timestamp" });
 });
 
-test("validation summary route returns structured reliability metrics", () => {
-  const response = buildValidationSummaryRouteResponse(
+test("validation summary route returns structured reliability metrics", async () => {
+  const response = await buildValidationSummaryRouteResponse(
     {},
     {
       ok: true,
@@ -57,8 +57,8 @@ test("validation summary route returns structured reliability metrics", () => {
   }
 });
 
-test("validation outcome route enforces station.view_admin", () => {
-  const response = buildAttachValidationOutcomeRouteResponse(
+test("validation outcome route enforces station.view_admin", async () => {
+  const response = await buildAttachValidationOutcomeRouteResponse(
     undefined,
     {
       evaluationId: "MVAL-1",
@@ -73,8 +73,8 @@ test("validation outcome route enforces station.view_admin", () => {
   assert.equal(response.status, 403);
 });
 
-test("validation outcome route maps successful attach responses", () => {
-  const response = buildAttachValidationOutcomeRouteResponse(
+test("validation outcome route maps successful attach responses", async () => {
+  const response = await buildAttachValidationOutcomeRouteResponse(
     AUTH,
     {
       evaluationId: "MVAL-1",

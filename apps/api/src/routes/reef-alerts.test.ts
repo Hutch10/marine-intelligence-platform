@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { buildReefAlertsRouteResponse } from "./reef-alerts";
 import { CRW_SOURCE } from "../connectors/coral-reef-watch/constants";
 
-test("reef-alerts route returns db-backed reef stress alerts", () => {
-  const response = buildReefAlertsRouteResponse({
+test("reef-alerts route returns db-backed reef stress alerts", async () => {
+  const response = await buildReefAlertsRouteResponse({
     source: "db",
     alerts: [
       {
@@ -26,8 +26,8 @@ test("reef-alerts route returns db-backed reef stress alerts", () => {
   assert.equal(response.telemetry.source, "db");
 });
 
-test("reef-alerts route falls back to mock reef stress alerts", () => {
-  const response = buildReefAlertsRouteResponse({
+test("reef-alerts route falls back to mock reef stress alerts", async () => {
+  const response = await buildReefAlertsRouteResponse({
     source: "mock",
     fallbackReason: "db_path_missing",
   });

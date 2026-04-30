@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildLiveConditionsRouteResponse } from "./live-conditions";
 
-test("live-conditions route returns db-backed conditions", () => {
-  const response = buildLiveConditionsRouteResponse({
+test("live-conditions route returns db-backed conditions", async () => {
+  const response = await buildLiveConditionsRouteResponse({
     source: "db",
     conditions: [
       {
@@ -23,8 +23,8 @@ test("live-conditions route returns db-backed conditions", () => {
   assert.equal(response.telemetry.conditionCount, 1);
 });
 
-test("live-conditions route falls back to mock conditions", () => {
-  const response = buildLiveConditionsRouteResponse({
+test("live-conditions route falls back to mock conditions", async () => {
+  const response = await buildLiveConditionsRouteResponse({
     source: "mock",
     fallbackReason: "db_path_missing",
   });

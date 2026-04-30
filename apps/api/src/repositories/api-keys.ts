@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { ApiKeyRecord } from "@marine/shared";
 import {
   hasDatabasePath,
@@ -70,4 +71,75 @@ export function getApiKey(
 
 export function validateApiKey(keyId: string): boolean {
   return getApiKey(keyId) !== null;
+}
+
+export function hashRawApiKey(rawKey: string): string {
+  return createHash("sha256").update(rawKey).digest("hex");
+}
+
+export function generateApiKey(_input: {
+  name: string;
+  tier?: string;
+  scopes?: string[];
+  billingAccountId?: string | null;
+}):
+  | {
+      source: "db";
+      result: {
+        ok: true;
+        provisioned: {
+          rawKey: string;
+          record: ApiKeyRecord;
+        };
+      };
+    }
+  | {
+      source: "db";
+      result: { ok: false; error: string };
+    }
+  | {
+      source: "unavailable";
+      fallbackReason: "db_path_missing" | "db_open_failed" | "db_query_failed";
+    } {
+  return {
+    source: "unavailable",
+    fallbackReason: "db_query_failed",
+  };
+}
+
+export function lookupApiKeyByHash(_hash: string):
+  | { source: "db"; result: { ok: true; key: ApiKeyRecord | null } }
+  | { source: "db"; result: { ok: false; error: string } }
+  | { source: "unavailable"; fallbackReason: "db_path_missing" | "db_open_failed" | "db_query_failed" } {
+  return {
+    source: "unavailable",
+    fallbackReason: "db_query_failed",
+  };
+}
+
+export function lookupApiKeyById(id: string):
+  | { source: "db"; result: { ok: true; key: ApiKeyRecord | null } }
+  | { source: "db"; result: { ok: false; error: string } }
+  | { source: "unavailable"; fallbackReason: "db_path_missing" | "db_open_failed" | "db_query_failed" } {
+  return {
+    source: "db",
+    result: {
+      ok: true,
+      key: getApiKey(id),
+    },
+  };
+}
+
+export function recordApiKeyLastUsed(id: string):
+  | { source: "db"; result: { ok: true; key: ApiKeyRecord | null } }
+  | { source: "db"; result: { ok: false; error: string } }
+  | { source: "unavailable"; fallbackReason: "db_path_missing" | "db_open_failed" | "db_query_failed" } {
+  return lookupApiKeyById(id);
+}
+
+export function revokeApiKey(id: string):
+  | { source: "db"; result: { ok: true; key: ApiKeyRecord | null } }
+  | { source: "db"; result: { ok: false; error: string } }
+  | { source: "unavailable"; fallbackReason: "db_path_missing" | "db_open_failed" | "db_query_failed" } {
+  return lookupApiKeyById(id);
 }

@@ -7,7 +7,7 @@ import type { OceanStationAdminAuthContext } from "@marine/shared";
 export interface RouteRequest<TBody = any, TQuery = any> {
   body: TBody;
   query?: TQuery;
-  params: Record<string, string>;
+  params?: Record<string, string>;
   auth?: OceanStationAdminAuthContext;
 }
 

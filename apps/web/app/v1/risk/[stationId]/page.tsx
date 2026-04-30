@@ -162,6 +162,11 @@ export default async function StationRiskPage({ params }: StationRiskPageProps) 
                 <span className={`rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-[0.18em] ${badgeTone(assessment.riskLevel)}`}>
                   {assessment.riskLevel}
                 </span>
+                {assessment.sovereignVerification && (
+                  <StatusBadge 
+                    label={assessment.sovereignVerification.status} 
+                  />
+                )}
               </div>
               <p className="max-w-3xl text-sm leading-relaxed text-slate-400">{assessment.summary}</p>
               <p className="max-w-3xl text-[11px] leading-relaxed text-slate-500">
@@ -216,6 +221,35 @@ export default async function StationRiskPage({ params }: StationRiskPageProps) 
             </div>
           )}
         </section>
+
+        {assessment.sovereignVerification?.status === "SOVEREIGN_CONTRADICTED" && (
+          <section className="rounded-2xl border border-rose-500/40 bg-rose-500/10 p-5 shadow-[0_0_15px_rgba(244,63,94,0.1)]">
+            <div className="flex items-start gap-4">
+              <div className="rounded-full bg-rose-500/20 p-2 text-rose-400 shrink-0">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-sm font-bold uppercase tracking-widest text-rose-200">Sovereign Oracle Contradiction</h3>
+                <p className="mt-2 text-sm text-rose-100/90 leading-relaxed">
+                  The Forge Reality Engine has detected a fundamental contradiction in the signals associated with this assessment. 
+                  The primary risk assessment has been downgraded to "unknown" as a security precaution.
+                </p>
+                <div className="mt-4 space-y-2">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-rose-300/70">Identified Anomalies</p>
+                  <ul className="list-inside list-disc space-y-1">
+                    {assessment.sovereignVerification.contradictions.map((c, i) => (
+                      <li key={i} className="text-[11px] text-rose-200/80 font-mono">{c}</li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="mt-4 pt-4 border-t border-rose-500/20 flex items-center justify-between">
+                  <span className="text-[10px] font-mono text-rose-400">Claim ID: {assessment.sovereignVerification.claimId}</span>
+                  <span className="text-[10px] font-mono text-rose-400">Verified at {assessment.sovereignVerification.verifiedAt}</span>
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
 
         <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-xl border border-surface-border bg-ocean-900 px-4 py-4">

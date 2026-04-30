@@ -1,11 +1,21 @@
-import type { OperationalAlert, OperationalAlertAction, OperationalAlertRuleType, OperationalAlertSeverity, OperationalAlertStatus } from "../services/operational-alerts";
+import type { AsyncDbAdapter } from "../db/async-client";
+import { getAsyncAdapter } from "../db/async-client";
+import {
+  hasDatabasePath,
+  resolveDatabasePath,
+} from "../db/client";
+import type {
+  OperationalAlert,
+  OperationalAlertAction,
+  OperationalAlertRuleType,
+  OperationalAlertSeverity,
+  OperationalAlertStatus,
+} from "../services/operational-alerts";
 import {
   createOperationalAlertsService,
   evaluateFeedHealthForAlerts,
 } from "../services/operational-alerts";
 import type { LiveIngestionHealthSnapshot } from "./live-ingestion-reports";
-import type { SqliteDatabaseLike } from "../db/client";
-import { hasDatabasePath, resolveDatabasePath, openReadOnlyDatabase } from "../db/client";
 
 export type { OperationalAlert, OperationalAlertAction, OperationalAlertRuleType, OperationalAlertSeverity, OperationalAlertStatus };
 
@@ -38,7 +48,7 @@ export interface OperationalAlertsSummary {
 interface OperationalAlertsRepositoryDependencies {
   resolvePath?: typeof resolveDatabasePath;
   hasPath?: typeof hasDatabasePath;
-  openReadOnly?: typeof openReadOnlyDatabase;
+  getAdapter?: typeof getAsyncAdapter;
 }
 
 interface OperationalAlertsRepositoryReadOptions extends OperationalAlertsReadOptions, OperationalAlertsRepositoryDependencies {}
@@ -68,11 +78,11 @@ const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 500;
 
 function normalizeLimit(limit: number | undefined): number {
-  if (!Number.isFinite(limit)) {
+  if (limit === undefined || !Number.isFinite(limit)) {
     return DEFAULT_LIMIT;
   }
 
-  return Math.min(Math.max(Math.floor(limit as number), 1), MAX_LIMIT);
+  return Math.min(Math.max(Math.floor(limit), 1), MAX_LIMIT);
 }
 
 function normalizeFilterText(value: string | undefined): string | undefined {
@@ -130,10 +140,10 @@ function getOrderByClause(status: OperationalAlertStatus | undefined): string {
   return "ORDER BY COALESCE(resolved_at, detected_at) DESC, resolved_at DESC, detected_at DESC, id ASC";
 }
 
-function readOperationalAlertsRows(
-  db: SqliteDatabaseLike,
+async function readOperationalAlertsRows(
+  adapter: AsyncDbAdapter,
   options: OperationalAlertsReadOptions,
-): OperationalAlert[] {
+): Promise<OperationalAlert[]> {
   const where: string[] = [];
   const params: unknown[] = [];
 
@@ -166,15 +176,15 @@ function readOperationalAlertsRows(
 
   params.push(limit);
 
-  const rows = db.prepare(query).all(...params) as OperationalAlertRow[];
+  const rows = (await adapter.execute(query, params)) as OperationalAlertRow[];
   return rows.map(toOperationalAlert);
 }
 
 /**
  * Ensure the operational_alerts table exists.
  */
-export function ensureOperationalAlertsTable(db: SqliteDatabaseLike) {
-  const stmt = db.prepare(`
+export async function ensureOperationalAlertsTable(adapter: AsyncDbAdapter) {
+  await adapter.execute(`
     CREATE TABLE IF NOT EXISTS operational_alerts (
       id TEXT PRIMARY KEY,
       source TEXT NOT NULL,
@@ -197,47 +207,32 @@ export function ensureOperationalAlertsTable(db: SqliteDatabaseLike) {
       UNIQUE(source, rule_type, status)
     )
   `);
-
-  if (typeof stmt.run === "function") {
-    stmt.run();
-  } else {
-    stmt.all();
-  }
 }
-// --- Phase 3: Investigation Linking Helpers ---
 
 /**
  * Link an operational alert to an investigation (sets investigation_id).
  */
-export function linkOperationalAlertToInvestigation(db: SqliteDatabaseLike, alertId: string, investigationId: string) {
-  const stmt = db.prepare(`
+export async function linkOperationalAlertToInvestigation(adapter: AsyncDbAdapter, alertId: string, investigationId: string) {
+  await adapter.execute(`
     UPDATE operational_alerts
     SET investigation_id = ?
     WHERE id = ?
-  `);
-  if (stmt && typeof stmt.run === "function") {
-    stmt.run(investigationId, alertId);
-  } else {
-    throw new Error("Failed to prepare statement or .run is not a function");
-  }
+  `, [investigationId, alertId]);
 }
 
 /**
  * Find an open investigation for a given alert context (by source, rule_type, etc).
  * Returns the investigation_id or null if not found.
- * You can extend the context as needed for your workflow.
  */
-export function findOpenInvestigationForAlertContext(db: SqliteDatabaseLike, context: { source: string; ruleType: string; }): string | null {
-  // Example: Find the most recent open investigation for this source and ruleType
-  const stmt = db.prepare(`
+export async function findOpenInvestigationForAlertContext(adapter: AsyncDbAdapter, context: { source: string; ruleType: string; }): Promise<string | null> {
+  const rows = (await adapter.execute(`
     SELECT investigation_id FROM operational_alerts
     WHERE source = ? AND rule_type = ? AND investigation_id IS NOT NULL
     ORDER BY detected_at DESC LIMIT 1
-  `);
-  const rows = stmt.all(context.source, context.ruleType);
-  if (Array.isArray(rows) && rows.length > 0) {
-    const row = rows[0] as { investigation_id?: string | null };
-    return row.investigation_id ?? null;
+  `, [context.source, context.ruleType])) as Array<{ investigation_id?: string | null }>;
+
+  if (rows.length > 0) {
+    return rows[0].investigation_id ?? null;
   }
   return null;
 }
@@ -245,16 +240,16 @@ export function findOpenInvestigationForAlertContext(db: SqliteDatabaseLike, con
 /**
  * Read the linked investigation data for a given alert (returns investigation row or null).
  */
-export function getLinkedInvestigationForAlert(db: SqliteDatabaseLike, alertId: string): { id: string; title: string; summary: string; state: string; confidence: number | null } | null {
-  const stmt = db.prepare(`
+export async function getLinkedInvestigationForAlert(adapter: AsyncDbAdapter, alertId: string): Promise<{ id: string; title: string; summary: string; state: string; confidence: number | null } | null> {
+  const rows = (await adapter.execute(`
     SELECT i.id, i.title, i.summary, i.state, i.confidence
     FROM operational_alerts oa
     JOIN investigations i ON oa.investigation_id = i.id
     WHERE oa.id = ?
-  `);
-  const rows = stmt.all(alertId);
-  if (Array.isArray(rows) && rows.length > 0) {
-    return rows[0] as { id: string; title: string; summary: string; state: string; confidence: number | null };
+  `, [alertId])) as Array<{ id: string; title: string; summary: string; state: string; confidence: number | null }>;
+
+  if (rows.length > 0) {
+    return rows[0];
   }
   return null;
 }
@@ -263,23 +258,21 @@ export function getLinkedInvestigationForAlert(db: SqliteDatabaseLike, alertId: 
  * Evaluate feed-health snapshot and apply alerts.
  * Returns the IDs of alerts that were created/updated.
  */
-export function evaluateAndApplyAlerts(
-  db: SqliteDatabaseLike,
+export async function evaluateAndApplyAlerts(
+  adapter: AsyncDbAdapter,
   snapshot: LiveIngestionHealthSnapshot,
-): string[] {
+): Promise<string[]> {
   const { DbAlertStore } = require("../services/db-alert-store");
-  const service = createOperationalAlertsService({ db, alertStore: new DbAlertStore(db) });
+  const service = createOperationalAlertsService({ adapter, alertStore: new DbAlertStore(adapter) });
   const actions = evaluateFeedHealthForAlerts(snapshot);
 
-  // Apply create actions
-  const createdIds = service.applyAlertActions(
+  const createdIds = await service.applyAlertActions(
     actions.filter((a) => a.type === "create"),
   );
 
-  // Auto-resolve alerts for sources that are now healthy or degraded
   for (const sourceStatus of snapshot.latestBySource) {
     if (sourceStatus.status === "healthy" || sourceStatus.status === "degraded") {
-      service.resolveAlertsForSource(sourceStatus.source);
+      await service.resolveAlertsForSource(sourceStatus.source);
     }
   }
 
@@ -289,20 +282,20 @@ export function evaluateAndApplyAlerts(
 /**
  * Get all operational alerts with summary & history.
  */
-export function getOperationalAlertsWithSummary(
-  db: SqliteDatabaseLike,
+export async function getOperationalAlertsWithSummary(
+  adapter: AsyncDbAdapter,
   options: OperationalAlertsReadOptions = {},
-): OperationalAlertsReadResult {
+): Promise<OperationalAlertsReadResult> {
   const limit = normalizeLimit(options.limit);
 
-  const activeAlerts = readOperationalAlertsRows(db, {
+  const activeAlerts = await readOperationalAlertsRows(adapter, {
     status: "active",
     source: options.source,
     ruleType: options.ruleType,
     limit,
   });
 
-  const recentHistory = readOperationalAlertsRows(db, {
+  const recentHistory = await readOperationalAlertsRows(adapter, {
     status: options.status,
     source: options.source,
     ruleType: options.ruleType,
@@ -343,20 +336,17 @@ export function buildAlertSummary(alerts: OperationalAlert[]): OperationalAlerts
 }
 
 /**
- * Read operational alerts with 3-level fallback (like feed-health).
- * - Level 1: Database path missing
- * - Level 2: Fail to open database
- * - Level 3: Fail to query database
+ * Read operational alerts with 3-level fallback.
  */
-function readOperationalAlertsFromDatabase(options: {
+async function readOperationalAlertsFromDatabase(options: {
   status?: OperationalAlertStatus;
   source?: string;
   ruleType?: OperationalAlertRuleType;
   limit?: number;
   resolvePath?: typeof resolveDatabasePath;
   hasPath?: typeof hasDatabasePath;
-  openReadOnly?: typeof openReadOnlyDatabase;
-} = {}): OperationalAlertsReadResultResponse {
+  getAdapter?: typeof getAsyncAdapter;
+} = {}): Promise<OperationalAlertsReadResultResponse> {
   const {
     status,
     source,
@@ -364,10 +354,9 @@ function readOperationalAlertsFromDatabase(options: {
     limit,
     resolvePath = resolveDatabasePath,
     hasPath = hasDatabasePath,
-    openReadOnly = openReadOnlyDatabase,
+    getAdapter = getAsyncAdapter,
   } = options;
 
-  // Level 1: Check if database path exists
   if (!hasPath()) {
     return {
       source: "unavailable",
@@ -375,12 +364,9 @@ function readOperationalAlertsFromDatabase(options: {
     };
   }
 
-  // Level 2: Try to open database
-  const dbPath = resolvePath();
-  let db: SqliteDatabaseLike;
-
+  let adapter: AsyncDbAdapter;
   try {
-    db = openReadOnly(dbPath);
+    adapter = getAdapter(true);
   } catch {
     return {
       source: "unavailable",
@@ -388,10 +374,9 @@ function readOperationalAlertsFromDatabase(options: {
     };
   }
 
-  // Level 3: Try to query
   try {
-    ensureOperationalAlertsTable(db);
-    const result = getOperationalAlertsWithSummary(db, {
+    await ensureOperationalAlertsTable(adapter);
+    const result = await getOperationalAlertsWithSummary(adapter, {
       status,
       source,
       ruleType,
@@ -407,29 +392,13 @@ function readOperationalAlertsFromDatabase(options: {
       source: "unavailable",
       fallbackReason: "db_query_failed",
     };
+  } finally {
+    await adapter.close();
   }
 }
 
-export const getOperationalAlerts = (
+export const getOperationalAlerts = async (
   options: OperationalAlertsRepositoryReadOptions = {},
-): OperationalAlertsReadResultResponse => {
-  const {
-    status,
-    source,
-    ruleType,
-    limit,
-    resolvePath = resolveDatabasePath,
-    hasPath = hasDatabasePath,
-    openReadOnly = openReadOnlyDatabase,
-  } = options;
-
-  return readOperationalAlertsFromDatabase({
-    status,
-    source,
-    ruleType,
-    limit,
-    resolvePath,
-    hasPath,
-    openReadOnly,
-  });
+): Promise<OperationalAlertsReadResultResponse> => {
+  return readOperationalAlertsFromDatabase(options);
 };

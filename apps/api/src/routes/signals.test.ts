@@ -28,22 +28,22 @@ const BASE_SIGNAL: SignalDetection = {
   linkedInvestigationId: null,
 };
 
-test("signals list route returns DB payload and telemetry", () => {
-  const response = buildSignalsListRouteResponse(
+test("signals list route returns DB payload and telemetry", async () => {
+  const response = await buildSignalsListRouteResponse(
     { status: "open", limit: 5 },
     { source: "db", signals: [BASE_SIGNAL] },
   );
 
   assert.equal(response.status, 200);
-  assert.equal(response.json.signals.length, 1);
+  assert.equal((response.json as any).signals.length, 1);
   assert.equal(response.telemetry.route, "GET /signals");
   assert.equal(response.telemetry.source, "db");
   assert.equal(response.telemetry.signalCount, 1);
   assert.equal(response.telemetry.filtersApplied, true);
 });
 
-test("signals list route supports mock fallback", () => {
-  const response = buildSignalsListRouteResponse(
+test("signals list route supports mock fallback", async () => {
+  const response = await buildSignalsListRouteResponse(
     { severity: "critical" },
     { source: "mock", fallbackReason: "db_open_failed" },
   );
@@ -51,11 +51,11 @@ test("signals list route supports mock fallback", () => {
   assert.equal(response.status, 200);
   assert.equal(response.telemetry.source, "mock");
   assert.equal(response.telemetry.fallbackReason, "db_open_failed");
-  assert.ok(response.json.signals.length > 0);
+  assert.ok((response.json as any).signals.length > 0);
 });
 
-test("signal detail route returns not found when repository misses signal", () => {
-  const response = buildSignalDetailRouteResponse("SIG-MISSING", {
+test("signal detail route returns not found when repository misses signal", async () => {
+  const response = await buildSignalDetailRouteResponse("SIG-MISSING", {
     source: "db",
     result: "not_found",
   });
@@ -64,8 +64,8 @@ test("signal detail route returns not found when repository misses signal", () =
   assert.equal(response.telemetry.result, "not_found");
 });
 
-test("signal create route validates confidence", () => {
-  const response = buildSignalCreateRouteResponse({
+test("signal create route validates confidence", async () => {
+  const response = await buildSignalCreateRouteResponse({
     signalType: "thermal_anomaly",
     severity: "high",
     confidence: 140,
@@ -82,8 +82,8 @@ test("signal create route validates confidence", () => {
   assert.equal(response.telemetry.validationError, "invalid_confidence");
 });
 
-test("signal create route returns created signal", () => {
-  const response = buildSignalCreateRouteResponse(
+test("signal create route returns created signal", async () => {
+  const response = await buildSignalCreateRouteResponse(
     {
       signalType: "oxygen_depletion",
       severity: "high",
@@ -116,8 +116,8 @@ test("signal create route returns created signal", () => {
   assert.ok("signal" in response.json);
 });
 
-test("signal promote route validates path and body id alignment", () => {
-  const response = buildSignalPromoteRouteResponse("SIG-ONE", {
+test("signal promote route validates path and body id alignment", async () => {
+  const response = await buildSignalPromoteRouteResponse("SIG-ONE", {
     id: "SIG-TWO",
     investigationId: "TRK-201",
   });
@@ -127,8 +127,8 @@ test("signal promote route validates path and body id alignment", () => {
   assert.equal(response.telemetry.validationError, "id_mismatch");
 });
 
-test("signal promote route returns 404 when signal or investigation is missing", () => {
-  const response = buildSignalPromoteRouteResponse(
+test("signal promote route returns 404 when signal or investigation is missing", async () => {
+  const response = await buildSignalPromoteRouteResponse(
     "SIG-THERMAL-001",
     {
       id: "SIG-THERMAL-001",
@@ -144,8 +144,8 @@ test("signal promote route returns 404 when signal or investigation is missing",
   assert.equal(response.telemetry.result, "not_found");
 });
 
-test("signal dismiss route returns dismissed signal", () => {
-  const response = buildSignalDismissRouteResponse(
+test("signal dismiss route returns dismissed signal", async () => {
+  const response = await buildSignalDismissRouteResponse(
     "SIG-THERMAL-001",
     {
       id: "SIG-THERMAL-001",
@@ -165,12 +165,12 @@ test("signal dismiss route returns dismissed signal", () => {
   assert.equal(response.telemetry.result, "dismissed");
   assert.ok("signal" in response.json);
   if ("signal" in response.json) {
-    assert.equal(response.json.signal.status, "dismissed");
+    assert.equal((response.json as any).signal.status, "dismissed");
   }
 });
 
-test("signal dismiss route returns fallback telemetry when DB is unavailable", () => {
-  const response = buildSignalDismissRouteResponse(
+test("signal dismiss route returns fallback telemetry when DB is unavailable", async () => {
+  const response = await buildSignalDismissRouteResponse(
     "SIG-THERMAL-001",
     {
       id: "SIG-THERMAL-001",

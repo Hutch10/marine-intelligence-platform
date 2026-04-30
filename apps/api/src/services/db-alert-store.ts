@@ -1,41 +1,39 @@
 import type { AlertStore } from "./alert-store";
 import type { OperationalAlert, OperationalAlertRuleType } from "./operational-alerts";
-import type { SqliteDatabaseLike } from "../db/client";
+import type { AsyncDbAdapter } from "../db/async-client";
 
 export class DbAlertStore implements AlertStore {
-  constructor(private db: SqliteDatabaseLike) {}
+  constructor(private adapter: AsyncDbAdapter) {}
 
   // Helper: reconstructs the dedupe key
   private alertKey(source: string, ruleType: string, stationId: string | null): string {
     return [source, ruleType, stationId ?? ""].join("|");
   }
 
-  getAlertById(id: string): OperationalAlert | undefined {
-    const norm = (v: any) => v === undefined ? null : v;
-    const row = this.db.prepare("SELECT * FROM operational_alerts WHERE id = ?").all(norm(id))[0] as Record<string, unknown> | undefined;
+  async getAlertById(id: string): Promise<OperationalAlert | undefined> {
+    const rows = (await this.adapter.execute("SELECT * FROM operational_alerts WHERE id = ?", [id])) as Array<Record<string, unknown>>;
+    const row = rows[0];
     return row ? this.mapRow(row) : undefined;
   }
 
-  getAlertIdByKey(key: string): string | undefined {
-    // Key is source|ruleType|stationId
-    const norm = (v: any) => v === undefined ? null : v;
+  async getAlertIdByKey(key: string): Promise<string | undefined> {
     const [source, ruleType, stationId] = key.split("|");
-    const row = this.db.prepare(
-      "SELECT id FROM operational_alerts WHERE source = ? AND rule_type = ? AND (station_id IS ? OR station_id = ?) ORDER BY detected_at DESC, id DESC LIMIT 1"
-    ).all(norm(source), norm(ruleType), norm(stationId) || null, norm(stationId) || null)[0] as { id: string } | undefined;
+    const rows = (await this.adapter.execute(
+      "SELECT id FROM operational_alerts WHERE source = ? AND rule_type = ? AND (station_id IS ? OR station_id = ?) ORDER BY detected_at DESC, id DESC LIMIT 1",
+      [source, ruleType, stationId || null, stationId || null]
+    )) as Array<{ id: string }>;
+    const row = rows[0];
     return row ? String(row.id) : undefined;
   }
 
-  getAlertKeyById(id: string): string | undefined {
-    const norm = (v: any) => v === undefined ? null : v;
-    const row = this.db.prepare("SELECT source, rule_type, station_id FROM operational_alerts WHERE id = ?").all(norm(id))[0] as { source: string; rule_type: string; station_id: string | null } | undefined;
+  async getAlertKeyById(id: string): Promise<string | undefined> {
+    const rows = (await this.adapter.execute("SELECT source, rule_type, station_id FROM operational_alerts WHERE id = ?", [id])) as Array<{ source: string; rule_type: string; station_id: string | null }>;
+    const row = rows[0];
     if (!row) return undefined;
     return this.alertKey(String(row.source), String(row.rule_type), row.station_id == null ? null : String(row.station_id));
   }
 
-  setAlert(alert: OperationalAlert, key: string): void {
-    const norm = (v: any) => v === undefined ? null : v;
-    // Instrument all SQL and param usage
+  async setAlert(alert: OperationalAlert, key: string): Promise<void> {
     const sql = `INSERT INTO operational_alerts (
       id, source, station_id, rule_type, severity, status, lifecycle_status, title, detail, metadata_json,
       detected_at, resolved_at, occurrence_count, window_started_at, window_ends_at, created_at, updated_at
@@ -58,117 +56,71 @@ export class DbAlertStore implements AlertStore {
         created_at=excluded.created_at,
         updated_at=excluded.updated_at
     `;
+
     const params = [
-      norm(String(alert.id)),
-      norm(alert.source != null ? String(alert.source) : null),
-      norm(alert.stationId != null ? String(alert.stationId) : null),
-      norm(alert.ruleType != null ? String(alert.ruleType) : null),
-      norm(alert.severity != null ? String(alert.severity) : null),
-      norm(alert.status != null ? String(alert.status) : null),
-      norm(alert.lifecycleStatus != null ? String(alert.lifecycleStatus) : null),
-      norm(alert.title != null ? String(alert.title) : null),
-      norm(alert.detail != null ? String(alert.detail) : null),
-      norm(alert.metadataJson !== undefined && alert.metadataJson !== null
+      alert.id,
+      alert.source,
+      alert.stationId,
+      alert.ruleType,
+      alert.severity,
+      alert.status,
+      alert.lifecycleStatus,
+      alert.title,
+      alert.detail,
+      alert.metadataJson !== undefined && alert.metadataJson !== null
         ? (typeof alert.metadataJson === "string" ? alert.metadataJson : JSON.stringify(alert.metadataJson))
-        : null),
-      norm(alert.detectedAt),
-      norm(alert.resolvedAt === undefined || alert.resolvedAt === null
-        ? null
-        : typeof alert.resolvedAt === "number" || typeof alert.resolvedAt === "string"
-          ? alert.resolvedAt
-          : Number(alert.resolvedAt)),
-      norm(alert.occurrenceCount),
-      norm(alert.windowStartedAt),
-      norm(alert.windowEndsAt),
-      norm(typeof alert.createdAt === "string" ? alert.createdAt : new Date(alert.createdAt).toISOString()),
-      norm(typeof alert.updatedAt === "string" ? alert.updatedAt : new Date(alert.updatedAt).toISOString())
+        : null,
+      alert.detectedAt,
+      alert.resolvedAt ?? null,
+      alert.occurrenceCount,
+      alert.windowStartedAt,
+      alert.windowEndsAt,
+      typeof alert.createdAt === "string" ? alert.createdAt : new Date(alert.createdAt).toISOString(),
+      typeof alert.updatedAt === "string" ? alert.updatedAt : new Date(alert.updatedAt).toISOString()
     ];
+
     // 1. Lookup by key
     const [source, ruleType, stationId] = key.split("|");
     const lookupSql = "SELECT id FROM operational_alerts WHERE source = ? AND rule_type = ? AND (station_id IS ? OR station_id = ?) AND id != ?";
-    const lookupParams = [norm(source), norm(ruleType), norm(stationId) || null, norm(stationId) || null, norm(alert.id)];
-    // eslint-disable-next-line no-console
-    console.error("[DEBUG][DbAlertStore] STEP: lookup by key");
-    console.error("[DEBUG][DbAlertStore] SQL:", lookupSql);
-    console.error("[DEBUG][DbAlertStore] Params:", lookupParams);
-    console.error("[DEBUG][DbAlertStore] Param types:", lookupParams.map((v, i) => `#${i+1}: ${typeof v}`));
-    let existing: any[] = [];
-    try {
-      existing = this.db.prepare(lookupSql).all(...lookupParams);
-    } catch (e) {
-      console.error("[DEBUG][DbAlertStore] lookup by key FAILED:", e);
-      throw e;
-    }
+    const lookupParams = [source, ruleType, stationId || null, stationId || null, alert.id];
+    
+    const existing = (await this.adapter.execute(lookupSql, lookupParams)) as Array<{ id: string }>;
+
     // 2. Delete/rekey step
     for (const row of existing) {
-      const delSql = "DELETE FROM operational_alerts WHERE id = ?";
-      const delParams = [row.id];
-      // eslint-disable-next-line no-console
-      console.error("[DEBUG][DbAlertStore] STEP: delete/rekey");
-      console.error("[DEBUG][DbAlertStore] SQL:", delSql);
-      console.error("[DEBUG][DbAlertStore] Params:", delParams);
-      console.error("[DEBUG][DbAlertStore] Param types:", delParams.map((v, i) => `#${i+1}: ${typeof v}`));
-      try {
-        this.db.prepare(delSql).run!(...delParams.map(norm));
-      } catch (e) {
-        console.error("[DEBUG][DbAlertStore] delete/rekey FAILED:", e);
-        throw e;
-      }
+      await this.adapter.execute("DELETE FROM operational_alerts WHERE id = ?", [row.id]);
     }
+
     // 3. Upsert (replace by id)
-    // eslint-disable-next-line no-console
-    console.error("[DEBUG][DbAlertStore] STEP: upsert");
-    console.error("[DEBUG][DbAlertStore] SQL:", sql);
-    console.error("[DEBUG][DbAlertStore] Params:", params);
-    console.error("[DEBUG][DbAlertStore] Param types:", params.map((v, i) => `#${i+1}: ${typeof v}`));
-    try {
-      this.db.prepare(sql).run!(...params);
-    } catch (e) {
-      console.error("[DEBUG][DbAlertStore] upsert FAILED:", e);
-      throw e;
-    }
-    // 4. Manual direct insert for debug
-    if (process.env.DIRECT_INSERT_DEBUG === "1") {
-      const stmt = this.db.prepare(sql);
-      try {
-        stmt.run!(...params);
-        // eslint-disable-next-line no-console
-        console.error("[DEBUG][DbAlertStore] direct stmt.run(...params) succeeded");
-      } catch (e) {
-        // eslint-disable-next-line no-console
-        console.error("[DEBUG][DbAlertStore] direct stmt.run(...params) failed:", e);
-      }
-    }
+    await this.adapter.execute(sql, params);
   }
 
-  deleteAlert(id: string, key: string): void {
-    const norm = (v: any) => v === undefined ? null : v;
-    this.db.prepare("DELETE FROM operational_alerts WHERE id = ?").run!(norm(id));
+  async deleteAlert(id: string, _key: string): Promise<void> {
+    await this.adapter.execute("DELETE FROM operational_alerts WHERE id = ?", [id]);
   }
 
-  listAlerts(filter?: { source?: string; status?: string }): OperationalAlert[] {
-    const norm = (v: any) => v === undefined ? null : v;
+  async listAlerts(filter?: { source?: string; status?: string }): Promise<OperationalAlert[]> {
     let sql = "SELECT * FROM operational_alerts";
     const params: unknown[] = [];
     const conds: string[] = [];
     if (filter?.source) {
       conds.push("source = ?");
-      params.push(norm(filter.source));
+      params.push(filter.source);
     }
     if (filter?.status) {
       conds.push("status = ?");
-      params.push(norm(filter.status));
+      params.push(filter.status);
     }
     if (conds.length) {
       sql += " WHERE " + conds.join(" AND ");
     }
     sql += " ORDER BY detected_at ASC, id ASC";
-    const rows = this.db.prepare(sql).all(...params);
-    return rows.map((row: any) => this.mapRow(row as Record<string, unknown>));
+    const rows = (await this.adapter.execute(sql, params)) as Array<Record<string, unknown>>;
+    return rows.map((row) => this.mapRow(row));
   }
 
-  clear(): void {
-    this.db.prepare("DELETE FROM operational_alerts").run!();
+  async clear(): Promise<void> {
+    await this.adapter.execute("DELETE FROM operational_alerts", []);
   }
 
   // Helper: convert DB row to OperationalAlert

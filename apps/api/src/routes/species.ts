@@ -57,6 +57,13 @@ const VALID_MOVEMENT_TYPES = new Set<SpeciesMovementType>([
   "seasonal_mismatch",
 ]);
 
+type SpeciesFallbackReason = "db_path_missing" | "db_open_failed" | "db_query_failed";
+type SpeciesListReadResult = SpeciesListResult | { source: "mock"; fallbackReason: SpeciesFallbackReason };
+type SpeciesDetailReadResult = SpeciesDetailResult | { source: "mock"; fallbackReason: SpeciesFallbackReason };
+type SpeciesSightingsReadResult = SpeciesByIdSightingsResult | { source: "mock"; fallbackReason: SpeciesFallbackReason };
+type SpeciesSightingCreateReadResult = SpeciesSightingCreateResult | { source: "mock"; fallbackReason: SpeciesFallbackReason };
+type SpeciesMovementSignalsReadResult = SpeciesMovementSignalsResult | { source: "mock"; fallbackReason: SpeciesFallbackReason };
+
 function normalizeLimit(rawLimit: number | string | undefined): number {
   if (rawLimit === undefined) {
     return 50;
@@ -108,36 +115,36 @@ function normalizeMovementSignalFilters(
   };
 }
 
-function readSpecies(filters: SpeciesListFilters): SpeciesListResult {
+async function readSpecies(filters: SpeciesListFilters): Promise<SpeciesListReadResult> {
   try {
     const runtimeRequire = eval("require") as NodeRequire;
     const repository = runtimeRequire("../repositories/species") as {
-      listSpecies: (filters: SpeciesListFilters) => SpeciesListResult;
+      listSpecies: (filters: SpeciesListFilters) => Promise<SpeciesListResult>;
     };
 
-    return repository.listSpecies(filters);
+    return await repository.listSpecies(filters);
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   }
 }
 
-function readSpeciesById(speciesId: string): SpeciesDetailResult {
+async function readSpeciesById(speciesId: string): Promise<SpeciesDetailReadResult> {
   try {
     const runtimeRequire = eval("require") as NodeRequire;
     const repository = runtimeRequire("../repositories/species") as {
-      getSpeciesById: (speciesId: string) => SpeciesDetailResult;
+      getSpeciesById: (speciesId: string) => Promise<SpeciesDetailResult>;
     };
 
-    return repository.getSpeciesById(speciesId);
+    return await repository.getSpeciesById(speciesId);
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   }
 }
 
-function readSpeciesSightingsBySpecies(
+async function readSpeciesSightingsBySpecies(
   speciesId: string,
   query: SpeciesSightingsQuery = {},
-): SpeciesByIdSightingsResult {
+): Promise<SpeciesSightingsReadResult> {
   try {
     const runtimeRequire = eval("require") as NodeRequire;
     const repository = runtimeRequire("../repositories/species") as {
@@ -145,19 +152,19 @@ function readSpeciesSightingsBySpecies(
         speciesId: string,
         dependencies: undefined,
         filters: SpeciesSightingsQuery,
-      ) => SpeciesByIdSightingsResult;
+      ) => Promise<SpeciesByIdSightingsResult>;
     };
 
-    return repository.getSpeciesSightingsBySpecies(speciesId, undefined, query);
+    return await repository.getSpeciesSightingsBySpecies(speciesId, undefined, query);
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   }
 }
 
-function createSighting(
+async function createSighting(
   input: SpeciesSightingCreateRequest,
   actorId: string | null,
-): SpeciesSightingCreateResult {
+): Promise<SpeciesSightingCreateReadResult> {
   try {
     const runtimeRequire = eval("require") as NodeRequire;
     const repository = runtimeRequire("../repositories/species") as {
@@ -165,19 +172,19 @@ function createSighting(
         input: SpeciesSightingCreateRequest,
         dependencies: undefined,
         actorId: string | null,
-      ) => SpeciesSightingCreateResult;
+      ) => Promise<SpeciesSightingCreateResult>;
     };
 
-    return repository.createSpeciesSighting(input, undefined, actorId);
+    return await repository.createSpeciesSighting(input, undefined, actorId);
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   }
 }
 
-function readSpeciesMovementSignals(
+async function readSpeciesMovementSignals(
   speciesId: string,
   query: SpeciesMovementSignalsQuery = {},
-): SpeciesMovementSignalsResult {
+): Promise<SpeciesMovementSignalsReadResult> {
   try {
     const runtimeRequire = eval("require") as NodeRequire;
     const repository = runtimeRequire("../repositories/species") as {
@@ -185,10 +192,10 @@ function readSpeciesMovementSignals(
         speciesId: string,
         dependencies: undefined,
         filters: SpeciesMovementSignalFilters,
-      ) => SpeciesMovementSignalsResult;
+      ) => Promise<SpeciesMovementSignalsResult>;
     };
 
-    return repository.listSpeciesMovementSignals(
+    return await repository.listSpeciesMovementSignals(
       speciesId,
       undefined,
       normalizeMovementSignalFilters(query),
@@ -389,14 +396,16 @@ function filterMockMovementSignals(
     .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
 }
 
-export function buildSpeciesListRouteResponse(
+export async function buildSpeciesListRouteResponse(
   query: SpeciesListQuery = {},
-  readResult = readSpecies(normalizeSpeciesFilters(query)),
-): {
+  readResult?: SpeciesListReadResult,
+): Promise<{
   status: number;
   json: SpeciesListResponse | { message: string };
   telemetry: SpeciesListTelemetry;
-} {
+}> {
+  const finalReadResult = readResult ?? (await readSpecies(normalizeSpeciesFilters(query)));
+
   if (query.conservationStatus && !VALID_CONSERVATION_STATUSES.has(query.conservationStatus)) {
     return {
       status: 400,
@@ -410,14 +419,14 @@ export function buildSpeciesListRouteResponse(
     };
   }
 
-  if (readResult.source === "db") {
+  if (finalReadResult.source === "db") {
     return {
       status: 200,
-      json: { species: readResult.species },
+      json: { species: finalReadResult.species },
       telemetry: {
         route: "GET /species",
         source: "db",
-        speciesCount: readResult.species.length,
+        speciesCount: finalReadResult.species.length,
         filtersApplied: listFiltersApplied(query),
       },
     };
@@ -433,23 +442,25 @@ export function buildSpeciesListRouteResponse(
       source: "mock",
       speciesCount: fallbackSpecies.length,
       filtersApplied: listFiltersApplied(query),
-      fallbackReason: readResult.fallbackReason,
+      fallbackReason: finalReadResult.fallbackReason,
     },
   };
 }
 
-export function buildSpeciesDetailRouteResponse(
+export async function buildSpeciesDetailRouteResponse(
   speciesId: string,
-  readResult = readSpeciesById(speciesId),
-): {
+  readResult?: SpeciesDetailReadResult,
+): Promise<{
   status: number;
   json: SpeciesDetailResponse | { message: string };
   telemetry: SpeciesDetailTelemetry;
-} {
-  if (readResult.source === "db" && readResult.result === "found") {
+}> {
+  const finalReadResult = readResult ?? (await readSpeciesById(speciesId));
+
+  if (finalReadResult.source === "db" && finalReadResult.result === "found") {
     return {
       status: 200,
-      json: { species: readResult.species },
+      json: { species: finalReadResult.species },
       telemetry: {
         route: "GET /species/:id",
         source: "db",
@@ -459,7 +470,7 @@ export function buildSpeciesDetailRouteResponse(
     };
   }
 
-  if (readResult.source === "db") {
+  if (finalReadResult.source === "db") {
     return {
       status: 404,
       json: { message: "Species not found" },
@@ -483,7 +494,7 @@ export function buildSpeciesDetailRouteResponse(
         source: "mock",
         speciesId,
         result: "found",
-        fallbackReason: readResult.fallbackReason,
+        fallbackReason: finalReadResult.fallbackReason,
       },
     };
   }
@@ -496,20 +507,20 @@ export function buildSpeciesDetailRouteResponse(
       source: "mock",
       speciesId,
       result: "not_found",
-      fallbackReason: readResult.fallbackReason,
+      fallbackReason: finalReadResult.fallbackReason,
     },
   };
 }
 
-export function buildSpeciesSightingsRouteResponse(
+export async function buildSpeciesSightingsRouteResponse(
   speciesId: string,
   query: SpeciesSightingsQuery = {},
-  readResult = readSpeciesSightingsBySpecies(speciesId, query),
-): {
+  readResult?: SpeciesSightingsReadResult,
+): Promise<{
   status: number;
   json: SpeciesSightingsResponse | { message: string };
   telemetry: SpeciesSightingsTelemetry;
-} {
+}> {
   if (query.speciesId && query.speciesId !== speciesId) {
     return {
       status: 400,
@@ -525,8 +536,10 @@ export function buildSpeciesSightingsRouteResponse(
     };
   }
 
-  if (readResult.source === "db") {
-    if (readResult.result === "not_found") {
+  const finalReadResult = readResult ?? (await readSpeciesSightingsBySpecies(speciesId, query));
+
+  if (finalReadResult.source === "db") {
+    if (finalReadResult.result === "not_found") {
       return {
         status: 404,
         json: { message: "Species not found" },
@@ -543,12 +556,12 @@ export function buildSpeciesSightingsRouteResponse(
 
     return {
       status: 200,
-      json: { sightings: readResult.sightings },
+      json: { sightings: finalReadResult.sightings },
       telemetry: {
         route: "GET /species/:id/sightings",
         source: "db",
         speciesId,
-        sightingCount: readResult.sightings.length,
+        sightingCount: finalReadResult.sightings.length,
         filtersApplied: sightingsFiltersApplied(query),
         result: "found",
       },
@@ -567,20 +580,20 @@ export function buildSpeciesSightingsRouteResponse(
       sightingCount: fallbackSightings.length,
       filtersApplied: sightingsFiltersApplied(query),
       result: "found",
-      fallbackReason: readResult.fallbackReason,
+      fallbackReason: finalReadResult.fallbackReason,
     },
   };
 }
 
-export function buildSpeciesMovementSignalsRouteResponse(
+export async function buildSpeciesMovementSignalsRouteResponse(
   speciesId: string,
   query: SpeciesMovementSignalsQuery = {},
-  readResult = readSpeciesMovementSignals(speciesId, query),
-): {
+  readResult?: SpeciesMovementSignalsReadResult,
+): Promise<{
   status: number;
   json: SpeciesMovementSignalsResponse | { message: string };
   telemetry: SpeciesMovementSignalsTelemetry;
-} {
+}> {
   if (query.movementType && !VALID_MOVEMENT_TYPES.has(query.movementType)) {
     return {
       status: 400,
@@ -596,8 +609,10 @@ export function buildSpeciesMovementSignalsRouteResponse(
     };
   }
 
-  if (readResult.source === "db") {
-    if (readResult.result === "not_found") {
+  const finalReadResult = readResult ?? (await readSpeciesMovementSignals(speciesId, query));
+
+  if (finalReadResult.source === "db") {
+    if (finalReadResult.result === "not_found") {
       return {
         status: 404,
         json: { message: "Species not found" },
@@ -614,12 +629,12 @@ export function buildSpeciesMovementSignalsRouteResponse(
 
     return {
       status: 200,
-      json: { movementSignals: readResult.movementSignals },
+      json: { movementSignals: finalReadResult.movementSignals },
       telemetry: {
         route: "GET /species/:id/movement-signals",
         source: "db",
         speciesId,
-        signalCount: readResult.movementSignals.length,
+        signalCount: finalReadResult.movementSignals.length,
         filtersApplied: movementSignalsFiltersApplied(query),
         result: "found",
       },
@@ -640,7 +655,7 @@ export function buildSpeciesMovementSignalsRouteResponse(
         signalCount: 0,
         filtersApplied: movementSignalsFiltersApplied(query),
         result: "not_found",
-        fallbackReason: readResult.fallbackReason,
+        fallbackReason: finalReadResult.fallbackReason,
       },
     };
   }
@@ -655,21 +670,21 @@ export function buildSpeciesMovementSignalsRouteResponse(
       signalCount: fallbackSignals.length,
       filtersApplied: movementSignalsFiltersApplied(query),
       result: "found",
-      fallbackReason: readResult.fallbackReason,
+      fallbackReason: finalReadResult.fallbackReason,
     },
   };
 }
 
-export function buildSpeciesSightingCreateRouteResponse(
+export async function buildSpeciesSightingCreateRouteResponse(
   body: SpeciesSightingCreateRequest,
   auth: OceanStationAdminAuthContext | undefined,
-  createResult?: SpeciesSightingCreateResult,
+  createResult?: SpeciesSightingCreateReadResult,
   submittedCsrfToken = body.csrfToken,
-): {
+): Promise<{
   status: number;
   json: SpeciesSightingCreateResponse | { message: string };
   telemetry: SpeciesSightingCreateTelemetry;
-} {
+}> {
   const speciesId = body.speciesId?.trim();
   const stationId = body.stationId?.trim();
   const region = body.region?.trim();
@@ -846,7 +861,7 @@ export function buildSpeciesSightingCreateRouteResponse(
     }
   }
 
-  const result = createResult ?? createSighting({
+  const finalResult = createResult ?? (await createSighting({
     speciesId,
     stationId: stationId || undefined,
     region,
@@ -857,9 +872,9 @@ export function buildSpeciesSightingCreateRouteResponse(
     source,
     summary,
     verificationStatus,
-  }, auth.actorId);
+  }, auth.actorId));
 
-  if (result.source === "mock") {
+  if (finalResult.source === "mock") {
     return {
       status: 503,
       json: { message: "Species sightings unavailable" },
@@ -867,12 +882,12 @@ export function buildSpeciesSightingCreateRouteResponse(
         route: "POST /species/sightings",
         source: "mock",
         result: "not_found",
-        fallbackReason: result.fallbackReason,
+        fallbackReason: finalResult.fallbackReason,
       },
     };
   }
 
-  if (result.result === "not_found") {
+  if (finalResult.result === "not_found") {
     return {
       status: 404,
       json: { message: "Species not found" },
@@ -886,7 +901,7 @@ export function buildSpeciesSightingCreateRouteResponse(
 
   return {
     status: 201,
-    json: { sighting: result.sighting },
+    json: { sighting: finalResult.sighting },
     telemetry: {
       route: "POST /species/sightings",
       source: "db",
@@ -900,24 +915,24 @@ export function buildSpeciesSightingCreateRouteResponse(
 export const getSpeciesRoute: RouteDefinition<SpeciesListResponse | { message: string }, undefined, SpeciesListQuery> = {
   method: "GET",
   path: "/species",
-  handler(request) {
-    return buildSpeciesListRouteResponse(request.query ?? {});
+  async handler(request) {
+    return await buildSpeciesListRouteResponse(request.query ?? {});
   },
 };
 
 export const getSpeciesByIdRoute: RouteDefinition<SpeciesDetailResponse | { message: string }, { id: string }> = {
   method: "GET",
   path: "/species/:id",
-  handler(request) {
-    return buildSpeciesDetailRouteResponse(request.body.id);
+  async handler(request) {
+    return await buildSpeciesDetailRouteResponse(request.body.id);
   },
 };
 
 export const getSpeciesSightingsRoute: RouteDefinition<SpeciesSightingsResponse | { message: string }, { id: string }, SpeciesSightingsQuery> = {
   method: "GET",
   path: "/species/:id/sightings",
-  handler(request) {
-    return buildSpeciesSightingsRouteResponse(request.body.id, request.query ?? {});
+  async handler(request) {
+    return await buildSpeciesSightingsRouteResponse(request.body.id, request.query ?? {});
   },
 };
 
@@ -931,8 +946,8 @@ export const getSpeciesMovementSignalsRoute: RouteDefinition<
 > = {
   method: "GET",
   path: "/species/:id/movement-signals",
-  handler(request) {
-    return buildSpeciesMovementSignalsRouteResponse(request.body.id, request.query ?? {});
+  async handler(request) {
+    return await buildSpeciesMovementSignalsRouteResponse(request.body.id, request.query ?? {});
   },
 };
 
@@ -942,17 +957,19 @@ export const getInvestigationSpeciesSummaryRoute: RouteDefinition<
 > = {
   method: "GET",
   path: "/investigations/:id/species-summary",
-  handler(request) {
+  async handler(request) {
     try {
       const runtimeRequire = eval("require") as NodeRequire;
       const repository = runtimeRequire("../repositories/species") as {
         getInvestigationSpeciesSummary: (investigationId: string) =>
+          Promise<
           | { source: "db"; result: "found"; summary: import("@marine/shared").InvestigationSpeciesSummary }
           | { source: "db"; result: "not_found" }
-          | { source: "mock"; fallbackReason: string };
+          | { source: "mock"; fallbackReason: string }
+          >;
       };
 
-      const result = repository.getInvestigationSpeciesSummary(request.body.id);
+      const result = await repository.getInvestigationSpeciesSummary(request.body.id);
 
       if (result.source === "db" && result.result === "found") {
         return { status: 200, json: { summary: result.summary } };
@@ -982,7 +999,7 @@ export const getInvestigationSpeciesSummaryRoute: RouteDefinition<
 export const postSpeciesSightingRoute: RouteDefinition<SpeciesSightingCreateResponse | { message: string }, SpeciesSightingCreateRequest> = {
   method: "POST",
   path: "/species/sightings",
-  handler(request) {
-    return buildSpeciesSightingCreateRouteResponse(request.body, request.auth);
+  async handler(request) {
+    return await buildSpeciesSightingCreateRouteResponse(request.body, request.auth);
   },
 };

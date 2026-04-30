@@ -77,10 +77,10 @@ test("operational-alerts route parser ignores invalid ruleType", () => {
   assert.equal(parsed.ruleType, undefined);
 });
 
-test("operational-alerts route forwards source filter", () => {
+test("operational-alerts route forwards source filter", async () => {
   const captured: Array<Record<string, unknown>> = [];
 
-  readDatabaseOperationalAlerts(
+  await readDatabaseOperationalAlerts(
     { source: "ioos_regional" },
     {
       readOperationalAlerts(options) {
@@ -93,10 +93,10 @@ test("operational-alerts route forwards source filter", () => {
   assert.equal(captured[0]?.source, "ioos_regional");
 });
 
-test("operational-alerts route forwards combined filters", () => {
+test("operational-alerts route forwards combined filters", async () => {
   const captured: Array<Record<string, unknown>> = [];
 
-  readDatabaseOperationalAlerts(
+  await readDatabaseOperationalAlerts(
     {
       status: "resolved",
       source: "ioos_regional",
@@ -117,10 +117,10 @@ test("operational-alerts route forwards combined filters", () => {
   assert.equal(captured[0]?.limit, 5);
 });
 
-test("operational-alerts route forwards ruleType filter", () => {
+test("operational-alerts route forwards ruleType filter", async () => {
   const captured: Array<Record<string, unknown>> = [];
 
-  readDatabaseOperationalAlerts(
+  await readDatabaseOperationalAlerts(
     { ruleType: "source_stale" },
     {
       readOperationalAlerts(options) {
@@ -133,11 +133,11 @@ test("operational-alerts route forwards ruleType filter", () => {
   assert.equal(captured[0]?.ruleType, "source_stale");
 });
 
-test("operational-alerts route enforces limit bounds", () => {
+test("operational-alerts route enforces limit bounds", async () => {
   const capturedHigh: Array<Record<string, unknown>> = [];
   const capturedLow: Array<Record<string, unknown>> = [];
 
-  readDatabaseOperationalAlerts(
+  await readDatabaseOperationalAlerts(
     { limit: "9999" },
     {
       readOperationalAlerts(options) {
@@ -147,7 +147,7 @@ test("operational-alerts route enforces limit bounds", () => {
     },
   );
 
-  readDatabaseOperationalAlerts(
+  await readDatabaseOperationalAlerts(
     { limit: "0" },
     {
       readOperationalAlerts(options) {
@@ -171,8 +171,8 @@ test("operational-alerts route uses limit over historyLimit when both are provid
   assert.equal(parsed.limit, 3);
 });
 
-test("operational-alerts route returns safe empty db state", () => {
-  const response = buildOperationalAlertsRouteResponse({
+test("operational-alerts route returns safe empty db state", async () => {
+  const response = await buildOperationalAlertsRouteResponse({
     source: "db",
     result: {
       activeAlerts: [],
@@ -187,9 +187,9 @@ test("operational-alerts route returns safe empty db state", () => {
   assert.equal(response.json.summary.active_alert_count, 0);
 });
 
-test("operational-alerts route emits investigationId only when real linked investigation exists", () => {
+test("operational-alerts route emits investigationId only when real linked investigation exists", async () => {
   // Alert with real investigationId
-  const response = buildOperationalAlertsRouteResponse({
+  const response = await buildOperationalAlertsRouteResponse({
     source: "db",
     result: {
       activeAlerts: [
@@ -243,8 +243,8 @@ test("operational-alerts route emits investigationId only when real linked inves
   assert.ok(!("investigationId" in response.json.recent_history[0]) || response.json.recent_history[0].investigationId == null);
 });
 
-test("operational-alerts route does not emit investigationId for alerts with null/empty investigationId", () => {
-  const response = buildOperationalAlertsRouteResponse({
+test("operational-alerts route does not emit investigationId for alerts with null/empty investigationId", async () => {
+  const response = await buildOperationalAlertsRouteResponse({
     source: "db",
     result: {
       activeAlerts: [
@@ -297,8 +297,8 @@ test("operational-alerts route does not emit investigationId for alerts with nul
   assert.ok(!("investigationId" in response.json.active_alerts[1]) || response.json.active_alerts[1].investigationId == null);
 });
 
-test("operational-alerts route returns unavailable fallback state", () => {
-  const response = buildOperationalAlertsRouteResponse({
+test("operational-alerts route returns unavailable fallback state", async () => {
+  const response = await buildOperationalAlertsRouteResponse({
     source: "unavailable",
     fallbackReason: "db_open_failed",
   });

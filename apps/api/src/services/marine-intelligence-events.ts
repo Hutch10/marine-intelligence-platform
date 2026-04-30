@@ -7,20 +7,20 @@ import type {
 import {
   createMarineEvent,
   listMarineEvents,
-  type MarineEventsRepositoryCreateResult,
-  type MarineEventsRepositoryReadResult,
 } from "../repositories/marine-events";
 import { getMarineOntologyTermById } from "../repositories/marine-intelligence-ontology";
+import { getAsyncAdapter, type AsyncDbAdapter } from "../db/async-client";
 
 export interface MarineEventFoundationService {
-  recordEvent(input: MarineEventCreateInput): MarineEventCreateResult;
-  listEvents(filters?: MarineEventListFilters): MarineEventListResult;
+  recordEvent(input: MarineEventCreateInput): Promise<MarineEventCreateResult>;
+  listEvents(filters?: MarineEventListFilters): Promise<MarineEventListResult>;
 }
 
 interface MarineEventFoundationServiceDependencies {
-  createEvent?: (input: MarineEventCreateInput) => MarineEventsRepositoryCreateResult;
-  listEvents?: (filters?: MarineEventListFilters) => MarineEventsRepositoryReadResult;
+  createEvent?: (adapter: AsyncDbAdapter, input: MarineEventCreateInput) => Promise<MarineEventCreateResult>;
+  listEvents?: (adapter: AsyncDbAdapter, filters?: MarineEventListFilters) => Promise<MarineEventListResult>;
   getOntologyTerm?: typeof getMarineOntologyTermById;
+  getAdapter?: typeof getAsyncAdapter;
 }
 
 function toValidationError(error: string): MarineEventCreateResult {
@@ -51,11 +51,12 @@ function eventClassMatchesModeledTerm(eventClass: string, termId: string): boole
 export function createMarineEventFoundationService(
   dependencies: MarineEventFoundationServiceDependencies = {},
 ): MarineEventFoundationService {
-  const createEvent = dependencies.createEvent ?? ((input) => createMarineEvent(input));
-  const listEventsFromRepository = dependencies.listEvents ?? ((filters) => listMarineEvents(filters));
+  const createEvent = dependencies.createEvent ?? createMarineEvent;
+  const listEventsFromRepository = dependencies.listEvents ?? listMarineEvents;
   const getOntologyTerm = dependencies.getOntologyTerm ?? getMarineOntologyTermById;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
 
-  function recordEvent(input: MarineEventCreateInput): MarineEventCreateResult {
+  async function recordEvent(input: MarineEventCreateInput): Promise<MarineEventCreateResult> {
     const ontologyTermId = input.ontologyTermId.trim();
     const term = getOntologyTerm(ontologyTermId);
 
@@ -72,31 +73,21 @@ export function createMarineEventFoundationService(
       return toValidationError("eventClass does not match modeled ontology term");
     }
 
-    const createResult = createEvent(input);
-
-    if (createResult.source !== "db") {
-      return {
-        ok: false,
-        reason: "validation",
-        error: `Event storage unavailable: ${createResult.fallbackReason}`,
-        event: null,
-      };
+    const adapter = getAdapter(false);
+    try {
+      return await createEvent(adapter, input);
+    } finally {
+      adapter.close();
     }
-
-    return createResult.result;
   }
 
-  function listEvents(filters: MarineEventListFilters = {}): MarineEventListResult {
-    const listResult = listEventsFromRepository(filters);
-
-    if (listResult.source !== "db") {
-      return {
-        ok: false,
-        events: [],
-      };
+  async function listEvents(filters: MarineEventListFilters = {}): Promise<MarineEventListResult> {
+    const adapter = getAdapter(true);
+    try {
+      return await listEventsFromRepository(adapter, filters);
+    } finally {
+      adapter.close();
     }
-
-    return listResult.result;
   }
 
   return {

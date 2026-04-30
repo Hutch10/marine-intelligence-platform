@@ -442,7 +442,7 @@ test("list loading state appears during refresh", async () => {
 
   await user.click(screen.getByRole("button", { name: "Apply Filters" }));
 
-  expect(screen.getByText("Refreshing dataset list")).toBeInTheDocument();
+  expect(screen.getByText("REFRESHING DATASET LIST")).toBeInTheDocument();
 
   pendingResponse.resolve(createWorkspaceResponse(createWorkspace([BASE_DATASETS[0]!])));
 
@@ -465,7 +465,7 @@ test("initial degraded workspace state is visible without becoming noisy", async
     expect(mockApiClient.dataExplorer.getDatasetDetail).toHaveBeenCalled();
   });
 
-  expect(screen.getByText("Fallback data mode (DB query failed)")).toBeInTheDocument();
+  expect(screen.getByText("FALLBACK DATA MODE (DB QUERY FAILED)")).toBeInTheDocument();
   expect(screen.getByTestId("workspace-degraded-state")).toHaveTextContent("Backend degraded mode");
   expect(screen.queryByText("Unable to refresh datasets right now.")).not.toBeInTheDocument();
 });
@@ -512,7 +512,7 @@ test("list errors preserve the last known good list and selection", async () => 
   await user.click(screen.getByRole("button", { name: "Apply Filters" }));
 
   await waitFor(() => {
-    expect(screen.getByText("Unable to refresh datasets right now.")).toBeInTheDocument();
+    expect(screen.getByText("UNABLE TO REFRESH DATASETS RIGHT NOW.")).toBeInTheDocument();
   });
 
   expect(screen.getByRole("heading", { name: selectedDataset.name })).toBeInTheDocument();
@@ -1540,7 +1540,7 @@ test("personal scope does not fall back to browser-local presets when authentica
   await user.selectOptions(screen.getByLabelText("Preset scope"), "personal");
 
   await waitFor(() => {
-    expect(screen.getByText("Personal preset scope requires an authenticated station admin session.")).toBeInTheDocument();
+    expect(screen.getByText("PERSONAL PRESET SCOPE REQUIRES AN AUTHENTICATED STATION ADMIN SESSION.")).toBeInTheDocument();
   });
   expect(screen.queryByRole("option", { name: "Personal Local" })).not.toBeInTheDocument();
 });
@@ -1565,7 +1565,7 @@ test("personal scope save failures do not write browser-local fallback presets",
   await user.click(screen.getByRole("button", { name: "Save preset" }));
 
   await waitFor(() => {
-    expect(screen.getByText("Personal preset store unavailable.")).toBeInTheDocument();
+    expect(screen.getByText("PERSONAL PRESET STORE UNAVAILABLE.")).toBeInTheDocument();
   });
 
   const persisted = window.localStorage.getItem("marine.dataExplorer.presets.v1");

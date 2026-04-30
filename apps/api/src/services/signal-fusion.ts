@@ -1,4 +1,4 @@
-import { RiskSignalSummary, FusionState } from "@marine/shared/src/types";
+import { RiskSignalSummary, FusionState } from "@marine/shared";
 
 /**
  * Canonical builder for RiskSignalSummary.

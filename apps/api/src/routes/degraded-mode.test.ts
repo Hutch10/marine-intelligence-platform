@@ -18,10 +18,10 @@ function setMissingDbPath() {
   process.env.MARINE_DB_PATH = "C:/definitely-missing/marine.sqlite";
 }
 
-test("validation summary degrades honestly when database path is missing", () => {
+test("validation summary degrades honestly when database path is missing", async () => {
   setMissingDbPath();
 
-  const response = buildValidationSummaryRouteResponse({ stationId: "46042" });
+  const response = await buildValidationSummaryRouteResponse({ stationId: "46042" });
 
   assert.equal(response.status, 200);
   if ("reliability" in response.json) {
@@ -77,10 +77,10 @@ test("risk evaluate degrades honestly when database path is missing and no histo
   }
 });
 
-test("anomalies route returns empty degraded payload when database path is missing", () => {
+test("anomalies route returns empty degraded payload when database path is missing", async () => {
   setMissingDbPath();
 
-  const response = buildAnomaliesRouteResponse({ stationId: "station-001" });
+  const response = await buildAnomaliesRouteResponse({ stationId: "station-001" });
 
   assert.equal(response.status, 200);
   if ("anomalies" in response.json) {

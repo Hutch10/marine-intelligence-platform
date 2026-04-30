@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { buildRegionRiskTrendRouteResponse } from "./region-risk-trend";
 import { buildV1RegionRiskTrendRouteResponse } from "./v1-region-risk-trend";
 
-test("region risk trend route returns 404 when score route cannot resolve the region", () => {
-  const response = buildRegionRiskTrendRouteResponse("unknown-region", {
-    buildScoreResponse: () => ({
+test("region risk trend route returns 404 when score route cannot resolve the region", async () => {
+  const response = await buildRegionRiskTrendRouteResponse("unknown-region", {
+    buildScoreResponse: async () => ({
       status: 404,
       json: { message: "Unknown region unknown-region" },
     }),
@@ -15,9 +15,9 @@ test("region risk trend route returns 404 when score route cannot resolve the re
   assert.deepEqual(response.json, { message: "Unknown region unknown-region" });
 });
 
-test("region risk trend route returns trend and forecast guidance", () => {
-  const response = buildRegionRiskTrendRouteResponse("southeast-florida", {
-    buildScoreResponse: () => ({
+test("region risk trend route returns trend and forecast guidance", async () => {
+  const response = await buildRegionRiskTrendRouteResponse("southeast-florida", {
+    buildScoreResponse: async () => ({
       status: 200,
       json: {
         region_id: "southeast-florida",
@@ -77,8 +77,8 @@ test("region risk trend route returns trend and forecast guidance", () => {
   }
 });
 
-test("v1 region risk trend route maps internal output into the public response", () => {
-  const response = buildV1RegionRiskTrendRouteResponse("southeast-florida", () => ({
+test("v1 region risk trend route maps internal output into the public response", async () => {
+  const response = await buildV1RegionRiskTrendRouteResponse("southeast-florida", async () => ({
     status: 200,
     json: {
       region_id: "southeast-florida",

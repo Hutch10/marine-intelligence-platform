@@ -9,10 +9,11 @@ import {
   buildStationAdminRevokeRouteResponse,
 } from "./station-admin-lifecycle";
 
-test("station admin login route issues a valid session", () => {
-  const response = buildStationAdminLoginRouteResponse(
+test("station admin login route issues a valid session", async () => {
+  const response = await buildStationAdminLoginRouteResponse(
     "ops.lead@marine.local",
     "marine-admin-2026",
+    undefined,
     {
       result: "issued",
       sessionId: "sess-new-001",
@@ -64,19 +65,20 @@ test("station admin auth blocks revoked session", () => {
   assert.equal(response.telemetry.result, "not_found");
 });
 
-test("station admin lifecycle endpoints require csrf token for mutation", () => {
-  const logoutResponse = buildStationAdminLogoutRouteResponse("sess-admin-ops-001", "wrong-csrf", {
+test("station admin lifecycle endpoints require csrf token for mutation", async () => {
+  const logoutResponse = await buildStationAdminLogoutRouteResponse("sess-admin-ops-001", "wrong-csrf", undefined, {
     result: "csrf_invalid",
   });
 
-  const refreshResponse = buildStationAdminRefreshRouteResponse("sess-admin-ops-001", "wrong-csrf", {
+  const refreshResponse = await buildStationAdminRefreshRouteResponse("sess-admin-ops-001", "wrong-csrf", undefined, {
     result: "csrf_invalid",
   });
 
-  const revokeResponse = buildStationAdminRevokeRouteResponse(
+  const revokeResponse = await buildStationAdminRevokeRouteResponse(
     "sess-admin-ops-001",
     "wrong-csrf",
     "sess-viewer-ops-001",
+    undefined,
     {
       result: "csrf_invalid",
     },
@@ -90,8 +92,8 @@ test("station admin lifecycle endpoints require csrf token for mutation", () => 
   assert.equal(revokeResponse.telemetry.result, "csrf_invalid");
 });
 
-test("station admin logout route invalidates session", () => {
-  const response = buildStationAdminLogoutRouteResponse("sess-admin-ops-001", "csrf-ok", {
+test("station admin logout route invalidates session", async () => {
+  const response = await buildStationAdminLogoutRouteResponse("sess-admin-ops-001", "csrf-ok", undefined, {
     result: "revoked",
     actorId: "ops.lead@marine.local",
   });
@@ -101,10 +103,11 @@ test("station admin logout route invalidates session", () => {
   assert.deepEqual(response.json, { ok: true });
 });
 
-test("station admin login route returns 429 when account is locked out", () => {
-  const response = buildStationAdminLoginRouteResponse(
+test("station admin login route returns 429 when account is locked out", async () => {
+  const response = await buildStationAdminLoginRouteResponse(
     "ops.lead@marine.local",
     "marine-admin-2026",
+    undefined,
     { result: "locked_out" },
   );
 
@@ -113,10 +116,11 @@ test("station admin login route returns 429 when account is locked out", () => {
   assert.ok("message" in response.json && typeof response.json.message === "string");
 });
 
-test("station admin login route returns 202 when MFA challenge is required", () => {
-  const response = buildStationAdminLoginRouteResponse(
+test("station admin login route returns 202 when MFA challenge is required", async () => {
+  const response = await buildStationAdminLoginRouteResponse(
     "ops.lead@marine.local",
     "marine-admin-2026",
+    undefined,
     {
       result: "pending_mfa",
       actorId: "ops.lead@marine.local",
@@ -141,8 +145,8 @@ test("station admin login route returns 202 when MFA challenge is required", () 
   assert.ok("result" in response.json && response.json.result === "pending_mfa");
 });
 
-test("station admin MFA verify route issues session on successful login challenge", () => {
-  const response = buildStationAdminMfaVerifyRouteResponse(
+test("station admin MFA verify route issues session on successful login challenge", async () => {
+  const response = await buildStationAdminMfaVerifyRouteResponse(
     {
       challengeId: "mfa-challenge-login-001",
       code: "246810",
@@ -175,8 +179,8 @@ test("station admin MFA verify route issues session on successful login challeng
   assert.ok("result" in response.json && response.json.result === "issued");
 });
 
-test("station admin MFA verify route returns attemptsRemaining for invalid MFA code", () => {
-  const response = buildStationAdminMfaVerifyRouteResponse(
+test("station admin MFA verify route returns attemptsRemaining for invalid MFA code", async () => {
+  const response = await buildStationAdminMfaVerifyRouteResponse(
     {
       challengeId: "mfa-challenge-login-002",
       code: "wrong",
@@ -194,8 +198,8 @@ test("station admin MFA verify route returns attemptsRemaining for invalid MFA c
   assert.ok("attemptsRemaining" in response.json && response.json.attemptsRemaining === 2);
 });
 
-test("station admin MFA verify route returns explicit expired status", () => {
-  const response = buildStationAdminMfaVerifyRouteResponse(
+test("station admin MFA verify route returns explicit expired status", async () => {
+  const response = await buildStationAdminMfaVerifyRouteResponse(
     {
       challengeId: "mfa-challenge-login-003",
       code: "246810",
@@ -210,8 +214,8 @@ test("station admin MFA verify route returns explicit expired status", () => {
   assert.ok("result" in response.json && response.json.result === "expired");
 });
 
-test("station admin MFA verify route returns explicit lockout status", () => {
-  const response = buildStationAdminMfaVerifyRouteResponse(
+test("station admin MFA verify route returns explicit lockout status", async () => {
+  const response = await buildStationAdminMfaVerifyRouteResponse(
     {
       challengeId: "mfa-challenge-login-004",
       code: "246810",
@@ -228,8 +232,8 @@ test("station admin MFA verify route returns explicit lockout status", () => {
   assert.ok("attemptsRemaining" in response.json && response.json.attemptsRemaining === 0);
 });
 
-test("station admin MFA verify route returns explicit rate-limited status", () => {
-  const response = buildStationAdminMfaVerifyRouteResponse(
+test("station admin MFA verify route returns explicit rate-limited status", async () => {
+  const response = await buildStationAdminMfaVerifyRouteResponse(
     {
       challengeId: "mfa-challenge-login-005",
       code: "246810",
@@ -247,11 +251,12 @@ test("station admin MFA verify route returns explicit rate-limited status", () =
   assert.equal(response.headers?.["Retry-After"], "60");
 });
 
-test("station admin revoke route returns 401 when step-up MFA is required", () => {
-  const response = buildStationAdminRevokeRouteResponse(
+test("station admin revoke route returns 401 when step-up MFA is required", async () => {
+  const response = await buildStationAdminRevokeRouteResponse(
     "sess-admin-ops-001",
     "csrf-admin-ops-001",
     "sess-viewer-ops-001",
+    undefined,
     {
       result: "mfa_required",
       challenge: {

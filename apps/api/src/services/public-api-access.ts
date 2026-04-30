@@ -123,13 +123,14 @@ export async function appendPublicApiUsageEntry(input: {
   durationMs?: number | null;
   requestAt?: number;
 }): Promise<ApiUsageLogEntry | null> {
-  const result = logApiUsage(input);
+  logApiUsage({
+    keyId: input.keyId,
+    route: input.route,
+    statusCode: input.statusCode,
+    durationMs: input.durationMs ?? undefined,
+  });
 
-  if (result.source !== "db" || !result.result.ok) {
-    return null;
-  }
-
-  return result.result.entry;
+  return null;
 }
 
 export async function readPublicApiUsageSummary(

@@ -5,49 +5,42 @@ import {
   insertStationMetricRecord,
   stationMetricExists,
 } from "./station-metrics";
-import type { SqliteDatabaseLike } from "../db/client";
+import type { AsyncDbAdapter, AsyncDbRow } from "../db/async-client";
 
-function createCaptureDb(rows: unknown[] = []): {
-  db: SqliteDatabaseLike;
+function createCaptureAdapter(rows: unknown[] = []): {
+  adapter: AsyncDbAdapter;
   captured: Array<{ sql: string; params: unknown[] }>;
 } {
   const captured: Array<{ sql: string; params: unknown[] }> = [];
 
-  const db: SqliteDatabaseLike = {
-    prepare(sql: string) {
-      return {
-        run(...params: unknown[]) {
-          captured.push({ sql, params });
-        },
-        all(...params: unknown[]) {
-          captured.push({ sql, params });
-          if (sql.includes("SELECT 1 AS found")) {
-            return rows;
-          }
-          return [];
-        },
-      };
+  const adapter: AsyncDbAdapter = {
+    async execute(sql: string, params: unknown[] = []): Promise<AsyncDbRow[]> {
+      captured.push({ sql, params });
+      if (sql.includes("SELECT 1 AS found")) {
+        return rows as AsyncDbRow[];
+      }
+      return [];
     },
     close() {},
   };
 
-  return { db, captured };
+  return { adapter, captured };
 }
 
-test("ensureStationMetricsTable creates table and index", () => {
-  const { db, captured } = createCaptureDb();
+test("ensureStationMetricsTable creates table and index", async () => {
+  const { adapter, captured } = createCaptureAdapter();
 
-  ensureStationMetricsTable(db);
+  await ensureStationMetricsTable(adapter);
 
   assert.equal(captured.length, 2);
   assert.ok(captured[0]?.sql.includes("CREATE TABLE IF NOT EXISTS station_metrics"));
   assert.ok(captured[1]?.sql.includes("CREATE INDEX IF NOT EXISTS idx_station_metrics_source_identity"));
 });
 
-test("stationMetricExists returns true when duplicate exists", () => {
-  const { db } = createCaptureDb([{ found: 1 }]);
+test("stationMetricExists returns true when duplicate exists", async () => {
+  const { adapter } = createCaptureAdapter([{ found: 1 }]);
 
-  const exists = stationMetricExists(db, {
+  const exists = await stationMetricExists(adapter, {
     source: "ioos_regional",
     stationId: "urn:ioos:station:test:alpha",
     regionKey: "Pacific Northwest",
@@ -58,10 +51,10 @@ test("stationMetricExists returns true when duplicate exists", () => {
   assert.equal(exists, true);
 });
 
-test("insertStationMetricRecord inserts normalized metric row", () => {
-  const { db, captured } = createCaptureDb();
+test("insertStationMetricRecord inserts normalized metric row", async () => {
+  const { adapter, captured } = createCaptureAdapter();
 
-  const id = insertStationMetricRecord(db, {
+  const id = await insertStationMetricRecord(adapter, {
     stationId: "urn:ioos:station:test:alpha",
     regionKey: "Pacific Northwest",
     metricType: "salinity_psu",

@@ -83,6 +83,12 @@ export function SignalCard({ signal, detailHref }: SignalCardProps) {
             label={signal.status}
             className={cn("capitalize", STATUS_STYLES[signal.status])}
           />
+          {signal.sovereignStatus && (
+            <StatusBadge
+              label={signal.sovereignStatus}
+              className="mt-1"
+            />
+          )}
         </div>
       </div>
 

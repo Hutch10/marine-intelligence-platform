@@ -26,7 +26,7 @@ export interface ExplorerQueryResponse {
 export async function getRepositoryData(filters: any = {}, limit?: number): Promise<ExplorerQueryResponse> {
   // Use listStations (not getStations) and handle union result
   console.log("[explorer-service] calling listStations");
-  const stationsResult = listStations();
+  const stationsResult = await listStations();
   console.log("[explorer-service] stationsResult:", stationsResult);
   if (stationsResult.source !== "db") {
     return {

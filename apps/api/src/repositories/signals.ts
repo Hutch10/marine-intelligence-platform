@@ -7,12 +7,9 @@ import type {
 } from "@marine/shared";
 import {
   hasDatabasePath,
-  openReadOnlyDatabase,
-  openWritableDatabase,
   resolveDatabasePath,
-  type SqliteDatabaseLike,
-  type SqliteStatementLike,
 } from "../db/client";
+import { getAsyncAdapter, type AsyncDbAdapter } from "../db/async-client";
 import type { RecordInvestigationEventInput } from "./investigation-events";
 import type { SignalFallbackReason } from "../types";
 
@@ -96,23 +93,9 @@ export type SignalDismissResult =
 interface SignalsRepositoryDependencies {
   resolvePath?: typeof resolveDatabasePath;
   hasPath?: typeof hasDatabasePath;
-  openReadOnly?: typeof openReadOnlyDatabase;
-  openWritable?: typeof openWritableDatabase;
+  getAdapter?: typeof getAsyncAdapter;
   now?: () => number;
   recordEvent?: (input: RecordInvestigationEventInput) => unknown;
-}
-
-function toStatement(db: SqliteDatabaseLike, sql: string): SqliteStatementLike {
-  return db.prepare(sql);
-}
-
-function runStatement(statement: SqliteStatementLike, ...params: unknown[]) {
-  if (typeof statement.run === "function") {
-    statement.run(...params);
-    return;
-  }
-
-  statement.all(...params);
 }
 
 function normalizeSignalType(value: string): SignalType {
@@ -187,6 +170,9 @@ function toSignal(row: SignalRow, now: number): SignalDetection {
     createdAt: new Date(normalizeTimestamp(row.created_at, now)).toISOString(),
     updatedAt: new Date(normalizeTimestamp(row.updated_at, now)).toISOString(),
     linkedInvestigationId: row.linked_investigation_id,
+    linkedMissionId: null,
+    validationState: "UNVERIFIED",
+    validationMetadata: null,
   };
 }
 
@@ -204,11 +190,9 @@ function normalizeLimit(rawLimit: number | string | undefined): number {
   return Math.min(Math.floor(parsed), MAX_LIMIT);
 }
 
-function ensureSignalDetectionsTable(db: SqliteDatabaseLike) {
-  runStatement(
-    toStatement(
-      db,
-      `CREATE TABLE IF NOT EXISTS signal_detections (
+async function ensureSignalDetectionsTable(adapter: AsyncDbAdapter) {
+  await adapter.execute(
+    `CREATE TABLE IF NOT EXISTS signal_detections (
         id TEXT PRIMARY KEY,
         signal_type TEXT NOT NULL,
         severity TEXT NOT NULL,
@@ -225,8 +209,7 @@ function ensureSignalDetectionsTable(db: SqliteDatabaseLike) {
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
         linked_investigation_id TEXT REFERENCES investigations(id)
-      )`,
-    ),
+      )`
   );
 }
 
@@ -249,59 +232,53 @@ function getRecordInvestigationEvent(): ((input: RecordInvestigationEventInput) 
   }
 }
 
-function findSignalById(db: SqliteDatabaseLike, signalId: string): SignalRow | null {
-  const row = toStatement(
-    db,
+async function findSignalById(adapter: AsyncDbAdapter, signalId: string): Promise<SignalRow | null> {
+  const rows = await adapter.execute(
     `SELECT id, signal_type, severity, confidence, source_type, source_id, region, station_id,
             title, summary, detail, status, detected_at, created_at, updated_at, linked_investigation_id
      FROM signal_detections
      WHERE id = ?
      LIMIT 1`,
-  ).all(signalId)[0] as SignalRow | undefined;
+    [signalId]
+  ) as SignalRow[];
 
-  return row ?? null;
+  return rows[0] ?? null;
 }
 
-function investigationExists(db: SqliteDatabaseLike, investigationId: string): boolean {
-  const row = toStatement(
-    db,
+async function investigationExists(adapter: AsyncDbAdapter, investigationId: string): Promise<boolean> {
+  const rows = await adapter.execute(
     "SELECT id FROM investigations WHERE id = ? LIMIT 1",
-  ).all(investigationId) as Array<{ id: string }>;
+    [investigationId]
+  ) as Array<{ id: string }>;
 
-  return row.length > 0;
+  return rows.length > 0;
 }
 
-export function listSignals(
+export async function listSignals(
   filters: SignalListFilters = {},
   dependencies: SignalsRepositoryDependencies = {},
-): SignalsListResult {
+): Promise<SignalsListResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openReadOnly = dependencies.openReadOnly ?? openReadOnlyDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const now = dependencies.now ?? Date.now;
   const databasePath = resolvePath();
-  console.log("[signals] resolved databasePath:", databasePath);
-  const has = hasPath(databasePath);
-  console.log("[signals] hasPath:", has);
-  if (!has) {
-    console.log("[signals] DB path missing, returning fallback");
+  
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
+  if (!isTurso && !hasPath(databasePath)) {
     return { source: "mock", fallbackReason: "db_path_missing" };
   }
 
-  let db: SqliteDatabaseLike;
+  let adapter: AsyncDbAdapter;
 
   try {
-    console.log("[signals] opening database");
-    db = openReadOnly(databasePath);
-    console.log("[signals] database opened");
+    adapter = getAdapter(true);
   } catch (e) {
-    console.log("[signals] DB open failed:", e);
     return { source: "mock", fallbackReason: "db_open_failed" };
   }
 
   try {
-    console.log("[signals] preparing and running query");
-    ensureSignalDetectionsTable(db);
+    await ensureSignalDetectionsTable(adapter);
 
     const whereClauses: string[] = [];
     const params: unknown[] = [];
@@ -333,54 +310,53 @@ export function listSignals(
 
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
 
-    const rows = toStatement(
-      db,
+    const rows = await adapter.execute(
       `SELECT id, signal_type, severity, confidence, source_type, source_id, region, station_id,
               title, summary, detail, status, detected_at, created_at, updated_at, linked_investigation_id
        FROM signal_detections
        ${whereSql}
-       ORDER BY detected_at DESC, id DESC
+       ORDER BY detected_at DESC, id ASC
        LIMIT ?`,
-    ).all(...params, normalizeLimit(filters.limit)) as SignalRow[];
-    console.log("[signals] query returned rows:", rows.length);
+      [...params, normalizeLimit(filters.limit)]
+    ) as SignalRow[];
+
     return {
       source: "db",
       signals: rows.map((row) => toSignal(row, now())),
     };
   } catch (e) {
-    console.log("[signals] DB query failed:", e);
     return { source: "mock", fallbackReason: "db_query_failed" };
   } finally {
-    db.close();
-    console.log("[signals] db closed");
+    adapter.close();
   }
 }
 
-export function getSignalById(
+export async function getSignalById(
   signalId: string,
   dependencies: SignalsRepositoryDependencies = {},
-): SignalDetailResult {
+): Promise<SignalDetailResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openReadOnly = dependencies.openReadOnly ?? openReadOnlyDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const now = dependencies.now ?? Date.now;
   const databasePath = resolvePath();
 
-  if (!hasPath(databasePath)) {
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
+  if (!isTurso && !hasPath(databasePath)) {
     return { source: "mock", fallbackReason: "db_path_missing" };
   }
 
-  let db: SqliteDatabaseLike;
+  let adapter: AsyncDbAdapter;
 
   try {
-    db = openReadOnly(databasePath);
+    adapter = getAdapter(true);
   } catch {
     return { source: "mock", fallbackReason: "db_open_failed" };
   }
 
   try {
-    ensureSignalDetectionsTable(db);
-    const signalRow = findSignalById(db, signalId);
+    await ensureSignalDetectionsTable(adapter);
+    const signalRow = await findSignalById(adapter, signalId);
 
     if (!signalRow) {
       return { source: "db", result: "not_found" };
@@ -394,65 +370,65 @@ export function getSignalById(
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   } finally {
-    db.close();
+    adapter.close();
   }
 }
 
-export function createSignal(
+export async function createSignal(
   input: CreateSignalInput,
   dependencies: SignalsRepositoryDependencies = {},
-): SignalCreateResult {
+): Promise<SignalCreateResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openWritable = dependencies.openWritable ?? openWritableDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const now = dependencies.now ?? Date.now;
   const databasePath = resolvePath();
 
-  if (!hasPath(databasePath)) {
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
+  if (!isTurso && !hasPath(databasePath)) {
     return { source: "mock", fallbackReason: "db_path_missing" };
   }
 
-  let db: SqliteDatabaseLike;
+  let adapter: AsyncDbAdapter;
 
   try {
-    db = openWritable(databasePath);
+    adapter = getAdapter(false);
   } catch {
     return { source: "mock", fallbackReason: "db_open_failed" };
   }
 
   try {
-    ensureSignalDetectionsTable(db);
+    await ensureSignalDetectionsTable(adapter);
 
     const createdAt = now();
     const id = createSignalId(createdAt);
     const status = input.status && VALID_SIGNAL_STATUSES.has(input.status) ? input.status : "open";
 
-    runStatement(
-      toStatement(
-        db,
-        `INSERT INTO signal_detections
-          (id, signal_type, severity, confidence, source_type, source_id, region, station_id, title, summary, detail, status, detected_at, created_at, updated_at, linked_investigation_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ),
-      id,
-      input.signalType,
-      input.severity,
-      input.confidence,
-      input.sourceType,
-      input.sourceId,
-      input.region,
-      input.stationId?.trim() ? input.stationId.trim() : null,
-      input.title,
-      input.summary,
-      input.detail,
-      status,
-      createdAt,
-      createdAt,
-      createdAt,
-      input.linkedInvestigationId?.trim() ? input.linkedInvestigationId.trim() : null,
+    await adapter.execute(
+      `INSERT INTO signal_detections
+        (id, signal_type, severity, confidence, source_type, source_id, region, station_id, title, summary, detail, status, detected_at, created_at, updated_at, linked_investigation_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        input.signalType,
+        input.severity,
+        input.confidence,
+        input.sourceType,
+        input.sourceId,
+        input.region,
+        input.stationId?.trim() ? input.stationId.trim() : null,
+        input.title,
+        input.summary,
+        input.detail,
+        status,
+        createdAt,
+        createdAt,
+        createdAt,
+        input.linkedInvestigationId?.trim() ? input.linkedInvestigationId.trim() : null,
+      ]
     );
 
-    const signal = findSignalById(db, id);
+    const signal = await findSignalById(adapter, id);
 
     if (!signal) {
       return { source: "mock", fallbackReason: "db_query_failed" };
@@ -466,62 +442,57 @@ export function createSignal(
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   } finally {
-    db.close();
+    adapter.close();
   }
 }
 
-export function promoteSignalToInvestigation(
+export async function promoteSignalToInvestigation(
   signalId: string,
   investigationId: string,
   actor: string | undefined,
   dependencies: SignalsRepositoryDependencies = {},
-): SignalPromoteResult {
+): Promise<SignalPromoteResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openWritable = dependencies.openWritable ?? openWritableDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const now = dependencies.now ?? Date.now;
   const recordEvent = dependencies.recordEvent ?? getRecordInvestigationEvent();
   const databasePath = resolvePath();
 
-  if (!hasPath(databasePath)) {
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
+  if (!isTurso && !hasPath(databasePath)) {
     return { source: "mock", fallbackReason: "db_path_missing" };
   }
 
-  let db: SqliteDatabaseLike;
+  let adapter: AsyncDbAdapter;
 
   try {
-    db = openWritable(databasePath);
+    adapter = getAdapter(false);
   } catch {
     return { source: "mock", fallbackReason: "db_open_failed" };
   }
 
   try {
-    ensureSignalDetectionsTable(db);
+    await ensureSignalDetectionsTable(adapter);
 
-    const existingSignal = findSignalById(db, signalId);
+    const existingSignal = await findSignalById(adapter, signalId);
 
     if (!existingSignal) {
       return { source: "db", result: "not_found" };
     }
 
-    if (!investigationExists(db, investigationId)) {
+    if (!(await investigationExists(adapter, investigationId))) {
       return { source: "db", result: "not_found" };
     }
 
-    runStatement(
-      toStatement(
-        db,
-        `UPDATE signal_detections
-         SET status = ?, linked_investigation_id = ?, updated_at = ?
-         WHERE id = ?`,
-      ),
-      "promoted",
-      investigationId,
-      now(),
-      signalId,
+    await adapter.execute(
+      `UPDATE signal_detections
+       SET status = ?, linked_investigation_id = ?, updated_at = ?
+       WHERE id = ?`,
+      ["promoted", investigationId, now(), signalId]
     );
 
-    const promotedSignal = findSignalById(db, signalId);
+    const promotedSignal = await findSignalById(adapter, signalId);
 
     if (!promotedSignal) {
       return { source: "db", result: "not_found" };
@@ -553,55 +524,51 @@ export function promoteSignalToInvestigation(
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   } finally {
-    db.close();
+    adapter.close();
   }
 }
 
-export function dismissSignal(
+export async function dismissSignal(
   signalId: string,
   _actor: string | undefined,
   dependencies: SignalsRepositoryDependencies = {},
-): SignalDismissResult {
+): Promise<SignalDismissResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openWritable = dependencies.openWritable ?? openWritableDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const now = dependencies.now ?? Date.now;
   const databasePath = resolvePath();
 
-  if (!hasPath(databasePath)) {
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
+  if (!isTurso && !hasPath(databasePath)) {
     return { source: "mock", fallbackReason: "db_path_missing" };
   }
 
-  let db: SqliteDatabaseLike;
+  let adapter: AsyncDbAdapter;
 
   try {
-    db = openWritable(databasePath);
+    adapter = getAdapter(false);
   } catch {
     return { source: "mock", fallbackReason: "db_open_failed" };
   }
 
   try {
-    ensureSignalDetectionsTable(db);
+    await ensureSignalDetectionsTable(adapter);
 
-    const existingSignal = findSignalById(db, signalId);
+    const existingSignal = await findSignalById(adapter, signalId);
 
     if (!existingSignal) {
       return { source: "db", result: "not_found" };
     }
 
-    runStatement(
-      toStatement(
-        db,
-        `UPDATE signal_detections
-         SET status = ?, updated_at = ?
-         WHERE id = ?`,
-      ),
-      "dismissed",
-      now(),
-      signalId,
+    await adapter.execute(
+      `UPDATE signal_detections
+       SET status = ?, updated_at = ?
+       WHERE id = ?`,
+      ["dismissed", now(), signalId]
     );
 
-    const dismissedSignal = findSignalById(db, signalId);
+    const dismissedSignal = await findSignalById(adapter, signalId);
 
     if (!dismissedSignal) {
       return { source: "db", result: "not_found" };
@@ -615,6 +582,6 @@ export function dismissSignal(
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   } finally {
-    db.close();
+    adapter.close();
   }
 }

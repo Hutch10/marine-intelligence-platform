@@ -35,17 +35,28 @@ function createInMemoryDb(): SqliteDatabaseLike {
   };
 }
 
-test("marine alerts repository creates and lists alerts deterministically", () => {
+test("marine alerts repository creates and lists alerts deterministically", async () => {
   const db = createInMemoryDb();
   const deps = {
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openWritable: () => db,
-    openReadOnly: () => db,
+    getAdapter: () => ({
+      execute: async (sql: string, params: unknown[] = []) => {
+        const stmt = db.prepare(sql);
+        const upper = sql.trim().toUpperCase();
+        if (upper.startsWith("SELECT") || upper.startsWith("PRAGMA")) {
+          return stmt.all(...params);
+        } else {
+          return stmt.run(...params);
+        }
+      },
+      close: async () => {},
+      resourceId: "mock-async",
+    }),
     now: () => NOW,
   };
 
-  const created = createMarineAlert(
+  const created = await createMarineAlert(
     {
       eventId: "MEV-001",
       severity: "high",
@@ -69,7 +80,7 @@ test("marine alerts repository creates and lists alerts deterministically", () =
     assert.equal(created.result.alert?.resolvedAt, null);
   }
 
-  const listed = listMarineAlerts({ eventId: "MEV-001" }, deps);
+  const listed = await listMarineAlerts({ eventId: "MEV-001" }, deps);
   assert.equal(listed.source, "db");
   if (listed.source === "db") {
     assert.equal(listed.result.ok, true);
@@ -78,16 +89,28 @@ test("marine alerts repository creates and lists alerts deterministically", () =
   }
 });
 
-test("marine alerts repository rejects inputs with missing required fields", () => {
+test("marine alerts repository rejects inputs with missing required fields", async () => {
   const db = createInMemoryDb();
   const deps = {
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openWritable: () => db,
+    getAdapter: () => ({
+      execute: async (sql: string, params: unknown[] = []) => {
+        const stmt = db.prepare(sql);
+        const upper = sql.trim().toUpperCase();
+        if (upper.startsWith("SELECT") || upper.startsWith("PRAGMA")) {
+          return stmt.all(...params);
+        } else {
+          return stmt.run(...params);
+        }
+      },
+      close: async () => {},
+      resourceId: "mock-async",
+    }),
     now: () => NOW,
   };
 
-  const noEventId = createMarineAlert(
+  const noEventId = await createMarineAlert(
     {
       eventId: "",
       severity: "high",
@@ -102,7 +125,7 @@ test("marine alerts repository rejects inputs with missing required fields", () 
     assert.equal(noEventId.result.reason, "validation");
   }
 
-  const badSeverity = createMarineAlert(
+  const badSeverity = await createMarineAlert(
     {
       eventId: "MEV-001",
       severity: "extreme" as "critical",
@@ -117,16 +140,28 @@ test("marine alerts repository rejects inputs with missing required fields", () 
   }
 });
 
-test("marine alerts repository applies acknowledge and resolve status transitions", () => {
+test("marine alerts repository applies acknowledge and resolve status transitions", async () => {
   const db = createInMemoryDb();
   const deps = {
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openWritable: () => db,
+    getAdapter: () => ({
+      execute: async (sql: string, params: unknown[] = []) => {
+        const stmt = db.prepare(sql);
+        const upper = sql.trim().toUpperCase();
+        if (upper.startsWith("SELECT") || upper.startsWith("PRAGMA")) {
+          return stmt.all(...params);
+        } else {
+          return stmt.run(...params);
+        }
+      },
+      close: async () => {},
+      resourceId: "mock-async",
+    }),
     now: () => NOW,
   };
 
-  createMarineAlert(
+  await createMarineAlert(
     {
       eventId: "MEV-002",
       severity: "critical",
@@ -139,7 +174,7 @@ test("marine alerts repository applies acknowledge and resolve status transition
 
   const alertId = `MALT-${NOW}-1`;
 
-  const acknowledged = acknowledgeMarineAlert(alertId, deps);
+  const acknowledged = await acknowledgeMarineAlert(alertId, deps);
   if (acknowledged.source === "db") {
     assert.equal(acknowledged.result.ok, true);
     assert.equal(acknowledged.result.alert?.status, "acknowledged");
@@ -147,7 +182,7 @@ test("marine alerts repository applies acknowledge and resolve status transition
     assert.equal(acknowledged.result.alert?.resolvedAt, null);
   }
 
-  const resolved = resolveMarineAlert(alertId, deps);
+  const resolved = await resolveMarineAlert(alertId, deps);
   if (resolved.source === "db") {
     assert.equal(resolved.result.ok, true);
     assert.equal(resolved.result.alert?.status, "resolved");
@@ -155,17 +190,28 @@ test("marine alerts repository applies acknowledge and resolve status transition
   }
 });
 
-test("marine alerts repository filters listings by status, severity, and ruleType", () => {
+test("marine alerts repository filters listings by status, severity, and ruleType", async () => {
   const db = createInMemoryDb();
   const deps = {
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openWritable: () => db,
-    openReadOnly: () => db,
+    getAdapter: () => ({
+      execute: async (sql: string, params: unknown[] = []) => {
+        const stmt = db.prepare(sql);
+        const upper = sql.trim().toUpperCase();
+        if (upper.startsWith("SELECT") || upper.startsWith("PRAGMA")) {
+          return stmt.all(...params);
+        } else {
+          return stmt.run(...params);
+        }
+      },
+      close: async () => {},
+      resourceId: "mock-async",
+    }),
     now: () => NOW,
   };
 
-  createMarineAlert(
+  await createMarineAlert(
     {
       eventId: "MEV-010",
       severity: "critical",
@@ -175,7 +221,7 @@ test("marine alerts repository filters listings by status, severity, and ruleTyp
     },
     deps,
   );
-  createMarineAlert(
+  await createMarineAlert(
     {
       eventId: "MEV-011",
       severity: "high",
@@ -186,26 +232,26 @@ test("marine alerts repository filters listings by status, severity, and ruleTyp
     deps,
   );
 
-  const all = listMarineAlerts({}, deps);
+  const all = await listMarineAlerts({}, deps);
   if (all.source === "db") {
     assert.equal(all.result.alerts.length, 2);
   }
 
-  const bySeverity = listMarineAlerts({ severity: "critical" }, deps);
+  const bySeverity = await listMarineAlerts({ severity: "critical" }, deps);
   if (bySeverity.source === "db") {
     assert.equal(bySeverity.result.alerts.length, 1);
     assert.equal(bySeverity.result.alerts[0]?.ruleType, "threshold_breach");
   }
 
-  const byRuleType = listMarineAlerts({ ruleType: "trend_detected" }, deps);
+  const byRuleType = await listMarineAlerts({ ruleType: "trend_detected" }, deps);
   if (byRuleType.source === "db") {
     assert.equal(byRuleType.result.alerts.length, 1);
     assert.equal(byRuleType.result.alerts[0]?.eventId, "MEV-011");
   }
 });
 
-test("marine alerts repository returns unavailable when database path is missing", () => {
-  const result = createMarineAlert(
+test("marine alerts repository returns unavailable when database path is missing", async () => {
+  const result = await createMarineAlert(
     {
       eventId: "MEV-001",
       severity: "high",

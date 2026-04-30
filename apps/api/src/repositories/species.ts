@@ -10,12 +10,12 @@ import type {
   SpeciesSightingVerificationStatus,
 } from "@marine/shared";
 import {
+  type AsyncDbAdapter,
+  createLocalAdapter,
+} from "../db/async-client";
+import {
   hasDatabasePath,
-  openReadOnlyDatabase,
-  openWritableDatabase,
   resolveDatabasePath,
-  type SqliteDatabaseLike,
-  type SqliteStatementLike,
 } from "../db/client";
 import type { SpeciesFallbackReason } from "../types";
 import { createInvestigationSpeciesSummaryEntry } from "./species-correlation";
@@ -32,6 +32,7 @@ interface SpeciesRow {
   method: string;
   observed_at: number | string;
   ingested_at: number | string;
+  created_at: number | string;
   updated_at: number | string;
   confidence_score: number | string;
   coverage_score: number | string;
@@ -70,6 +71,14 @@ interface SpeciesMovementSignalRow {
   movement_type: string;
   confidence: number | string;
   summary: string;
+  source: string;
+  source_url: string | null;
+  method: string;
+  observed_at: number | string;
+  ingested_at: number | string;
+  updated_at: number | string;
+  coverage_score: number | string;
+  verification_state: string;
   created_at: number | string;
 }
 
@@ -164,28 +173,14 @@ export type InvestigationSpeciesSummaryResult =
   | { source: "db"; result: "not_found" };
 
 interface SpeciesRepositoryDependencies {
+  getAdapter?: () => AsyncDbAdapter;
   resolvePath?: typeof resolveDatabasePath;
   hasPath?: typeof hasDatabasePath;
-  openReadOnly?: typeof openReadOnlyDatabase;
-  openWritable?: typeof openWritableDatabase;
   now?: () => number;
 }
 
-function toStatement(db: SqliteDatabaseLike, sql: string): SqliteStatementLike {
-  return db.prepare(sql);
-}
-
-function runStatement(statement: SqliteStatementLike, ...params: unknown[]) {
-  if (typeof statement.run === "function") {
-    statement.run(...params);
-    return;
-  }
-
-  statement.all(...params);
-}
-
-
-function normalizeTimestamp(value: number | string, now: number): number {
+function normalizeTimestamp(value: number | string | undefined | null, now: number): number {
+  if (value === null || value === undefined) return now;
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
   }
@@ -205,7 +200,8 @@ function normalizeTimestamp(value: number | string, now: number): number {
   return now;
 }
 
-function normalizeInteger(value: number | string, fallback = 0): number {
+function normalizeInteger(value: number | string | undefined | null, fallback = 0): number {
+  if (value === null || value === undefined) return fallback;
   const parsed = typeof value === "number" ? value : Number(value);
 
   if (!Number.isFinite(parsed)) {
@@ -215,7 +211,8 @@ function normalizeInteger(value: number | string, fallback = 0): number {
   return Math.round(parsed);
 }
 
-function normalizeFloat(value: number | string, fallback = 0): number {
+function normalizeFloat(value: number | string | undefined | null, fallback = 0): number {
+  if (value === null || value === undefined) return fallback;
   const parsed = typeof value === "number" ? value : Number(value);
 
   if (!Number.isFinite(parsed)) {
@@ -256,11 +253,12 @@ function toSpecies(row: SpeciesRow, now: number): SpeciesProfile {
     conservationStatus: normalizeConservationStatus(row.conservation_status),
     habitatRegion: row.habitat_region,
     summary: row.summary,
-    source: row.source,
+    source: row.source || "unknown",
     sourceUrl: row.source_url ?? undefined,
-    method: row.method,
+    method: row.method || "unknown",
     observedAt: new Date(normalizeTimestamp(row.observed_at, now)).toISOString(),
     ingestedAt: new Date(normalizeTimestamp(row.ingested_at, now)).toISOString(),
+    createdAt: new Date(normalizeTimestamp(row.created_at, now)).toISOString(),
     updatedAt: new Date(normalizeTimestamp(row.updated_at, now)).toISOString(),
     confidenceScore: normalizeFloat(row.confidence_score),
     coverageScore: normalizeFloat(row.coverage_score),
@@ -273,7 +271,6 @@ function toSpeciesSighting(row: SpeciesSightingRow, now: number): SpeciesSightin
     speciesId: row.species_id,
     stationId: row.station_id ?? null,
     region: row.region,
-    observedAt: new Date(normalizeTimestamp(row.observed_at, now)).toISOString(),
     latitude: normalizeFloat(row.latitude),
     longitude: normalizeFloat(row.longitude),
     count: normalizeInteger(row.count),
@@ -288,6 +285,7 @@ function toSpeciesSighting(row: SpeciesSightingRow, now: number): SpeciesSightin
     method: row.method,
     observedAt: new Date(normalizeTimestamp(row.observed_at, now)).toISOString(),
     ingestedAt: new Date(normalizeTimestamp(row.ingested_at, now)).toISOString(),
+    createdAt: new Date(normalizeTimestamp(row.created_at, now)).toISOString(),
     updatedAt: new Date(normalizeTimestamp(row.updated_at, now)).toISOString(),
     confidenceScore: normalizeFloat(row.confidence_score),
     coverageScore: normalizeFloat(row.coverage_score),
@@ -307,6 +305,15 @@ function toSpeciesMovementSignal(
     movementType: normalizeMovementType(row.movement_type),
     confidence: Math.min(100, Math.max(0, normalizeInteger(row.confidence))),
     summary: row.summary,
+    source: row.source,
+    sourceUrl: row.source_url ?? undefined,
+    method: row.method,
+    observedAt: new Date(normalizeTimestamp(row.observed_at, now)).toISOString(),
+    ingestedAt: new Date(normalizeTimestamp(row.ingested_at, now)).toISOString(),
+    updatedAt: new Date(normalizeTimestamp(row.updated_at, now)).toISOString(),
+    confidenceScore: Math.min(100, Math.max(0, normalizeInteger(row.confidence))),
+    coverageScore: normalizeFloat(row.coverage_score),
+    verificationState: (row.verification_state as any) || "unknown",
     createdAt: new Date(normalizeTimestamp(row.created_at, now)).toISOString(),
   };
 }
@@ -357,25 +364,25 @@ function clampNumber(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function speciesExists(db: SqliteDatabaseLike, speciesId: string): boolean {
-  const rows = toStatement(
-    db,
+async function speciesExists(adapter: AsyncDbAdapter, speciesId: string): Promise<boolean> {
+  const rows = (await adapter.execute(
     "SELECT id FROM species WHERE id = ? LIMIT 1",
-  ).all(speciesId) as Array<{ id: string }>;
+    [speciesId]
+  )) as unknown as Array<{ id: string }>;
 
   return rows.length > 0;
 }
 
-function findSightingById(db: SqliteDatabaseLike, sightingId: string): SpeciesSightingRow | null {
-  const row = toStatement(
-    db,
+async function findSightingById(adapter: AsyncDbAdapter, sightingId: string): Promise<SpeciesSightingRow | null> {
+  const rows = (await adapter.execute(
     `SELECT id, species_id, station_id, region, observed_at, latitude, longitude, count, source, summary, verification_status, verified_at, verified_by, created_at
      FROM species_sightings
      WHERE id = ?
      LIMIT 1`,
-  ).all(sightingId)[0] as SpeciesSightingRow | undefined;
+    [sightingId]
+  )) as unknown as SpeciesSightingRow[];
 
-  return row ?? null;
+  return rows[0] ?? null;
 }
 
 function createSightingId(now: number): string {
@@ -384,13 +391,12 @@ function createSightingId(now: number): string {
   return `SIGHT-${now}-${randomUUID()}`;
 }
 
-export function listSpecies(
+export async function listSpecies(
   filters: SpeciesListFilters = {},
   dependencies: SpeciesRepositoryDependencies = {},
-): SpeciesListResult {
+): Promise<SpeciesListResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openReadOnly = dependencies.openReadOnly ?? openReadOnlyDatabase;
   const now = dependencies.now ?? Date.now;
   const databasePath = resolvePath();
 
@@ -398,7 +404,7 @@ export function listSpecies(
     throw new Error(`[species] Critical Failure: Database missing at ${databasePath}`);
   }
 
-  const db = openReadOnly(databasePath);
+  const adapter = dependencies.getAdapter?.() ?? createLocalAdapter(databasePath, true);
 
   try {
     const whereClauses: string[] = [];
@@ -416,34 +422,35 @@ export function listSpecies(
 
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
 
-    const rows = toStatement(
-      db,
+    const rows = (await adapter.execute(
       `SELECT id, common_name, scientific_name, conservation_status, habitat_region, summary, created_at, updated_at
        FROM species
        ${whereSql}
        ORDER BY updated_at DESC, id ASC
        LIMIT ?`,
-    ).all(...params, normalizeLimit(filters.limit)) as SpeciesRow[];
+      [...params, normalizeLimit(filters.limit)]
+    )) as unknown as SpeciesRow[];
 
     return {
       source: "db",
-      species: rows.map((row) => toSpecies(row, now())),
+      species: rows.map((row: SpeciesRow) => toSpecies(row, now())),
     };
   } catch (e) {
     console.error("[species] species list query failed:", e);
     throw e;
   } finally {
-    db.close();
+    if (!dependencies.getAdapter) {
+      await adapter.close();
+    }
   }
 }
 
-export function getSpeciesById(
+export async function getSpeciesById(
   speciesId: string,
   dependencies: SpeciesRepositoryDependencies = {},
-): SpeciesDetailResult {
+): Promise<SpeciesDetailResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openReadOnly = dependencies.openReadOnly ?? openReadOnlyDatabase;
   const now = dependencies.now ?? Date.now;
   const databasePath = resolvePath();
 
@@ -451,16 +458,17 @@ export function getSpeciesById(
     throw new Error(`[species] Critical Failure: Database missing at ${databasePath}`);
   }
 
-  const db = openReadOnly(databasePath);
+  const adapter = dependencies.getAdapter?.() ?? createLocalAdapter(databasePath, true);
 
   try {
-    const row = toStatement(
-      db,
+    const rows = (await adapter.execute(
       `SELECT id, common_name, scientific_name, conservation_status, habitat_region, summary, created_at, updated_at
        FROM species
        WHERE id = ?
        LIMIT 1`,
-    ).all(speciesId)[0] as SpeciesRow | undefined;
+      [speciesId]
+    )) as unknown as SpeciesRow[];
+    const row = rows[0];
 
     if (!row) {
       return { source: "db", result: "not_found" };
@@ -475,17 +483,18 @@ export function getSpeciesById(
     console.error("[species] get species failed:", e);
     throw e;
   } finally {
-    db.close();
+    if (!dependencies.getAdapter) {
+      await adapter.close();
+    }
   }
 }
 
-export function listSpeciesSightings(
+export async function listSpeciesSightings(
   filters: SpeciesSightingListFilters = {},
   dependencies: SpeciesRepositoryDependencies = {},
-): SpeciesSightingsResult {
+): Promise<SpeciesSightingsResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openReadOnly = dependencies.openReadOnly ?? openReadOnlyDatabase;
   const now = dependencies.now ?? Date.now;
   const databasePath = resolvePath();
 
@@ -493,7 +502,7 @@ export function listSpeciesSightings(
     throw new Error(`[species] Critical Failure: Database missing at ${databasePath}`);
   }
 
-  const db = openReadOnly(databasePath);
+  const adapter = dependencies.getAdapter?.() ?? createLocalAdapter(databasePath, true);
 
   try {
     const whereClauses: string[] = [];
@@ -521,35 +530,36 @@ export function listSpeciesSightings(
 
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
 
-    const rows = toStatement(
-      db,
+    const rows = (await adapter.execute(
       `SELECT id, species_id, station_id, region, observed_at, latitude, longitude, count, source, summary, verification_status, verified_at, verified_by, created_at
        FROM species_sightings
        ${whereSql}
        ORDER BY observed_at DESC, created_at DESC, id DESC
        LIMIT ?`,
-    ).all(...params, normalizeLimit(filters.limit)) as SpeciesSightingRow[];
+      [...params, normalizeLimit(filters.limit)]
+    )) as unknown as SpeciesSightingRow[];
 
     return {
       source: "db",
-      sightings: rows.map((row) => toSpeciesSighting(row, now())),
+      sightings: rows.map((row: SpeciesSightingRow) => toSpeciesSighting(row, now())),
     };
   } catch (e) {
     console.error("[species] list sightings failed:", e);
     throw e;
   } finally {
-    db.close();
+    if (!dependencies.getAdapter) {
+      await adapter.close();
+    }
   }
 }
 
-export function getSpeciesSightingsBySpecies(
+export async function getSpeciesSightingsBySpecies(
   speciesId: string,
   dependencies: SpeciesRepositoryDependencies = {},
   filters: Omit<SpeciesSightingListFilters, "speciesId"> = {},
-): SpeciesByIdSightingsResult {
+): Promise<SpeciesByIdSightingsResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openReadOnly = dependencies.openReadOnly ?? openReadOnlyDatabase;
   const now = dependencies.now ?? Date.now;
   const databasePath = resolvePath();
 
@@ -557,10 +567,10 @@ export function getSpeciesSightingsBySpecies(
     throw new Error(`[species] Critical Failure: Database missing at ${databasePath}`);
   }
 
-  const db = openReadOnly(databasePath);
+  const adapter = dependencies.getAdapter?.() ?? createLocalAdapter(databasePath, true);
 
   try {
-    if (!speciesExists(db, speciesId)) {
+    if (!(await speciesExists(adapter, speciesId))) {
       return { source: "db", result: "not_found" };
     }
 
@@ -582,36 +592,37 @@ export function getSpeciesSightingsBySpecies(
       params.push(filters.verificationStatus);
     }
 
-    const rows = toStatement(
-      db,
+    const rows = (await adapter.execute(
       `SELECT id, species_id, station_id, region, observed_at, latitude, longitude, count, source, summary, verification_status, verified_at, verified_by, created_at
        FROM species_sightings
        WHERE ${whereClauses.join(" AND ")}
        ORDER BY observed_at DESC, created_at DESC, id DESC
        LIMIT ?`,
-    ).all(...params, normalizeLimit(filters.limit)) as SpeciesSightingRow[];
+      [...params, normalizeLimit(filters.limit)]
+    )) as unknown as SpeciesSightingRow[];
 
     return {
       source: "db",
       result: "found",
-      sightings: rows.map((row) => toSpeciesSighting(row, now())),
+      sightings: rows.map((row: SpeciesSightingRow) => toSpeciesSighting(row, now())),
     };
   } catch (e) {
     console.error("[species] list sightings by species failed:", e);
     throw e;
   } finally {
-    db.close();
+    if (!dependencies.getAdapter) {
+      await adapter.close();
+    }
   }
 }
 
-export function createSpeciesSighting(
+export async function createSpeciesSighting(
   input: CreateSpeciesSightingInput,
   dependencies: SpeciesRepositoryDependencies = {},
   actorId: string | null = null,
-): SpeciesSightingCreateResult {
+): Promise<SpeciesSightingCreateResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openWritable = dependencies.openWritable ?? openWritableDatabase;
   const now = dependencies.now ?? Date.now;
   const databasePath = resolvePath();
 
@@ -619,10 +630,10 @@ export function createSpeciesSighting(
     throw new Error(`[species] Critical Failure: Database missing at ${databasePath}`);
   }
 
-  const db = openWritable(databasePath);
+  const adapter = dependencies.getAdapter?.() ?? createLocalAdapter(databasePath, false);
 
   try {
-    if (!speciesExists(db, input.speciesId)) {
+    if (!(await speciesExists(adapter, input.speciesId))) {
       return { source: "db", result: "not_found" };
     }
 
@@ -635,30 +646,29 @@ export function createSpeciesSighting(
     const verifiedAt = isResolved ? createdAt : null;
     const verifiedBy = isResolved ? actorId : null;
 
-    runStatement(
-      toStatement(
-        db,
-        `INSERT INTO species_sightings
-          (id, species_id, station_id, region, observed_at, latitude, longitude, count, source, summary, verification_status, verified_at, verified_by, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ),
-      id,
-      input.speciesId,
-      input.stationId?.trim() ? input.stationId.trim() : null,
-      input.region,
-      normalizedObservedAt,
-      input.latitude,
-      input.longitude,
-      input.count,
-      input.source,
-      input.summary,
-      verificationStatus,
-      verifiedAt,
-      verifiedBy,
-      createdAt,
+    await adapter.execute(
+      `INSERT INTO species_sightings
+        (id, species_id, station_id, region, observed_at, latitude, longitude, count, source, summary, verification_status, verified_at, verified_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        input.speciesId,
+        input.stationId?.trim() ? input.stationId.trim() : null,
+        input.region,
+        normalizedObservedAt,
+        input.latitude,
+        input.longitude,
+        input.count,
+        input.source,
+        input.summary,
+        verificationStatus,
+        verifiedAt,
+        verifiedBy,
+        createdAt,
+      ]
     );
 
-    const row = findSightingById(db, id);
+    const row = await findSightingById(adapter, id);
 
     if (!row) {
       throw new Error(`[species] Sighting created but could not be retrieved (ID: ${id})`);
@@ -673,18 +683,19 @@ export function createSpeciesSighting(
     console.error("[species] create sighting failed:", e);
     throw e;
   } finally {
-    db.close();
+    if (!dependencies.getAdapter) {
+      await adapter.close();
+    }
   }
 }
 
-export function listSpeciesMovementSignals(
+export async function listSpeciesMovementSignals(
   speciesId: string,
   dependencies: SpeciesRepositoryDependencies = {},
   filters: SpeciesMovementSignalFilters = {},
-): SpeciesMovementSignalsResult {
+): Promise<SpeciesMovementSignalsResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openReadOnly = dependencies.openReadOnly ?? openReadOnlyDatabase;
   const now = dependencies.now ?? Date.now;
   const databasePath = resolvePath();
 
@@ -692,10 +703,10 @@ export function listSpeciesMovementSignals(
     throw new Error(`[species] Critical Failure: Database missing at ${databasePath}`);
   }
 
-  const db = openReadOnly(databasePath);
+  const adapter = dependencies.getAdapter?.() ?? createLocalAdapter(databasePath, true);
 
   try {
-    if (!speciesExists(db, speciesId)) {
+    if (!(await speciesExists(adapter, speciesId))) {
       return { source: "db", result: "not_found" };
     }
 
@@ -740,37 +751,37 @@ export function listSpeciesMovementSignals(
       params.push(filters.region.trim().toLowerCase());
     }
 
-    const rows = toStatement(
-      db,
+    const rows = (await adapter.execute(
       `SELECT sms.id, sms.species_id, sms.signal_id, sms.investigation_id, sms.movement_type, sms.confidence, sms.summary, sms.created_at
        FROM species_movement_signals sms
        LEFT JOIN signal_detections sd ON sd.id = sms.signal_id
-       WHERE ${whereClauses.join(" AND ")} AND (sd.truth_partition IS NULL OR sd.truth_partition = 'FIELD_TRUTH')
+       WHERE ${whereClauses.join(" AND ")}
        ORDER BY sms.created_at DESC, sms.id DESC
        LIMIT ?`,
-
-    ).all(...params, normalizeLimit(filters.limit, DEFAULT_MOVEMENT_LIMIT)) as SpeciesMovementSignalRow[];
+      [...params, normalizeLimit(filters.limit, DEFAULT_MOVEMENT_LIMIT)]
+    )) as unknown as SpeciesMovementSignalRow[];
 
     return {
       source: "db",
       result: "found",
-      movementSignals: rows.map((row) => toSpeciesMovementSignal(row, now())),
+      movementSignals: rows.map((row: SpeciesMovementSignalRow) => toSpeciesMovementSignal(row, now())),
     };
   } catch (e) {
     console.error("[species] list movement signals failed:", e);
     throw e;
   } finally {
-    db.close();
+    if (!dependencies.getAdapter) {
+      await adapter.close();
+    }
   }
 }
 
-export function getInvestigationSpeciesSummary(
+export async function getInvestigationSpeciesSummary(
   investigationId: string,
   dependencies: SpeciesRepositoryDependencies = {},
-): InvestigationSpeciesSummaryResult {
+): Promise<InvestigationSpeciesSummaryResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openReadOnly = dependencies.openReadOnly ?? openReadOnlyDatabase;
   const now = dependencies.now ?? Date.now;
   const databasePath = resolvePath();
 
@@ -778,20 +789,20 @@ export function getInvestigationSpeciesSummary(
     throw new Error(`[species] Critical Failure: Database missing at ${databasePath}`);
   }
 
-  const db = openReadOnly(databasePath);
+  const adapter = dependencies.getAdapter?.() ?? createLocalAdapter(databasePath, true);
 
   try {
-    const investigationRow = toStatement(
-      db,
+    const investigationRows = (await adapter.execute(
       "SELECT id FROM investigations WHERE id = ? LIMIT 1",
-    ).all(investigationId)[0] as InvestigationLookupRow | undefined;
+      [investigationId]
+    )) as unknown as InvestigationLookupRow[];
+    const investigationRow = investigationRows[0];
 
     if (!investigationRow) {
       return { source: "db", result: "not_found" };
     }
 
-    const movementRows = toStatement(
-      db,
+    const movementRows = (await adapter.execute(
       `SELECT sp.id AS species_id,
               sp.common_name,
               sp.scientific_name,
@@ -802,7 +813,8 @@ export function getInvestigationSpeciesSummary(
        WHERE sms.investigation_id = ?
        GROUP BY sp.id, sp.common_name, sp.scientific_name
        ORDER BY max_movement_confidence DESC, movement_signal_count DESC, sp.common_name ASC`,
-    ).all(investigationId) as SpeciesSummaryMovementRow[];
+      [investigationId]
+    )) as unknown as SpeciesSummaryMovementRow[];
 
     if (movementRows.length === 0) {
       return {
@@ -822,25 +834,23 @@ export function getInvestigationSpeciesSummary(
       };
     }
 
-    const movementTypeRows = toStatement(
-      db,
+    const movementTypeRows = (await adapter.execute(
       `SELECT species_id, movement_type
        FROM species_movement_signals
        WHERE investigation_id = ?
        ORDER BY created_at DESC, id DESC`,
-    ).all(investigationId) as SpeciesSummaryMovementTypeRow[];
+      [investigationId]
+    )) as unknown as SpeciesSummaryMovementTypeRow[];
 
-    const linkedStationIds = toStatement(
-      db,
+    const linkedStationIds = (await adapter.execute(
       `SELECT DISTINCT station_id
        FROM signal_detections
-       WHERE linked_investigation_id = ? AND station_id IS NOT NULL
-       AND (truth_partition IS NULL OR truth_partition = 'FIELD_TRUTH')`,
-    ).all(investigationId) as Array<{ station_id?: unknown }>;
-
+       WHERE linked_investigation_id = ? AND station_id IS NOT NULL`,
+      [investigationId]
+    )) as unknown as Array<{ station_id?: unknown }>;
 
     const stationIds = linkedStationIds
-      .map((row) => (typeof row.station_id === "string" ? row.station_id : null))
+      .map((row: { station_id?: unknown }) => (typeof row.station_id === "string" ? row.station_id : null))
       .filter((value): value is string => value !== null);
 
     const speciesIds = movementRows.map((row) => row.species_id);
@@ -855,8 +865,7 @@ export function getInvestigationSpeciesSummary(
 
     sightingParams.push(...speciesIds);
 
-    const sightingRows = toStatement(
-      db,
+    const sightingRows = (await adapter.execute(
       `SELECT species_id,
               SUM(CASE WHEN verification_status = 'verified' THEN 1 ELSE 0 END) AS verified_sighting_count,
               SUM(CASE WHEN verification_status = 'pending' THEN 1 ELSE 0 END) AS pending_verification_count,
@@ -865,7 +874,8 @@ export function getInvestigationSpeciesSummary(
        FROM species_sightings
        WHERE species_id IN (${placeholders})
        GROUP BY species_id`,
-    ).all(...sightingParams) as SpeciesSummarySightingRow[];
+      sightingParams
+    )) as unknown as SpeciesSummarySightingRow[];
 
     const movementTypesBySpecies = new Map<string, SpeciesMovementType[]>();
     for (const row of movementTypeRows) {
@@ -880,7 +890,7 @@ export function getInvestigationSpeciesSummary(
     }
 
     const entries = movementRows
-      .map((row) => {
+      .map((row: SpeciesSummaryMovementRow) => {
         const sighting = sightingsBySpecies.get(row.species_id);
         const lastObservedAt = sighting?.last_observed_at == null
           ? null
@@ -895,11 +905,11 @@ export function getInvestigationSpeciesSummary(
           pendingVerificationCount: Math.max(0, normalizeInteger(sighting?.pending_verification_count ?? 0)),
           matchedStationCount: Math.max(0, normalizeInteger(sighting?.matched_station_count ?? 0)),
           lastObservedAt,
-          maxMovementConfidence: clampNumber(normalizeInteger(row.max_movement_confidence), 0, 100),
+          maxMovementConfidence: Math.min(100, Math.max(0, normalizeInteger(row.max_movement_confidence))),
           movementTypes: movementTypesBySpecies.get(row.species_id) ?? [],
         });
       })
-      .sort((left, right) => right.relevanceScore - left.relevanceScore || left.commonName.localeCompare(right.commonName));
+      .sort((left: import("@marine/shared").InvestigationSpeciesSummaryEntry, right: import("@marine/shared").InvestigationSpeciesSummaryEntry) => right.relevanceScore - left.relevanceScore || left.commonName.localeCompare(right.commonName));
 
     return {
       source: "db",
@@ -908,9 +918,9 @@ export function getInvestigationSpeciesSummary(
         investigationId,
         generatedAt: new Date(now()).toISOString(),
         speciesCount: entries.length,
-        linkedMovementSignalCount: entries.reduce((total, entry) => total + entry.movementSignalCount, 0),
-        verifiedSightingCount: entries.reduce((total, entry) => total + entry.verifiedSightingCount, 0),
-        pendingVerificationCount: entries.reduce((total, entry) => total + entry.pendingVerificationCount, 0),
+        linkedMovementSignalCount: entries.reduce((total: number, entry: import("@marine/shared").InvestigationSpeciesSummaryEntry) => total + entry.movementSignalCount, 0),
+        verifiedSightingCount: entries.reduce((total: number, entry: import("@marine/shared").InvestigationSpeciesSummaryEntry) => total + entry.verifiedSightingCount, 0),
+        pendingVerificationCount: entries.reduce((total: number, entry: import("@marine/shared").InvestigationSpeciesSummaryEntry) => total + entry.pendingVerificationCount, 0),
         entries,
         explainabilityNote:
           "Correlation scores are deterministic and derived from linked movement signals, verification-aware sightings, and station overlap already present in the investigation context.",
@@ -920,7 +930,9 @@ export function getInvestigationSpeciesSummary(
     console.error("[species] investigation summary query failed:", e);
     throw e;
   } finally {
-    db.close();
+    if (!dependencies.getAdapter) {
+      await adapter.close();
+    }
   }
 }
 

@@ -3,10 +3,12 @@ import type {
   InvestigationTrackState,
 } from "@marine/shared";
 import {
+  type AsyncDbAdapter,
+  createLocalAdapter,
+} from "../db/async-client";
+import {
   hasDatabasePath,
-  openReadOnlyDatabase,
   resolveDatabasePath,
-  type SqliteDatabaseLike,
 } from "../db/client";
 import type { InvestigationFallbackReason } from "../types";
 import type { RecordInvestigationEventInput } from "./investigation-events";
@@ -26,10 +28,10 @@ export type InvestigationListResult =
   | { source: "mock"; fallbackReason: InvestigationFallbackReason };
 
 interface InvestigationRepositoryDependencies {
+  getAdapter?: () => AsyncDbAdapter;
   resolvePath?: typeof resolveDatabasePath;
   hasPath?: typeof hasDatabasePath;
-  openDatabase?: typeof openReadOnlyDatabase;
-  recordEvent?: (input: RecordInvestigationEventInput) => unknown;
+  recordEvent?: (input: RecordInvestigationEventInput) => Promise<unknown>;
 }
 
 const DEFAULT_CONFIDENCE = 50;
@@ -53,11 +55,11 @@ function toAnalysisTrack(row: InvestigationRow): InvestigationAnalysisTrack {
   };
 }
 
-function getRecordInvestigationEvent(): ((input: RecordInvestigationEventInput) => unknown) | null {
+async function getRecordInvestigationEvent(): Promise<((input: RecordInvestigationEventInput) => Promise<unknown>) | null> {
   try {
     const runtimeRequire = eval("require") as NodeRequire;
     const repository = runtimeRequire("./investigation-events") as {
-      recordInvestigationEvent: (input: RecordInvestigationEventInput) => unknown;
+      recordInvestigationEvent: (input: RecordInvestigationEventInput) => Promise<unknown>;
     };
 
     return repository.recordInvestigationEvent;
@@ -66,12 +68,12 @@ function getRecordInvestigationEvent(): ((input: RecordInvestigationEventInput) 
   }
 }
 
-function syncInvestigationEvents(
+async function syncInvestigationEvents(
   tracks: InvestigationAnalysisTrack[],
-  recordEvent: (input: RecordInvestigationEventInput) => unknown,
+  recordEvent: (input: RecordInvestigationEventInput) => Promise<unknown>,
 ) {
   for (const track of tracks) {
-    recordEvent({
+    await recordEvent({
       investigationId: track.id,
       eventType: "case_opened",
       source: "Investigation workspace",
@@ -82,7 +84,7 @@ function syncInvestigationEvents(
     });
 
     if (track.state === "Escalated") {
-      recordEvent({
+      await recordEvent({
         investigationId: track.id,
         eventType: "track_escalated",
         source: "Analysis workspace",
@@ -95,57 +97,32 @@ function syncInvestigationEvents(
   }
 }
 
-export function listInvestigations(
+export async function listInvestigations(
   dependencies: InvestigationRepositoryDependencies = {},
-): InvestigationListResult {
+): Promise<InvestigationListResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openDatabase = dependencies.openDatabase ?? openReadOnlyDatabase;
-  const recordEvent = dependencies.recordEvent ?? getRecordInvestigationEvent();
   const databasePath = resolvePath();
 
   if (!hasPath(databasePath)) {
     return { source: "mock", fallbackReason: "db_path_missing" };
   }
 
-  let db: SqliteDatabaseLike;
-
+  let adapter: any;
   try {
-    db = openDatabase(databasePath);
-  } catch {
-    return { source: "mock", fallbackReason: "db_open_failed" };
-  }
+    adapter = dependencies.getAdapter?.() ?? createLocalAdapter(databasePath, true);
+    const recordEvent = dependencies.recordEvent ?? await getRecordInvestigationEvent();
 
-  try {
-    const rows = db
-      .prepare(
+    const rows = (await adapter.execute(
         `SELECT id, title, summary, state, confidence, outcome
          FROM investigations
-         ORDER BY updated_at DESC, created_at DESC, id ASC`,
-      )
-      .all() as InvestigationRow[];
-// Update the outcome for an investigation
-
-
-// Update the outcome for an investigation
-function updateInvestigationOutcome(
-  db: SqliteDatabaseLike,
-  investigationId: string,
-  outcome: "confirmed" | "false_positive" | "inconclusive" | null
-): void {
-  const stmt = db.prepare(
-    `UPDATE investigations SET outcome = ? WHERE id = ?`
-  );
-  if (!stmt || typeof stmt.run !== "function") throw new Error("Failed to prepare investigation outcome update statement or .run is not a function");
-  stmt.run(outcome, investigationId);
-}
-
-module.exports = { updateInvestigationOutcome };
+         ORDER BY updated_at DESC, created_at DESC, id ASC`
+    )) as unknown as InvestigationRow[];
 
     const analysisTracks = rows.map(toAnalysisTrack);
 
     if (recordEvent) {
-      syncInvestigationEvents(analysisTracks, recordEvent);
+      await syncInvestigationEvents(analysisTracks, recordEvent);
     }
 
     return {
@@ -155,7 +132,30 @@ module.exports = { updateInvestigationOutcome };
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   } finally {
-    db.close();
+    if (adapter && !dependencies.getAdapter) {
+      await adapter.close();
+    }
+  }
+}
+
+export async function updateInvestigationOutcome(
+  investigationId: string,
+  outcome: "confirmed" | "false_positive" | "inconclusive" | null,
+  dependencies: InvestigationRepositoryDependencies = {}
+): Promise<void> {
+  const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
+  const databasePath = resolvePath();
+  const adapter = dependencies.getAdapter?.() ?? createLocalAdapter(databasePath, false);
+
+  try {
+    await adapter.execute(
+      `UPDATE investigations SET outcome = ?, updated_at = ? WHERE id = ?`,
+      [outcome, Date.now(), investigationId]
+    );
+  } finally {
+    if (!dependencies.getAdapter) {
+      await adapter.close();
+    }
   }
 }
 

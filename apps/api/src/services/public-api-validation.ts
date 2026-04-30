@@ -17,7 +17,7 @@ import {
 export async function recordPublicRiskEvaluation(
   input: RiskEvaluationPredictionRequest,
 ): Promise<RiskEvaluationRecord | null> {
-  const result = recordMarineRiskEvaluationWithCalibration(input);
+  const result = await recordMarineRiskEvaluationWithCalibration(input);
 
   if (result.source !== "db" || !result.result.ok) {
     return null;
@@ -29,7 +29,7 @@ export async function recordPublicRiskEvaluation(
 export async function attachPublicRiskEvaluationOutcome(
   input: RiskEvaluationOutcomeRequest,
 ): Promise<RiskEvaluationRecord | null> {
-  const result = attachMarineRiskEvaluationOutcome(input);
+  const result = await attachMarineRiskEvaluationOutcome(input);
 
   if (result.source !== "db" || !result.result.ok) {
     return null;
@@ -41,7 +41,7 @@ export async function attachPublicRiskEvaluationOutcome(
 export async function attachPublicRiskEvaluationFeedback(
   input: RiskEvaluationFeedbackRequest,
 ): Promise<RiskEvaluationRecord | null> {
-  const result = attachFeedbackToMarineRiskEvaluation(input);
+  const result = await attachFeedbackToMarineRiskEvaluation(input);
 
   if (result.source !== "db" || !result.result.ok) {
     return null;
@@ -54,7 +54,7 @@ export async function readPublicValidationSummary(input: {
   stationId?: string | null;
   since?: string | null;
 }): Promise<ValidationSummaryResponse | null> {
-  const result = buildValidationSummary(input);
+  const result = await buildValidationSummary(input);
 
   if (!result.ok) {
     return null;

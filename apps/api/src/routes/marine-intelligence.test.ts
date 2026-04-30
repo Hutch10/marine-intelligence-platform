@@ -336,6 +336,7 @@ test("marine workflow feedback route returns recorded feedback payload", () => {
 test("marine workflow summary route returns decision and telemetry counts", () => {
   const response = buildMarineWorkflowSummaryRouteResponse(
     ADMIN_AUTH,
+    undefined,
     {
       source: "db",
       result: {

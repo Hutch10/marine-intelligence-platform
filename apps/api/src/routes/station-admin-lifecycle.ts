@@ -18,155 +18,29 @@ import type {
   StationAdminRevokeResponse,
   StationAdminRevokeTelemetry,
 } from "../types";
-import type {
-  StationAdminLoginResult,
-  StationAdminMfaVerifyResult,
-  StationAdminLogoutResult,
-  StationAdminRefreshResult,
-  StationAdminRevokeResult,
+import {
+  loginStationAdmin,
+  verifyStationAdminMfaChallenge,
+  logoutStationAdmin,
+  refreshStationAdminSession,
+  revokeStationAdminSession,
+  type StationAdminLoginResult,
+  type StationAdminMfaVerifyResult,
+  type StationAdminLogoutResult,
+  type StationAdminRefreshResult,
+  type StationAdminRevokeResult,
 } from "../repositories/station-admin-lifecycle";
 
-function callLoginRepository(actorId: string, password: string): StationAdminLoginResult {
-  try {
-    const runtimeRequire = eval("require") as NodeRequire;
-    const repo = runtimeRequire("../repositories/station-admin-lifecycle") as {
-      loginStationAdmin: (
-        actorId: string,
-        password: string,
-        dependencies?: { requestMetadata?: StationAdminLoginRequest["metadata"] },
-      ) => StationAdminLoginResult;
-    };
-
-    return repo.loginStationAdmin(actorId, password);
-  } catch {
-    return { result: "not_available" };
-  }
-}
-
-function callLoginRepositoryWithMetadata(
+export async function buildStationAdminLoginRouteResponse(
   actorId: string,
   password: string,
   metadata: StationAdminLoginRequest["metadata"],
-): StationAdminLoginResult {
-  try {
-    const runtimeRequire = eval("require") as NodeRequire;
-    const repo = runtimeRequire("../repositories/station-admin-lifecycle") as {
-      loginStationAdmin: (
-        actorId: string,
-        password: string,
-        dependencies?: { requestMetadata?: StationAdminLoginRequest["metadata"] },
-      ) => StationAdminLoginResult;
-    };
-
-    return repo.loginStationAdmin(actorId, password, { requestMetadata: metadata });
-  } catch {
-    return { result: "not_available" };
-  }
-}
-
-function callLogoutRepository(
-  sessionId: string,
-  csrfToken: string,
-  metadata?: StationAdminLogoutRequest["metadata"],
-): StationAdminLogoutResult {
-  try {
-    const runtimeRequire = eval("require") as NodeRequire;
-    const repo = runtimeRequire("../repositories/station-admin-lifecycle") as {
-      logoutStationAdmin: (
-        sessionId: string,
-        csrfToken: string,
-        dependencies?: { requestMetadata?: StationAdminLogoutRequest["metadata"] },
-      ) => StationAdminLogoutResult;
-    };
-
-    return repo.logoutStationAdmin(sessionId, csrfToken, { requestMetadata: metadata });
-  } catch {
-    return { result: "not_found" };
-  }
-}
-
-function callMfaVerifyRepository(
-  request: StationAdminMfaVerifyRequest,
-): StationAdminMfaVerifyResult {
-  try {
-    const runtimeRequire = eval("require") as NodeRequire;
-    const repo = runtimeRequire("../repositories/station-admin-lifecycle") as {
-      verifyStationAdminMfaChallenge: (
-        challengeId: string,
-        code: string | undefined,
-        recoveryCode: string | undefined,
-        sessionId: string | undefined,
-        csrfToken: string | undefined,
-        dependencies?: { requestMetadata?: StationAdminMfaVerifyRequest["metadata"] },
-      ) => StationAdminMfaVerifyResult;
-    };
-
-    return repo.verifyStationAdminMfaChallenge(
-      request.challengeId,
-      request.code,
-      request.recoveryCode,
-      request.sessionId,
-      request.csrfToken,
-      { requestMetadata: request.metadata },
-    );
-  } catch {
-    return { result: "not_found" };
-  }
-}
-
-function callRefreshRepository(
-  sessionId: string,
-  csrfToken: string,
-  metadata?: StationAdminRefreshRequest["metadata"],
-): StationAdminRefreshResult {
-  try {
-    const runtimeRequire = eval("require") as NodeRequire;
-    const repo = runtimeRequire("../repositories/station-admin-lifecycle") as {
-      refreshStationAdminSession: (
-        sessionId: string,
-        csrfToken: string,
-        dependencies?: { requestMetadata?: StationAdminRefreshRequest["metadata"] },
-      ) => StationAdminRefreshResult;
-    };
-
-    return repo.refreshStationAdminSession(sessionId, csrfToken, { requestMetadata: metadata });
-  } catch {
-    return { result: "not_found" };
-  }
-}
-
-function callRevokeRepository(
-  sessionId: string,
-  csrfToken: string,
-  targetSessionId: string,
-  metadata?: StationAdminRevokeRequest["metadata"],
-): StationAdminRevokeResult {
-  try {
-    const runtimeRequire = eval("require") as NodeRequire;
-    const repo = runtimeRequire("../repositories/station-admin-lifecycle") as {
-      revokeStationAdminSession: (
-        adminSessionId: string,
-        adminCsrfToken: string,
-        targetSessionId: string,
-        dependencies?: { requestMetadata?: StationAdminRevokeRequest["metadata"] },
-      ) => StationAdminRevokeResult;
-    };
-
-    return repo.revokeStationAdminSession(sessionId, csrfToken, targetSessionId, { requestMetadata: metadata });
-  } catch {
-    return { result: "not_found" };
-  }
-}
-
-export function buildStationAdminLoginRouteResponse(
-  actorId: string,
-  password: string,
-  loginResult = callLoginRepository(actorId, password),
-): {
+  loginResultOverride?: StationAdminLoginResult,
+): Promise<{
   status: 200 | 202 | 400 | 401 | 429 | 503;
   json: StationAdminLoginResponse | { message: string };
   telemetry: StationAdminLoginTelemetry;
-} {
+}> {
   if (!actorId.trim() || !password) {
     return {
       status: 400,
@@ -177,6 +51,8 @@ export function buildStationAdminLoginRouteResponse(
       },
     };
   }
+
+  const loginResult = loginResultOverride ?? await loginStationAdmin(actorId, password, { requestMetadata: metadata });
 
   if (loginResult.result === "locked_out") {
     return {
@@ -248,15 +124,15 @@ export function buildStationAdminLoginRouteResponse(
   };
 }
 
-export function buildStationAdminMfaVerifyRouteResponse(
+export async function buildStationAdminMfaVerifyRouteResponse(
   request: StationAdminMfaVerifyRequest,
-  verifyResult = callMfaVerifyRepository(request),
-): {
+  verifyResultOverride?: StationAdminMfaVerifyResult,
+): Promise<{
   status: 200 | 400 | 401 | 404 | 410 | 429;
   json: StationAdminMfaVerifyResponse | StationAdminMfaVerifyErrorResponse;
   headers?: Record<string, string>;
   telemetry: StationAdminMfaVerifyTelemetry;
-} {
+}> {
   const hasCode = typeof request.code === "string" && request.code.trim().length > 0;
   const hasRecoveryCode = typeof request.recoveryCode === "string" && request.recoveryCode.trim().length > 0;
 
@@ -273,6 +149,15 @@ export function buildStationAdminMfaVerifyRouteResponse(
       },
     };
   }
+
+  const verifyResult = verifyResultOverride ?? await verifyStationAdminMfaChallenge(
+    request.challengeId,
+    request.code,
+    request.recoveryCode,
+    request.sessionId,
+    request.csrfToken,
+    { requestMetadata: request.metadata },
+  );
 
   if (verifyResult.result === "issued") {
     return {
@@ -403,15 +288,18 @@ export function buildStationAdminMfaVerifyRouteResponse(
   };
 }
 
-export function buildStationAdminLogoutRouteResponse(
+export async function buildStationAdminLogoutRouteResponse(
   sessionId: string,
   csrfToken: string,
-  logoutResult = callLogoutRepository(sessionId, csrfToken),
-): {
+  metadata?: StationAdminLogoutRequest["metadata"],
+  logoutResultOverride?: StationAdminLogoutResult,
+): Promise<{
   status: 200 | 403 | 404;
   json: StationAdminLogoutResponse | { message: string };
   telemetry: StationAdminLogoutTelemetry;
-} {
+}> {
+  const logoutResult = logoutResultOverride ?? await logoutStationAdmin(sessionId, csrfToken, { requestMetadata: metadata });
+
   if (logoutResult.result === "csrf_invalid") {
     return {
       status: 403,
@@ -445,15 +333,18 @@ export function buildStationAdminLogoutRouteResponse(
   };
 }
 
-export function buildStationAdminRefreshRouteResponse(
+export async function buildStationAdminRefreshRouteResponse(
   sessionId: string,
   csrfToken: string,
-  refreshResult = callRefreshRepository(sessionId, csrfToken),
-): {
+  metadata?: StationAdminRefreshRequest["metadata"],
+  refreshResultOverride?: StationAdminRefreshResult,
+): Promise<{
   status: 200 | 403 | 404;
   json: StationAdminRefreshResponse | { message: string };
   telemetry: StationAdminRefreshTelemetry;
-} {
+}> {
+  const refreshResult = refreshResultOverride ?? await refreshStationAdminSession(sessionId, csrfToken, { requestMetadata: metadata });
+
   if (refreshResult.result === "csrf_invalid") {
     return {
       status: 403,
@@ -491,16 +382,19 @@ export function buildStationAdminRefreshRouteResponse(
   };
 }
 
-export function buildStationAdminRevokeRouteResponse(
+export async function buildStationAdminRevokeRouteResponse(
   sessionId: string,
   csrfToken: string,
   targetSessionId: string,
-  revokeResult = callRevokeRepository(sessionId, csrfToken, targetSessionId),
-): {
+  metadata?: StationAdminRevokeRequest["metadata"],
+  revokeResultOverride?: StationAdminRevokeResult,
+): Promise<{
   status: 200 | 401 | 403 | 404;
   json: StationAdminRevokeResponse | StationAdminRevokeMfaRequiredResponse | { message: string };
   telemetry: StationAdminRevokeTelemetry;
-} {
+}> {
+  const revokeResult = revokeResultOverride ?? await revokeStationAdminSession(sessionId, csrfToken, targetSessionId, { requestMetadata: metadata });
+
   if (revokeResult.result === "csrf_invalid") {
     return {
       status: 403,
@@ -565,11 +459,11 @@ export const postStationAdminLoginRoute: RouteDefinition<
 > = {
   method: "POST",
   path: "/station-admin/login",
-  handler(request) {
-    return buildStationAdminLoginRouteResponse(
+  async handler(request) {
+    return await buildStationAdminLoginRouteResponse(
       request.body.actorId,
       request.body.password,
-      callLoginRepositoryWithMetadata(request.body.actorId, request.body.password, request.body.metadata),
+      request.body.metadata,
     );
   },
 };
@@ -580,11 +474,11 @@ export const postStationAdminLogoutRoute: RouteDefinition<
 > = {
   method: "POST",
   path: "/station-admin/logout",
-  handler(request) {
-    return buildStationAdminLogoutRouteResponse(
+  async handler(request) {
+    return await buildStationAdminLogoutRouteResponse(
       request.body.sessionId,
       request.body.csrfToken,
-      callLogoutRepository(request.body.sessionId, request.body.csrfToken, request.body.metadata),
+      request.body.metadata,
     );
   },
 };
@@ -595,11 +489,8 @@ export const postStationAdminMfaVerifyRoute: RouteDefinition<
 > = {
   method: "POST",
   path: "/station-admin/mfa/verify",
-  handler(request) {
-    return buildStationAdminMfaVerifyRouteResponse(
-      request.body,
-      callMfaVerifyRepository(request.body),
-    );
+  async handler(request) {
+    return await buildStationAdminMfaVerifyRouteResponse(request.body);
   },
 };
 
@@ -609,11 +500,11 @@ export const postStationAdminRefreshRoute: RouteDefinition<
 > = {
   method: "POST",
   path: "/station-admin/session/refresh",
-  handler(request) {
-    return buildStationAdminRefreshRouteResponse(
+  async handler(request) {
+    return await buildStationAdminRefreshRouteResponse(
       request.body.sessionId,
       request.body.csrfToken,
-      callRefreshRepository(request.body.sessionId, request.body.csrfToken, request.body.metadata),
+      request.body.metadata,
     );
   },
 };
@@ -624,17 +515,12 @@ export const postStationAdminRevokeRoute: RouteDefinition<
 > = {
   method: "POST",
   path: "/station-admin/session/revoke",
-  handler(request) {
-    return buildStationAdminRevokeRouteResponse(
+  async handler(request) {
+    return await buildStationAdminRevokeRouteResponse(
       request.body.sessionId,
       request.body.csrfToken,
       request.body.targetSessionId,
-      callRevokeRepository(
-        request.body.sessionId,
-        request.body.csrfToken,
-        request.body.targetSessionId,
-        request.body.metadata,
-      ),
+      request.body.metadata,
     );
   },
 };

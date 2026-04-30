@@ -65,4 +65,3 @@ export {
 } from "./repositories/marine-intelligence-alerts";
 export { createMarineInvestigationWorkflowService } from "./services/marine-investigation-workflow";
 export type * from "./types";
-export type * from "./marine-intelligence-types";

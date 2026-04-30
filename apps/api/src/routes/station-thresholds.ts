@@ -5,11 +5,12 @@ import type {
 } from "../types";
 import {
   hasDatabasePath,
-  openReadOnlyDatabase,
-  openWritableDatabase,
   resolveDatabasePath,
-  type SqliteDatabaseLike,
 } from "../db/client";
+import {
+  getAsyncAdapter,
+  type AsyncDbAdapter,
+} from "../db/async-client";
 import {
   ensureStationRiskThresholdTables,
   resolveStationRiskThresholds,
@@ -40,13 +41,13 @@ export interface StationThresholdsPutBody {
 interface ThresholdReadDependencies {
   resolvePath?: typeof resolveDatabasePath;
   hasPath?: typeof hasDatabasePath;
-  openReadOnly?: typeof openReadOnlyDatabase;
+  getAdapter?: (readOnly: boolean) => AsyncDbAdapter;
 }
 
 interface ThresholdWriteDependencies {
   resolvePath?: typeof resolveDatabasePath;
   hasPath?: typeof hasDatabasePath;
-  openWritable?: typeof openWritableDatabase;
+  getAdapter?: (readOnly: boolean) => AsyncDbAdapter;
   now?: () => number;
 }
 
@@ -69,36 +70,36 @@ type GetThresholdsResult =
   | { result: "forbidden" }
   | { result: "invalid_station_id" };
 
-function readThresholdsFromDb(
+async function readThresholdsFromDb(
   stationId: string,
   dependencies: ThresholdReadDependencies = {},
-): ResolvedStationRiskThreshold[] {
+): Promise<ResolvedStationRiskThreshold[]> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openReadOnly = dependencies.openReadOnly ?? openReadOnlyDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const dbPath = resolvePath();
 
   if (!hasPath(dbPath)) {
-    return resolveStationRiskThresholds(stationId, {});
+    return await resolveStationRiskThresholds(stationId, {});
   }
 
-  let db: SqliteDatabaseLike | null = null;
+  const adapter = getAdapter(true);
 
   try {
-    db = openReadOnly(dbPath);
-    return resolveStationRiskThresholds(stationId, { db });
+    return await resolveStationRiskThresholds(stationId, { adapter });
   } catch {
-    return resolveStationRiskThresholds(stationId, {});
+    return await resolveStationRiskThresholds(stationId, {});
   } finally {
-    db?.close();
+    adapter.close();
   }
 }
 
-export function buildGetStationThresholdsRouteResponse(
+export async function buildGetStationThresholdsRouteResponse(
   stationId: string,
   auth: OceanStationAdminAuthContext | undefined,
-  readResult: GetThresholdsResult = buildGetThresholdsResult(stationId, auth),
-): { status: number; json: StationThresholdsResponse | { message: string } } {
+): Promise<{ status: number; json: StationThresholdsResponse | { message: string } }> {
+  const readResult = await buildGetThresholdsResult(stationId, auth);
+
   if (readResult.result === "forbidden") {
     return { status: 403, json: { message: "Forbidden" } };
   }
@@ -116,11 +117,11 @@ export function buildGetStationThresholdsRouteResponse(
   };
 }
 
-function buildGetThresholdsResult(
+async function buildGetThresholdsResult(
   stationId: string,
   auth: OceanStationAdminAuthContext | undefined,
   dependencies: ThresholdReadDependencies = {},
-): GetThresholdsResult {
+): Promise<GetThresholdsResult> {
   if (!hasViewAdminPermission(auth)) {
     return { result: "forbidden" };
   }
@@ -131,7 +132,7 @@ function buildGetThresholdsResult(
     return { result: "invalid_station_id" };
   }
 
-  const thresholds = readThresholdsFromDb(normalized, dependencies);
+  const thresholds = await readThresholdsFromDb(normalized, dependencies);
   return { result: "ok", stationId: normalized, thresholds };
 }
 
@@ -143,12 +144,13 @@ type PutThresholdsResult =
   | { result: "invalid_station_id" }
   | { result: "db_unavailable" };
 
-export function buildPutStationThresholdsRouteResponse(
+export async function buildPutStationThresholdsRouteResponse(
   stationId: string,
   auth: OceanStationAdminAuthContext | undefined,
   body: Omit<StationThresholdsPutBody, "id" | "csrfToken">,
-  writeResult: PutThresholdsResult = buildPutThresholdsResult(stationId, auth, body),
-): { status: number; json: StationThresholdsResponse | { message: string } } {
+): Promise<{ status: number; json: StationThresholdsResponse | { message: string } }> {
+  const writeResult = await buildPutThresholdsResult(stationId, auth, body);
+
   if (writeResult.result === "forbidden") {
     return { status: 403, json: { message: "Forbidden" } };
   }
@@ -170,12 +172,12 @@ export function buildPutStationThresholdsRouteResponse(
   };
 }
 
-function buildPutThresholdsResult(
+async function buildPutThresholdsResult(
   stationId: string,
   auth: OceanStationAdminAuthContext | undefined,
   body: Omit<StationThresholdsPutBody, "id" | "csrfToken">,
   dependencies: ThresholdWriteDependencies = {},
-): PutThresholdsResult {
+): Promise<PutThresholdsResult> {
   if (!hasViewAdminPermission(auth)) {
     return { result: "forbidden" };
   }
@@ -188,7 +190,7 @@ function buildPutThresholdsResult(
 
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openWritable = dependencies.openWritable ?? openWritableDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const now = dependencies.now ?? Date.now;
   const dbPath = resolvePath();
 
@@ -196,18 +198,17 @@ function buildPutThresholdsResult(
     return { result: "db_unavailable" };
   }
 
-  let db: SqliteDatabaseLike | null = null;
+  const adapter = getAdapter(false);
 
   try {
-    db = openWritable(dbPath);
-    ensureStationRiskThresholdTables(db);
-    upsertStationThresholdOverrides(db, normalized, body, now());
-    const thresholds = resolveStationRiskThresholds(normalized, { db });
+    await ensureStationRiskThresholdTables(adapter);
+    await upsertStationThresholdOverrides(adapter, normalized, body, now());
+    const thresholds = await resolveStationRiskThresholds(normalized, { adapter });
     return { result: "ok", stationId: normalized, thresholds };
   } catch {
     return { result: "db_unavailable" };
   } finally {
-    db?.close();
+    adapter.close();
   }
 }
 
@@ -219,8 +220,8 @@ export const getStationThresholdsRoute: RouteDefinition<
 > = {
   method: "GET",
   path: "/stations/:id/thresholds",
-  handler(request) {
-    return buildGetStationThresholdsRouteResponse(request.body.id, request.auth);
+  async handler(request) {
+    return await buildGetStationThresholdsRouteResponse(request.body.id, request.auth);
   },
 };
 
@@ -230,8 +231,8 @@ export const putStationThresholdsRoute: RouteDefinition<
 > = {
   method: "PUT",
   path: "/stations/:id/thresholds",
-  handler(request) {
+  async handler(request) {
     const { id, csrfToken: _csrf, ...overrides } = request.body;
-    return buildPutStationThresholdsRouteResponse(id, request.auth, overrides);
+    return await buildPutStationThresholdsRouteResponse(id, request.auth, overrides);
   },
 };

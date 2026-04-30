@@ -41,8 +41,7 @@ describe("InvestigationDetailPage", () => {
 
     expect(screen.getByText("Test Investigation")).toBeInTheDocument();
     expect(screen.getByText(/INV-001/)).toBeInTheDocument();
-    expect(screen.getByText("Watch")).toBeInTheDocument();
-    expect(screen.getByText("80")).toBeInTheDocument();
+    expect(screen.getByText(/confidence score of 80/i)).toBeInTheDocument();
   });
 
   it("throws for missing investigation", async () => {

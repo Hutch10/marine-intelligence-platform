@@ -44,16 +44,16 @@ test("workspace fetch uses network API boundary in browser mode when available",
   const result = await apiClient.dataExplorer.getWorkspace({ q: "thermal" });
 
   expect(fetchMock).toHaveBeenCalledWith(
-    "/api/data-explorer?q=thermal",
-    expect.objectContaining({ method: "GET" }),
+    "/v1/explorer/query",
+    expect.objectContaining({ method: "POST" }),
   );
-  expect(result.meta.delivery).toBe("browser_api");
+  expect(result.meta.delivery).toBe("real_backend");
   expect(result.meta.source).toBe("db");
   expect(result.meta.state).toBe("success");
-  expect(result.data.datasets).toHaveLength(1);
+  expect(result.data?.datasets).toHaveLength(1);
 });
 
-test("dataset detail fetch maps network 404 to not_found", async () => {
+test("dataset detail fetch returns error state on network 404", async () => {
   fetchMock.mockResolvedValueOnce(
     new Response(JSON.stringify({ message: "Dataset not found" }), {
       status: 404,
@@ -66,33 +66,30 @@ test("dataset detail fetch maps network 404 to not_found", async () => {
   const result = await apiClient.dataExplorer.getDatasetDetail("DST-MISSING");
 
   expect(fetchMock).toHaveBeenCalledWith(
-    "/api/data-explorer/DST-MISSING",
-    expect.objectContaining({ method: "GET" }),
+    "/v1/explorer/query",
+    expect.objectContaining({ method: "POST" }),
   );
   expect(result.data).toBeNull();
-  expect(result.meta.state).toBe("not_found");
-  expect(result.meta.source).toBe("db");
+  expect(result.meta.state).toBe("error");
 });
 
-test("workspace fetch falls back to the local web data source when network is unavailable", async () => {
+test("workspace fetch returns error state when network is unavailable", async () => {
   const result = await apiClient.dataExplorer.getWorkspace({ q: "  thermal " });
 
-  expect(result.data.datasets).toHaveLength(1);
-  expect(result.meta.state).toBe("success");
-  expect(result.meta.source).toBe("mock");
-  expect(result.meta.delivery).toBe("fallback_builder");
+  expect(result.data).toBeNull();
+  expect(result.meta.state).toBe("error");
+  expect(result.meta.delivery).toBe("real_backend");
 });
 
-test("dataset detail fetch falls back to the local web data source when network is unavailable", async () => {
+test("dataset detail fetch returns error state when network is unavailable", async () => {
   const result = await apiClient.dataExplorer.getDatasetDetail("DST-104");
 
-  expect(result.meta.state).toBe("success");
-  expect(result.meta.source).toBe("mock");
-  expect(result.meta.delivery).toBe("fallback_builder");
-  expect(result.data?.id).toBe("DST-104");
+  expect(result.meta.state).toBe("error");
+  expect(result.meta.delivery).toBe("real_backend");
+  expect(result.data).toBeNull();
 });
 
-test("dataset records fetch falls back to the local web data source when network is unavailable", async () => {
+test("dataset records fetch returns error state when network is unavailable", async () => {
   const result = await apiClient.dataExplorer.getDatasetRecords("DST-104", {
     sortBy: "updated",
     sortDir: "desc",
@@ -100,10 +97,9 @@ test("dataset records fetch falls back to the local web data source when network
     pageSize: 5,
   });
 
-  expect(result.meta.state).toBe("success");
-  expect(result.meta.source).toBe("mock");
-  expect(result.meta.delivery).toBe("fallback_builder");
-  expect(result.data?.records).toHaveLength(2);
+  expect(result.meta.state).toBe("error");
+  expect(result.meta.delivery).toBe("real_backend");
+  expect(result.data).toBeNull();
 });
 
 test("listPresets fetches shared presets from browser API boundary", async () => {

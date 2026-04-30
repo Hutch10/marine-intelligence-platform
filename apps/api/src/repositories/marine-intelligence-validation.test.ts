@@ -34,17 +34,28 @@ function createInMemoryDb(): SqliteDatabaseLike {
   };
 }
 
-test("marine validation repository records predictions outcomes and feedback linkage", () => {
+test("marine validation repository records predictions outcomes and feedback linkage", async () => {
   const db = createInMemoryDb();
   const deps = {
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openWritable: () => db,
-    openReadOnly: () => db,
+    getAdapter: () => ({
+      execute: async (sql: string, params: unknown[] = []) => {
+        const stmt = db.prepare(sql);
+        const upper = sql.trim().toUpperCase();
+        if (upper.startsWith("SELECT") || upper.startsWith("PRAGMA")) {
+          return stmt.all(...params);
+        } else {
+          return stmt.run(...params);
+        }
+      },
+      close: async () => {},
+      resourceId: "mock-async",
+    }),
     now: () => NOW,
   };
 
-  const createResult = recordMarineRiskEvaluationPrediction(
+  const createResult = await recordMarineRiskEvaluationPrediction(
     {
       stationId: "46042",
       route: "/api/v1/risk/score",
@@ -83,7 +94,7 @@ test("marine validation repository records predictions outcomes and feedback lin
     return;
   }
 
-  const outcomeResult = attachMarineRiskEvaluationOutcome(
+  const outcomeResult = await attachMarineRiskEvaluationOutcome(
     {
       evaluationId: createResult.result.evaluation.id,
       observedAt: "2026-03-24T13:00:00.000Z",
@@ -102,7 +113,7 @@ test("marine validation repository records predictions outcomes and feedback lin
     assert.equal(outcomeResult.result.evaluation?.actualOutcome?.classification, "partial");
   }
 
-  const feedbackResult = attachFeedbackToMarineRiskEvaluation(
+  const feedbackResult = await attachFeedbackToMarineRiskEvaluation(
     {
       evaluationId: createResult.result.evaluation.id,
       useful: false,
@@ -118,7 +129,7 @@ test("marine validation repository records predictions outcomes and feedback lin
     assert.equal(feedbackResult.result.evaluation?.feedbackCount, 1);
   }
 
-  const listResult = listMarineRiskEvaluations({ stationId: "46042" }, deps);
+  const listResult = await listMarineRiskEvaluations({ stationId: "46042" }, deps);
   assert.equal(listResult.source, "db");
   if (listResult.source === "db") {
     assert.equal(listResult.result.evaluations.length, 1);
@@ -126,17 +137,28 @@ test("marine validation repository records predictions outcomes and feedback lin
   }
 });
 
-test("marine validation repository generates UUID-format ids", () => {
+test("marine validation repository generates UUID-format ids", async () => {
   const db = createInMemoryDb();
   const deps = {
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openWritable: () => db,
-    openReadOnly: () => db,
+    getAdapter: () => ({
+      execute: async (sql: string, params: unknown[] = []) => {
+        const stmt = db.prepare(sql);
+        const upper = sql.trim().toUpperCase();
+        if (upper.startsWith("SELECT") || upper.startsWith("PRAGMA")) {
+          return stmt.all(...params);
+        } else {
+          return stmt.run(...params);
+        }
+      },
+      close: async () => {},
+      resourceId: "mock-async",
+    }),
     now: () => NOW,
   };
 
-  const result1 = recordMarineRiskEvaluationPrediction(
+  const result1 = await recordMarineRiskEvaluationPrediction(
     {
       stationId: "46042",
       route: "/api/v1/risk/score",
@@ -150,7 +172,7 @@ test("marine validation repository generates UUID-format ids", () => {
     deps,
   );
 
-  const result2 = recordMarineRiskEvaluationPrediction(
+  const result2 = await recordMarineRiskEvaluationPrediction(
     {
       stationId: "46042",
       route: "/api/v1/risk/score",
@@ -175,17 +197,28 @@ test("marine validation repository generates UUID-format ids", () => {
   }
 });
 
-test("marine validation repository rejects outcome attachment for mismatched api key", () => {
+test("marine validation repository rejects outcome attachment for mismatched api key", async () => {
   const db = createInMemoryDb();
   const deps = {
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openWritable: () => db,
-    openReadOnly: () => db,
+    getAdapter: () => ({
+      execute: async (sql: string, params: unknown[] = []) => {
+        const stmt = db.prepare(sql);
+        const upper = sql.trim().toUpperCase();
+        if (upper.startsWith("SELECT") || upper.startsWith("PRAGMA")) {
+          return stmt.all(...params);
+        } else {
+          return stmt.run(...params);
+        }
+      },
+      close: async () => {},
+      resourceId: "mock-async",
+    }),
     now: () => NOW,
   };
 
-  const createResult = recordMarineRiskEvaluationPrediction(
+  const createResult = await recordMarineRiskEvaluationPrediction(
     {
       stationId: "46042",
       route: "/api/v1/risk/score",
@@ -203,7 +236,7 @@ test("marine validation repository rejects outcome attachment for mismatched api
   assert.equal(createResult.source, "db");
   if (createResult.source !== "db" || !createResult.result.ok || !createResult.result.evaluation) return;
 
-  const wrongKeyResult = attachMarineRiskEvaluationOutcome(
+  const wrongKeyResult = await attachMarineRiskEvaluationOutcome(
     {
       evaluationId: createResult.result.evaluation.id,
       apiKeyId: "APIKEY-WRONG",
@@ -222,7 +255,7 @@ test("marine validation repository rejects outcome attachment for mismatched api
     assert.equal(wrongKeyResult.result.reason, "not_found");
   }
 
-  const correctKeyResult = attachMarineRiskEvaluationOutcome(
+  const correctKeyResult = await attachMarineRiskEvaluationOutcome(
     {
       evaluationId: createResult.result.evaluation.id,
       apiKeyId: "APIKEY-1",
@@ -241,17 +274,28 @@ test("marine validation repository rejects outcome attachment for mismatched api
   }
 });
 
-test("marine validation repository rejects feedback attachment for mismatched api key", () => {
+test("marine validation repository rejects feedback attachment for mismatched api key", async () => {
   const db = createInMemoryDb();
   const deps = {
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openWritable: () => db,
-    openReadOnly: () => db,
+    getAdapter: () => ({
+      execute: async (sql: string, params: unknown[] = []) => {
+        const stmt = db.prepare(sql);
+        const upper = sql.trim().toUpperCase();
+        if (upper.startsWith("SELECT") || upper.startsWith("PRAGMA")) {
+          return stmt.all(...params);
+        } else {
+          return stmt.run(...params);
+        }
+      },
+      close: async () => {},
+      resourceId: "mock-async",
+    }),
     now: () => NOW,
   };
 
-  const createResult = recordMarineRiskEvaluationPrediction(
+  const createResult = await recordMarineRiskEvaluationPrediction(
     {
       stationId: "46042",
       route: "/api/v1/risk/score",
@@ -268,7 +312,7 @@ test("marine validation repository rejects feedback attachment for mismatched ap
 
   if (createResult.source !== "db" || !createResult.result.ok || !createResult.result.evaluation) return;
 
-  const wrongKeyResult = attachFeedbackToMarineRiskEvaluation(
+  const wrongKeyResult = await attachFeedbackToMarineRiskEvaluation(
     {
       evaluationId: createResult.result.evaluation.id,
       apiKeyId: "APIKEY-WRONG",
@@ -284,18 +328,29 @@ test("marine validation repository rejects feedback attachment for mismatched ap
   }
 });
 
-test("marine validation repository listMarineRiskEvaluations respects limit", () => {
+test("marine validation repository listMarineRiskEvaluations respects limit", async () => {
   const db = createInMemoryDb();
   const deps = {
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openWritable: () => db,
-    openReadOnly: () => db,
+    getAdapter: () => ({
+      execute: async (sql: string, params: unknown[] = []) => {
+        const stmt = db.prepare(sql);
+        const upper = sql.trim().toUpperCase();
+        if (upper.startsWith("SELECT") || upper.startsWith("PRAGMA")) {
+          return stmt.all(...params);
+        } else {
+          return stmt.run(...params);
+        }
+      },
+      close: async () => {},
+      resourceId: "mock-async",
+    }),
     now: () => NOW,
   };
 
   for (let i = 0; i < 5; i++) {
-    recordMarineRiskEvaluationPrediction(
+    await recordMarineRiskEvaluationPrediction(
       {
         stationId: "46042",
         route: "/api/v1/risk/score",
@@ -310,34 +365,45 @@ test("marine validation repository listMarineRiskEvaluations respects limit", ()
     );
   }
 
-  const limitedResult = listMarineRiskEvaluations({ limit: 3 }, deps);
+  const limitedResult = await listMarineRiskEvaluations({ limit: 3 }, deps);
   assert.equal(limitedResult.source, "db");
   if (limitedResult.source === "db") {
     assert.equal(limitedResult.result.evaluations.length, 3);
   }
 
-  const allResult = listMarineRiskEvaluations({}, deps);
+  const allResult = await listMarineRiskEvaluations({}, deps);
   assert.equal(allResult.source, "db");
   if (allResult.source === "db") {
     assert.equal(allResult.result.evaluations.length, 5);
   }
 });
 
-test("marine validation repository sinceDays filter excludes old evaluations", () => {
+test("marine validation repository sinceDays filter excludes old evaluations", async () => {
   const db = createInMemoryDb();
   const REFERENCE_MS = Date.parse("2026-03-24T12:00:00.000Z");
   const recentAt = new Date(REFERENCE_MS - 5 * 86400000).toISOString();
   const oldAt = new Date(REFERENCE_MS - 40 * 86400000).toISOString();
-
+ 
   const baseDeps = {
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openWritable: () => db,
-    openReadOnly: () => db,
+    getAdapter: () => ({
+      execute: async (sql: string, params: unknown[] = []) => {
+        const stmt = db.prepare(sql);
+        const upper = sql.trim().toUpperCase();
+        if (upper.startsWith("SELECT") || upper.startsWith("PRAGMA")) {
+          return stmt.all(...params);
+        } else {
+          return stmt.run(...params);
+        }
+      },
+      close: async () => {},
+      resourceId: "mock-async",
+    }),
     now: () => REFERENCE_MS,
   };
 
-  recordMarineRiskEvaluationPrediction(
+  await recordMarineRiskEvaluationPrediction(
     {
       stationId: "46042",
       route: "/api/v1/risk/score",
@@ -351,7 +417,7 @@ test("marine validation repository sinceDays filter excludes old evaluations", (
     baseDeps,
   );
 
-  recordMarineRiskEvaluationPrediction(
+  await recordMarineRiskEvaluationPrediction(
     {
       stationId: "46042",
       route: "/api/v1/risk/score",
@@ -365,13 +431,13 @@ test("marine validation repository sinceDays filter excludes old evaluations", (
     baseDeps,
   );
 
-  const allResult = listMarineRiskEvaluations({}, baseDeps);
+  const allResult = await listMarineRiskEvaluations({}, baseDeps);
   assert.equal(allResult.source, "db");
   if (allResult.source === "db") {
     assert.equal(allResult.result.evaluations.length, 2);
   }
 
-  const recentResult = listMarineRiskEvaluations({ sinceDays: 30 }, baseDeps);
+  const recentResult = await listMarineRiskEvaluations({ sinceDays: 30 }, baseDeps);
   assert.equal(recentResult.source, "db");
   if (recentResult.source === "db") {
     assert.equal(recentResult.result.evaluations.length, 1);
@@ -379,11 +445,24 @@ test("marine validation repository sinceDays filter excludes old evaluations", (
   }
 });
 
-test("marine validation repository validates required fields and handles missing storage", () => {
+test("marine validation repository validates required fields and handles missing storage", async () => {
   const db = createInMemoryDb();
-  ensureMarineValidationTables(db);
-
-  const invalidPrediction = recordMarineRiskEvaluationPrediction(
+  const mockAdapter: AsyncDbAdapter = {
+    execute: async (sql: string, params: unknown[] = []) => {
+      const stmt = db.prepare(sql);
+      const upper = sql.trim().toUpperCase();
+      if (upper.startsWith("SELECT") || upper.startsWith("PRAGMA")) {
+        return stmt.all(...params);
+      } else {
+        return stmt.run(...params);
+      }
+    },
+    close: async () => {},
+    resourceId: "mock-async",
+  };
+  await ensureMarineValidationTables(mockAdapter);
+ 
+  const invalidPrediction = await recordMarineRiskEvaluationPrediction(
     {
       stationId: "",
       route: "/api/v1/risk/score",
@@ -397,7 +476,7 @@ test("marine validation repository validates required fields and handles missing
     {
       resolvePath: () => "test.sqlite",
       hasPath: () => true,
-      openWritable: () => db,
+      getAdapter: () => mockAdapter,
       now: () => NOW,
     },
   );
@@ -408,7 +487,7 @@ test("marine validation repository validates required fields and handles missing
     assert.equal(invalidPrediction.result.reason, "validation");
   }
 
-  const unavailable = listMarineRiskEvaluations(
+  const unavailable = await listMarineRiskEvaluations(
     {},
     {
       resolvePath: () => "missing.sqlite",

@@ -15,7 +15,7 @@ export interface InternalRegionRiskTrendResponse {
   region_name: string;
   computed_at: string;
   current: {
-    risk_level: "low" | "medium" | "high" | "critical" | "unknown";
+    risk_level: "low" | "medium" | "high" | "critical" | "unknown" | "insufficient_data" | "conflicting_signals";
     confidence_score: number;
     weighted_score: number;
     coverage: InternalRegionRiskScoreResponse["coverage"];
@@ -54,12 +54,12 @@ interface RegionRiskTrendRouteDependencies {
   now?: () => number;
 }
 
-export function buildRegionRiskTrendRouteResponse(
+export async function buildRegionRiskTrendRouteResponse(
   regionId: string,
   dependencies: RegionRiskTrendRouteDependencies = {},
-): { status: 200 | 404 | 503; json: InternalRegionRiskTrendResponse | { message: string } } {
+): Promise<{ status: 200 | 404 | 503; json: InternalRegionRiskTrendResponse | { message: string } }> {
   const buildScoreResponse = dependencies.buildScoreResponse ?? buildRegionRiskScoreRouteResponse;
-  const scoreResponse = buildScoreResponse(regionId);
+  const scoreResponse = await buildScoreResponse(regionId);
 
   if (scoreResponse.status !== 200) {
     return {
@@ -131,7 +131,7 @@ export const getRegionRiskTrendRoute: RouteDefinition<
 > = {
   method: "GET",
   path: "/regions/:regionId/risk/trend",
-  handler(request) {
+  async handler(request) {
     return buildRegionRiskTrendRouteResponse(request.body.regionId);
   },
 };

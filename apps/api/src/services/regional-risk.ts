@@ -1,4 +1,4 @@
-import { FusionSummary } from "@marine/shared/src/types";
+import { FusionSummary } from "@marine/shared";
 
 /**
  * Canonical builder for region-level risk response.
@@ -109,6 +109,8 @@ const SIGNAL_LABELS: Record<RiskSignalSummary["field"], string> = {
   salinityPsu: "salinity stress",
   dissolvedOxygenMgL: "dissolved oxygen stress",
   crwSstAnomalyC: "CRW warming support",
+  crwHotspotC: "CRW hotspot",
+  crwDhw: "CRW DHW",
 };
 
 function clamp(value: number, min: number, max: number): number {

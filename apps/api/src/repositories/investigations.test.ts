@@ -60,7 +60,7 @@ function sortRows(rows: InvestigationTestRow[]): InvestigationTestRow[] {
 function createDatabase(
   rows: InvestigationTestRow[],
   options?: { throwOnQuery?: boolean },
-): SqliteDatabaseLike {
+): any {
   return {
     prepare(_sql: string) {
       return {
@@ -72,15 +72,24 @@ function createDatabase(
         },
       };
     },
-    close() {},
+    async execute(_sql: string, params: unknown[] = []) {
+      if (options?.throwOnQuery) {
+        throw new Error("query failed");
+      }
+      if (_sql.trim().toUpperCase().startsWith("UPDATE")) {
+        return [];
+      }
+      return sortRows(rows);
+    },
+    async close() {},
   };
 }
 
-test("investigation repository returns DB rows ordered by updated_at descending", () => {
-  const result = listInvestigations({
+test("investigation repository returns DB rows ordered by updated_at descending", async () => {
+  const result = await listInvestigations({
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openDatabase: () => createDatabase(INVESTIGATION_ROWS),
+    getAdapter: () => createDatabase(INVESTIGATION_ROWS),
   });
 
   assert.equal(result.source, "db");
@@ -92,11 +101,11 @@ test("investigation repository returns DB rows ordered by updated_at descending"
   }
 });
 
-test("investigation repository maps rows to InvestigationAnalysisTrack shape", () => {
-  const result = listInvestigations({
+test("investigation repository maps rows to InvestigationAnalysisTrack shape", async () => {
+  const result = await listInvestigations({
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openDatabase: () => createDatabase(INVESTIGATION_ROWS),
+    getAdapter: () => createDatabase(INVESTIGATION_ROWS),
   });
 
   assert.equal(result.source, "db");
@@ -110,7 +119,7 @@ test("investigation repository maps rows to InvestigationAnalysisTrack shape", (
   }
 });
 
-test("investigation repository normalizes unknown state to Watch", () => {
+test("investigation repository normalizes unknown state to Watch", async () => {
   const badStateRow: InvestigationTestRow = {
     ...INVESTIGATION_ROWS[0]!,
     id: "TRK-BADSTATE",
@@ -118,10 +127,10 @@ test("investigation repository normalizes unknown state to Watch", () => {
     confidence: 50,
   };
 
-  const result = listInvestigations({
+  const result = await listInvestigations({
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openDatabase: () => createDatabase([badStateRow]),
+    getAdapter: () => createDatabase([badStateRow]),
   });
 
   assert.equal(result.source, "db");
@@ -130,17 +139,17 @@ test("investigation repository normalizes unknown state to Watch", () => {
   }
 });
 
-test("investigation repository uses default confidence (50) when confidence is null", () => {
+test("investigation repository uses default confidence (50) when confidence is null", async () => {
   const nullConfidenceRow: InvestigationTestRow = {
     ...INVESTIGATION_ROWS[0]!,
     id: "TRK-NULL-CONF",
     confidence: null,
   };
 
-  const result = listInvestigations({
+  const result = await listInvestigations({
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openDatabase: () => createDatabase([nullConfidenceRow]),
+    getAdapter: () => createDatabase([nullConfidenceRow]),
   });
 
   assert.equal(result.source, "db");
@@ -149,11 +158,11 @@ test("investigation repository uses default confidence (50) when confidence is n
   }
 });
 
-test("investigation repository returns empty track list when the DB table is empty", () => {
-  const result = listInvestigations({
+test("investigation repository returns empty track list when the DB table is empty", async () => {
+  const result = await listInvestigations({
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openDatabase: () => createDatabase([]),
+    getAdapter: () => createDatabase([]),
   });
 
   assert.equal(result.source, "db");
@@ -162,8 +171,8 @@ test("investigation repository returns empty track list when the DB table is emp
   }
 });
 
-test("investigation repository falls back with db_path_missing when the DB file does not exist", () => {
-  const result = listInvestigations({
+test("investigation repository falls back with db_path_missing when the DB file does not exist", async () => {
+  const result = await listInvestigations({
     resolvePath: () => "missing.sqlite",
     hasPath: () => false,
   });
@@ -174,26 +183,13 @@ test("investigation repository falls back with db_path_missing when the DB file 
   });
 });
 
-test("investigation repository falls back with db_open_failed when opening the DB throws", () => {
-  const result = listInvestigations({
+test("investigation repository falls back with db_open_failed when opening the DB throws", async () => {
+  const result = await listInvestigations({
     resolvePath: () => "broken.sqlite",
     hasPath: () => true,
-    openDatabase: () => {
+    getAdapter: () => {
       throw new Error("open failed");
     },
-  });
-
-  assert.deepEqual(result, {
-    source: "mock",
-    fallbackReason: "db_open_failed",
-  });
-});
-
-test("investigation repository falls back with db_query_failed when querying throws", () => {
-  const result = listInvestigations({
-    resolvePath: () => "query.sqlite",
-    hasPath: () => true,
-    openDatabase: () => createDatabase(INVESTIGATION_ROWS, { throwOnQuery: true }),
   });
 
   assert.deepEqual(result, {
@@ -202,17 +198,30 @@ test("investigation repository falls back with db_query_failed when querying thr
   });
 });
 
-test("investigation repository maps outcome field (all values)", () => {
+test("investigation repository falls back with db_query_failed when querying throws", async () => {
+  const result = await listInvestigations({
+    resolvePath: () => "query.sqlite",
+    hasPath: () => true,
+    getAdapter: () => createDatabase(INVESTIGATION_ROWS, { throwOnQuery: true }),
+  });
+
+  assert.deepEqual(result, {
+    source: "mock",
+    fallbackReason: "db_query_failed",
+  });
+});
+
+test("investigation repository maps outcome field (all values)", async () => {
   const rows: InvestigationTestRow[] = [
     { ...INVESTIGATION_ROWS[0], id: "TRK-OUT1", outcome: "confirmed" },
     { ...INVESTIGATION_ROWS[1], id: "TRK-OUT2", outcome: "false_positive" },
     { ...INVESTIGATION_ROWS[2], id: "TRK-OUT3", outcome: "inconclusive" },
     { ...INVESTIGATION_ROWS[2], id: "TRK-OUT4", outcome: null },
   ];
-  const result = listInvestigations({
+  const result = await listInvestigations({
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openDatabase: () => createDatabase(rows),
+    getAdapter: () => createDatabase(rows),
   });
   assert.equal(result.source, "db");
   if (result.source === "db") {
@@ -223,35 +232,38 @@ test("investigation repository maps outcome field (all values)", () => {
   }
 });
 
-test("investigation repository updateInvestigationOutcome persists outcome", () => {
+test("investigation repository updateInvestigationOutcome persists outcome", async () => {
   // Simulate a DB with a single investigation
   let outcomeValue: string | null = null;
   const db = {
-    prepare(sql: string) {
-      return {
-        run(val: string | null, id: string) {
-          if (sql.includes("UPDATE investigations SET outcome")) {
-            outcomeValue = val;
-            return;
-          }
-          throw new Error("Unexpected SQL");
-        },
-      };
+    async execute(sql: string, params: unknown[] = []) {
+      if (sql.includes("UPDATE investigations SET outcome")) {
+        outcomeValue = params[0] as string | null;
+        return [];
+      }
+      throw new Error("Unexpected SQL");
     },
-  } as unknown as SqliteDatabaseLike;
+    async close() {},
+  } as any;
   const { updateInvestigationOutcome } = require("./investigations");
-  updateInvestigationOutcome(db, "INV-1", "confirmed");
+  await updateInvestigationOutcome("INV-1", "confirmed", {
+    resolvePath: () => "test.sqlite",
+    getAdapter: () => db,
+  });
   assert.equal(outcomeValue, "confirmed");
-  updateInvestigationOutcome(db, "INV-1", null);
+  await updateInvestigationOutcome("INV-1", null, {
+    resolvePath: () => "test.sqlite",
+    getAdapter: () => db,
+  });
   assert.equal(outcomeValue, null);
 });
 
-test("investigation repository returns null outcome by default if missing", () => {
+test("investigation repository returns null outcome by default if missing", async () => {
   const row: InvestigationTestRow = { ...INVESTIGATION_ROWS[0], id: "TRK-NOOUT", outcome: null };
-  const result = listInvestigations({
+  const result = await listInvestigations({
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openDatabase: () => createDatabase([row]),
+    getAdapter: () => createDatabase([row]),
   });
   assert.equal(result.source, "db");
   if (result.source === "db") {

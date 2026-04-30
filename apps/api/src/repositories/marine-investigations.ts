@@ -1,10 +1,8 @@
 import {
   hasDatabasePath,
-  openReadOnlyDatabase,
-  openWritableDatabase,
   resolveDatabasePath,
-  type SqliteDatabaseLike,
 } from "../db/client";
+import { getAsyncAdapter, type AsyncDbAdapter } from "../db/async-client";
 import type {
   MarineInvestigationCreateInput,
   MarineInvestigationCreateResult,
@@ -53,8 +51,7 @@ const MAX_LIMIT = 200;
 interface MarineInvestigationRepositoryDeps {
   resolvePath?: typeof resolveDatabasePath;
   hasPath?: typeof hasDatabasePath;
-  openReadOnly?: typeof openReadOnlyDatabase;
-  openWritable?: typeof openWritableDatabase;
+  getAdapter?: typeof getAsyncAdapter;
   now?: () => number;
 }
 
@@ -118,17 +115,6 @@ function normalizeLimit(limit: number | undefined): number {
   return Math.min(Math.max(Math.floor(limit as number), 1), MAX_LIMIT);
 }
 
-function runStatement(
-  stmt: { all(...p: unknown[]): unknown[]; run?(...p: unknown[]): unknown },
-  ...params: unknown[]
-) {
-  if (typeof stmt.run === "function") {
-    stmt.run(...params);
-    return;
-  }
-  stmt.all(...params);
-}
-
 function mapRow(row: MarineInvestigationRow): MarineInvestigationRecord {
   return {
     id: row.id,
@@ -146,71 +132,60 @@ function mapRow(row: MarineInvestigationRow): MarineInvestigationRecord {
   };
 }
 
-function nextInvestigationId(db: SqliteDatabaseLike, nowMs: number): string {
-  const rows = db
-    .prepare("SELECT COUNT(*) AS total FROM marine_intelligence_investigations")
-    .all() as Array<{ total: number }>;
+async function nextInvestigationId(adapter: AsyncDbAdapter, nowMs: number): Promise<string> {
+  const rows = await adapter.execute("SELECT COUNT(*) AS total FROM marine_intelligence_investigations") as Array<{ total: number }>;
   const total = Number(rows[0]?.total ?? 0);
   return `MIID-${nowMs}-${total + 1}`;
 }
 
-export function ensureMarineInvestigationTables(db: SqliteDatabaseLike) {
-  runStatement(
-    db.prepare(`
-      CREATE TABLE IF NOT EXISTS marine_intelligence_investigations (
-        id TEXT PRIMARY KEY,
-        event_id TEXT NOT NULL,
-        title TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'open',
-        owner_id TEXT,
-        notes TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        acknowledged_at TEXT,
-        resolved_at TEXT,
-        dismissed_at TEXT,
-        truth_partition TEXT NOT NULL DEFAULT 'FIELD_TRUTH'
-      )
-    `),
-  );
+export async function ensureMarineInvestigationTables(adapter: AsyncDbAdapter) {
+  await adapter.execute(`
+    CREATE TABLE IF NOT EXISTS marine_intelligence_investigations (
+      id TEXT PRIMARY KEY,
+      event_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      owner_id TEXT,
+      notes TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      acknowledged_at TEXT,
+      resolved_at TEXT,
+      dismissed_at TEXT,
+      truth_partition TEXT NOT NULL DEFAULT 'FIELD_TRUTH'
+    )
+  `);
 
-  runStatement(
-    db.prepare(
-      `CREATE INDEX IF NOT EXISTS idx_investigations_event
-       ON marine_intelligence_investigations (event_id)`,
-    ),
+  await adapter.execute(
+    `CREATE INDEX IF NOT EXISTS idx_investigations_event
+     ON marine_intelligence_investigations (event_id)`,
   );
 
   // Column Guard: truth_partition
   try {
-    runStatement(toStatement(db, "ALTER TABLE marine_intelligence_investigations ADD COLUMN truth_partition TEXT NOT NULL DEFAULT 'FIELD_TRUTH'"));
+    await adapter.execute("ALTER TABLE marine_intelligence_investigations ADD COLUMN truth_partition TEXT NOT NULL DEFAULT 'FIELD_TRUTH'");
   } catch {
     // Column already exists
   }
 
-
-  runStatement(
-    db.prepare(
-      `CREATE INDEX IF NOT EXISTS idx_investigations_status
-       ON marine_intelligence_investigations (status, created_at DESC)`,
-    ),
+  await adapter.execute(
+    `CREATE INDEX IF NOT EXISTS idx_investigations_status
+     ON marine_intelligence_investigations (status, created_at DESC)`,
   );
 
-  runStatement(
-    db.prepare(
-      `CREATE INDEX IF NOT EXISTS idx_investigations_partition_at
-       ON marine_intelligence_investigations (truth_partition, created_at DESC)`,
-    ),
+  await adapter.execute(
+    `CREATE INDEX IF NOT EXISTS idx_investigations_partition_at
+     ON marine_intelligence_investigations (truth_partition, created_at DESC)`,
   );
 }
 
-export function createMarineInvestigation(
+export async function createMarineInvestigation(
   input: MarineInvestigationCreateInput,
   dependencies: MarineInvestigationRepositoryDeps = {},
-): MarineInvestigationsRepositoryCreateResult {
+): Promise<MarineInvestigationsRepositoryCreateResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openWritable = dependencies.openWritable ?? openWritableDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const now = dependencies.now ?? Date.now;
 
   const eventIdNorm = normalizeText(input.eventId);
@@ -240,35 +215,35 @@ export function createMarineInvestigation(
   }
 
   const dbPath = resolvePath();
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
 
-  if (!hasPath(dbPath)) {
+  if (!isTurso && !hasPath(dbPath)) {
     return { source: "unavailable", fallbackReason: "db_path_missing" };
   }
 
-  let db: SqliteDatabaseLike;
+  let adapter: AsyncDbAdapter;
 
   try {
-    db = openWritable(dbPath);
+    adapter = getAdapter(false);
   } catch {
     return { source: "unavailable", fallbackReason: "db_open_failed" };
   }
 
   try {
-    ensureMarineInvestigationTables(db);
+    await ensureMarineInvestigationTables(adapter);
 
     const nowMs = now();
     const nowIso = new Date(nowMs).toISOString();
-    const id = nextInvestigationId(db, nowMs);
+    const id = await nextInvestigationId(adapter, nowMs);
     const ownerId = normalizeText(input.ownerId ?? null);
     const truthPartition = input.truthPartition || "FIELD_TRUTH";
 
-    runStatement(
-      db.prepare(`
-        INSERT INTO marine_intelligence_investigations
-          (id, event_id, title, status, owner_id, notes,
-           created_at, updated_at, acknowledged_at, resolved_at, dismissed_at, truth_partition)
-        VALUES (?, ?, ?, 'open', ?, NULL, ?, ?, NULL, NULL, NULL, ?)
-      `),
+    await adapter.execute(`
+      INSERT INTO marine_intelligence_investigations
+        (id, event_id, title, status, owner_id, notes,
+         created_at, updated_at, acknowledged_at, resolved_at, dismissed_at, truth_partition)
+      VALUES (?, ?, ?, 'open', ?, NULL, ?, ?, NULL, NULL, NULL, ?)
+    `, [
       id,
       eventIdNorm,
       titleNorm,
@@ -276,87 +251,87 @@ export function createMarineInvestigation(
       nowIso,
       nowIso,
       truthPartition,
-    );
+    ]);
 
-    const rows = db
-      .prepare(
-        "SELECT * FROM marine_intelligence_investigations WHERE id = ?",
-      )
-      .all(id) as MarineInvestigationRow[];
+    const rows = await adapter.execute(
+      "SELECT * FROM marine_intelligence_investigations WHERE id = ?",
+      [id]
+    ) as MarineInvestigationRow[];
 
     const investigation = rows[0] ? mapRow(rows[0]) : null;
     return { source: "db", result: { ok: true, investigation } };
   } catch {
     return { source: "unavailable", fallbackReason: "db_query_failed" };
   } finally {
-    db.close();
+    await adapter.close();
   }
 }
 
-export function getMarineInvestigation(
+export async function getMarineInvestigation(
   id: string,
   dependencies: MarineInvestigationRepositoryDeps = {},
-): MarineInvestigationsRepositoryGetResult {
+): Promise<MarineInvestigationsRepositoryGetResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openReadOnly = dependencies.openReadOnly ?? openReadOnlyDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
 
   const dbPath = resolvePath();
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
 
-  if (!hasPath(dbPath)) {
+  if (!isTurso && !hasPath(dbPath)) {
     return { source: "unavailable", fallbackReason: "db_path_missing" };
   }
 
-  let db: SqliteDatabaseLike;
+  let adapter: AsyncDbAdapter;
 
   try {
-    db = openReadOnly(dbPath);
+    adapter = getAdapter(true);
   } catch {
     return { source: "unavailable", fallbackReason: "db_open_failed" };
   }
 
   try {
-    ensureMarineInvestigationTables(db);
+    await ensureMarineInvestigationTables(adapter);
 
-    const rows = db
-      .prepare(
-        "SELECT * FROM marine_intelligence_investigations WHERE id = ?",
-      )
-      .all(id) as MarineInvestigationRow[];
+    const rows = await adapter.execute(
+      "SELECT * FROM marine_intelligence_investigations WHERE id = ?",
+      [id]
+    ) as MarineInvestigationRow[];
 
     const investigation = rows[0] ? mapRow(rows[0]) : null;
     return { source: "db", result: { ok: true, investigation } };
   } catch {
     return { source: "unavailable", fallbackReason: "db_query_failed" };
   } finally {
-    db.close();
+    await adapter.close();
   }
 }
 
-export function listMarineInvestigations(
+export async function listMarineInvestigations(
   filters: MarineInvestigationListFilters & { includeAllPartitions?: boolean; truthPartition?: TruthPartition } = {},
   dependencies: MarineInvestigationRepositoryDeps = {},
-): MarineInvestigationsRepositoryListResult {
+): Promise<MarineInvestigationsRepositoryListResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openReadOnly = dependencies.openReadOnly ?? openReadOnlyDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
 
   const dbPath = resolvePath();
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
 
-  if (!hasPath(dbPath)) {
+  if (!isTurso && !hasPath(dbPath)) {
     return { source: "unavailable", fallbackReason: "db_path_missing" };
   }
 
-  let db: SqliteDatabaseLike;
+  let adapter: AsyncDbAdapter;
 
   try {
-    db = openReadOnly(dbPath);
+    adapter = getAdapter(true);
   } catch {
     return { source: "unavailable", fallbackReason: "db_open_failed" };
   }
 
   try {
-    ensureMarineInvestigationTables(db);
+    await ensureMarineInvestigationTables(adapter);
 
     const clauses: string[] = [];
     const params: unknown[] = [];
@@ -386,14 +361,13 @@ export function listMarineInvestigations(
 
     params.push(limit);
 
-    const rows = db
-      .prepare(
-        `SELECT * FROM marine_intelligence_investigations
-         ${where}
-         ORDER BY created_at DESC
-         LIMIT ?`,
-      )
-      .all(...params) as MarineInvestigationRow[];
+    const rows = await adapter.execute(
+      `SELECT * FROM marine_intelligence_investigations
+       ${where}
+       ORDER BY created_at DESC
+       LIMIT ?`,
+      params
+    ) as MarineInvestigationRow[];
 
     return {
       source: "db",
@@ -402,43 +376,43 @@ export function listMarineInvestigations(
   } catch {
     return { source: "unavailable", fallbackReason: "db_query_failed" };
   } finally {
-    db.close();
+    await adapter.close();
   }
 }
 
-export function transitionMarineInvestigation(
+export async function transitionMarineInvestigation(
   id: string,
   transition: MarineInvestigationTransition,
   notes: string | null = null,
   dependencies: MarineInvestigationRepositoryDeps = {},
-): MarineInvestigationsRepositoryTransitionResult {
+): Promise<MarineInvestigationsRepositoryTransitionResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openWritable = dependencies.openWritable ?? openWritableDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const now = dependencies.now ?? Date.now;
 
   const dbPath = resolvePath();
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
 
-  if (!hasPath(dbPath)) {
+  if (!isTurso && !hasPath(dbPath)) {
     return { source: "unavailable", fallbackReason: "db_path_missing" };
   }
 
-  let db: SqliteDatabaseLike;
+  let adapter: AsyncDbAdapter;
 
   try {
-    db = openWritable(dbPath);
+    adapter = getAdapter(false);
   } catch {
     return { source: "unavailable", fallbackReason: "db_open_failed" };
   }
 
   try {
-    ensureMarineInvestigationTables(db);
+    await ensureMarineInvestigationTables(adapter);
 
-    const rows = db
-      .prepare(
-        "SELECT * FROM marine_intelligence_investigations WHERE id = ?",
-      )
-      .all(id) as MarineInvestigationRow[];
+    const rows = await adapter.execute(
+      "SELECT * FROM marine_intelligence_investigations WHERE id = ?",
+      [id]
+    ) as MarineInvestigationRow[];
 
     if (!rows[0]) {
       return {
@@ -481,13 +455,12 @@ export function transitionMarineInvestigation(
     if (transition === "dismiss") dismissedAt = nowIso;
     if (notes !== null) updatedNotes = notes.trim() || null;
 
-    runStatement(
-      db.prepare(`
-        UPDATE marine_intelligence_investigations
-        SET status = ?, updated_at = ?,
-            acknowledged_at = ?, resolved_at = ?, dismissed_at = ?, notes = ?
-        WHERE id = ?
-      `),
+    await adapter.execute(`
+      UPDATE marine_intelligence_investigations
+      SET status = ?, updated_at = ?,
+          acknowledged_at = ?, resolved_at = ?, dismissed_at = ?, notes = ?
+      WHERE id = ?
+    `, [
       targetStatus,
       nowIso,
       acknowledgedAt,
@@ -495,19 +468,18 @@ export function transitionMarineInvestigation(
       dismissedAt,
       updatedNotes,
       id,
-    );
+    ]);
 
-    const updatedRows = db
-      .prepare(
-        "SELECT * FROM marine_intelligence_investigations WHERE id = ?",
-      )
-      .all(id) as MarineInvestigationRow[];
+    const updatedRows = await adapter.execute(
+      "SELECT * FROM marine_intelligence_investigations WHERE id = ?",
+      [id]
+    ) as MarineInvestigationRow[];
 
     const investigation = updatedRows[0] ? mapRow(updatedRows[0]) : null;
     return { source: "db", result: { ok: true, investigation } };
   } catch {
     return { source: "unavailable", fallbackReason: "db_query_failed" };
   } finally {
-    db.close();
+    await adapter.close();
   }
 }

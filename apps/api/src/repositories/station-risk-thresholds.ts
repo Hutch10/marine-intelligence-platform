@@ -2,11 +2,9 @@ import type { RiskAppliedThreshold } from "@marine/shared";
 import type { NdbcMappedObservation } from "../connectors/ndbc/map";
 import {
   hasDatabasePath,
-  openReadOnlyDatabase,
   resolveDatabasePath,
-  type SqliteDatabaseLike,
-  type SqliteStatementLike,
 } from "../db/client";
+import { getAsyncAdapter, type AsyncDbAdapter } from "../db/async-client";
 import type {
   OperationalAlertRuleType,
   OperationalAlertSeverity,
@@ -37,10 +35,10 @@ interface StationRiskThresholdOverrideRow {
 }
 
 interface StationRiskThresholdDependencies {
-  db?: SqliteDatabaseLike;
+  adapter?: AsyncDbAdapter;
   resolvePath?: typeof resolveDatabasePath;
   hasPath?: typeof hasDatabasePath;
-  openReadOnly?: typeof openReadOnlyDatabase;
+  getAdapter?: typeof getAsyncAdapter;
   now?: () => number;
 }
 
@@ -53,11 +51,6 @@ interface ThresholdCacheEntry {
 
 const DEFAULT_THRESHOLD_DEFINITIONS: ThresholdDefinition[] = [
   {
-    // 30 °C is a conservative global default for SST anomaly detection.
-    // This aligns with NOAA Coral Reef Watch Bleaching Alert watch thresholds
-    // (HotSpot > 0 at 28–29 °C in most tropical basins). Per-region calibration
-    // should use the admin threshold UI or upsertStationThresholdOverrides() to
-    // lower the value toward regional maximum monthly mean (MMM) + 1 °C.
     metric: "seaSurfaceTempC",
     comparator: "above",
     thresholdValue: 30,
@@ -87,11 +80,6 @@ const DEFAULT_THRESHOLD_DEFINITIONS: ThresholdDefinition[] = [
   },
 ];
 
-// Compile-time station overrides are intentionally empty.
-// Per-station and per-region threshold customization is managed through the
-// database override path (station_risk_threshold_overrides and
-// region_risk_threshold_overrides tables). Use the admin threshold UI or
-// upsertStationThresholdOverrides() to configure live station-specific values.
 const STATION_THRESHOLD_OVERRIDES: Record<string, StationThresholdOverrides> = {
   "OVERRIDE-SST-01": {
     seaSurfaceTempC: 28,
@@ -116,19 +104,6 @@ const STATION_THRESHOLD_CACHE_TTL_MS = 120 * 1000;
 const stationThresholdCache = new Map<string, ThresholdCacheEntry>();
 
 export interface ResolvedStationRiskThreshold extends ThresholdDefinition, RiskAppliedThreshold {}
-
-function toStatement(db: SqliteDatabaseLike, sql: string): SqliteStatementLike {
-  return db.prepare(sql);
-}
-
-function runStatement(statement: SqliteStatementLike, ...params: unknown[]) {
-  if (typeof statement.run === "function") {
-    statement.run(...params);
-    return;
-  }
-
-  statement.all(...params);
-}
 
 function normalizeStationId(stationId: string | null | undefined): string {
   return typeof stationId === "string" ? stationId.trim() : "";
@@ -210,7 +185,11 @@ function mapGlobalRowsToOverrides(rows: StationRiskThresholdOverrideRow[]): Stat
       continue;
     }
 
-    const value = normalizeThresholdOverride(metric, row.pressure_hpa);
+    // Note: the original code had a bug where it mapped row.pressure_hpa to all metrics.
+    // However, looking at the schema in ensureStationRiskThresholdTables, 
+    // global_risk_threshold_defaults has threshold_value.
+    // I will fix it to use the correct property if I can, but I'll stick to the row type for now.
+    const value = normalizeThresholdOverride(metric, (row as any).threshold_value ?? row.pressure_hpa);
     if (value !== null) {
       overrides[metric] = value;
     }
@@ -225,19 +204,19 @@ function defaultThresholdMap(): Record<StationRiskThresholdMetric, number> {
   ) as Record<StationRiskThresholdMetric, number>;
 }
 
-function resolveRegionIdForStation(db: SqliteDatabaseLike, stationId: string): string | null {
+async function resolveRegionIdForStation(adapter: AsyncDbAdapter, stationId: string): Promise<string | null> {
   if (stationId.length === 0) {
     return null;
   }
 
   try {
-    const rows = toStatement(
-      db,
+    const rows = await adapter.execute(
       `SELECT region_id
        FROM stations
        WHERE id = ?
        LIMIT 1`,
-    ).all(stationId) as Array<{ region_id?: string | null }>;
+      [stationId]
+    ) as Array<{ region_id?: string | null }>;
 
     return normalizeRegionId(rows[0]?.region_id ?? null) || null;
   } catch {
@@ -285,65 +264,50 @@ export function clearStationRiskThresholdCache() {
   stationThresholdCache.clear();
 }
 
-export function ensureStationRiskThresholdTables(db: SqliteDatabaseLike) {
-  runStatement(
-    toStatement(
-      db,
-      `CREATE TABLE IF NOT EXISTS station_risk_threshold_overrides (
-        station_id TEXT PRIMARY KEY,
-        sea_surface_temp_c REAL,
-        wave_height_m REAL,
-        wind_speed_mps REAL,
-        pressure_hpa REAL,
-        updated_at INTEGER
-      )`,
-    ),
+export async function ensureStationRiskThresholdTables(adapter: AsyncDbAdapter) {
+  await adapter.execute(
+    `CREATE TABLE IF NOT EXISTS station_risk_threshold_overrides (
+      station_id TEXT PRIMARY KEY,
+      sea_surface_temp_c REAL,
+      wave_height_m REAL,
+      wind_speed_mps REAL,
+      pressure_hpa REAL,
+      updated_at INTEGER
+    )`,
   );
 
-  runStatement(
-    toStatement(
-      db,
-      `CREATE TABLE IF NOT EXISTS region_risk_threshold_overrides (
-        region_id TEXT PRIMARY KEY,
-        sea_surface_temp_c REAL,
-        wave_height_m REAL,
-        wind_speed_mps REAL,
-        pressure_hpa REAL,
-        updated_at INTEGER
-      )`,
-    ),
+  await adapter.execute(
+    `CREATE TABLE IF NOT EXISTS region_risk_threshold_overrides (
+      region_id TEXT PRIMARY KEY,
+      sea_surface_temp_c REAL,
+      wave_height_m REAL,
+      wind_speed_mps REAL,
+      pressure_hpa REAL,
+      updated_at INTEGER
+    )`,
   );
 
-  runStatement(
-    toStatement(
-      db,
-      `CREATE TABLE IF NOT EXISTS global_risk_threshold_defaults (
-        metric_key TEXT PRIMARY KEY,
-        threshold_value REAL NOT NULL,
-        updated_at INTEGER
-      )`,
-    ),
+  await adapter.execute(
+    `CREATE TABLE IF NOT EXISTS global_risk_threshold_defaults (
+      metric_key TEXT PRIMARY KEY,
+      threshold_value REAL NOT NULL,
+      updated_at INTEGER
+    )`,
   );
 
-  runStatement(
-    toStatement(
-      db,
-      "CREATE INDEX IF NOT EXISTS idx_station_risk_threshold_overrides_updated_at ON station_risk_threshold_overrides (updated_at DESC, station_id)",
-    ),
+  await adapter.execute(
+    "CREATE INDEX IF NOT EXISTS idx_station_risk_threshold_overrides_updated_at ON station_risk_threshold_overrides (updated_at DESC, station_id)",
   );
 
-  runStatement(
-    toStatement(
-      db,
-      "CREATE INDEX IF NOT EXISTS idx_region_risk_threshold_overrides_updated_at ON region_risk_threshold_overrides (updated_at DESC, region_id)",
-    ),
+  await adapter.execute(
+    "CREATE INDEX IF NOT EXISTS idx_region_risk_threshold_overrides_updated_at ON region_risk_threshold_overrides (updated_at DESC, region_id)",
   );
 }
 
-export function readStationThresholdOverridesFromDb(
-  db: SqliteDatabaseLike,
+export async function readStationThresholdOverridesFromDb(
+  adapter: AsyncDbAdapter,
   stationId: string | null | undefined,
-): StationThresholdOverrides {
+): Promise<StationThresholdOverrides> {
   const normalizedStationId = normalizeStationId(stationId);
 
   if (normalizedStationId.length === 0) {
@@ -351,14 +315,14 @@ export function readStationThresholdOverridesFromDb(
   }
 
   try {
-    ensureStationRiskThresholdTables(db);
-    const rows = toStatement(
-      db,
+    await ensureStationRiskThresholdTables(adapter);
+    const rows = await adapter.execute(
       `SELECT station_id, sea_surface_temp_c, wave_height_m, wind_speed_mps, pressure_hpa
        FROM station_risk_threshold_overrides
        WHERE station_id = ?
        LIMIT 1`,
-    ).all(normalizedStationId) as StationRiskThresholdOverrideRow[];
+      [normalizedStationId]
+    ) as StationRiskThresholdOverrideRow[];
 
     return mapRowToOverrides(rows[0] ?? null);
   } catch {
@@ -366,10 +330,10 @@ export function readStationThresholdOverridesFromDb(
   }
 }
 
-export function readRegionThresholdOverridesFromDb(
-  db: SqliteDatabaseLike,
+export async function readRegionThresholdOverridesFromDb(
+  adapter: AsyncDbAdapter,
   regionId: string | null | undefined,
-): StationThresholdOverrides {
+): Promise<StationThresholdOverrides> {
   const normalizedRegionId = normalizeRegionId(regionId);
 
   if (normalizedRegionId.length === 0) {
@@ -377,14 +341,14 @@ export function readRegionThresholdOverridesFromDb(
   }
 
   try {
-    ensureStationRiskThresholdTables(db);
-    const rows = toStatement(
-      db,
+    await ensureStationRiskThresholdTables(adapter);
+    const rows = await adapter.execute(
       `SELECT region_id, sea_surface_temp_c, wave_height_m, wind_speed_mps, pressure_hpa
        FROM region_risk_threshold_overrides
        WHERE region_id = ?
        LIMIT 1`,
-    ).all(normalizedRegionId) as StationRiskThresholdOverrideRow[];
+      [normalizedRegionId]
+    ) as StationRiskThresholdOverrideRow[];
 
     return mapRowToOverrides(rows[0] ?? null);
   } catch {
@@ -392,14 +356,13 @@ export function readRegionThresholdOverridesFromDb(
   }
 }
 
-export function readGlobalThresholdDefaultsFromDb(db: SqliteDatabaseLike): StationThresholdOverrides {
+export async function readGlobalThresholdDefaultsFromDb(adapter: AsyncDbAdapter): Promise<StationThresholdOverrides> {
   try {
-    ensureStationRiskThresholdTables(db);
-    const rows = toStatement(
-      db,
-      `SELECT metric_key, threshold_value AS pressure_hpa
+    await ensureStationRiskThresholdTables(adapter);
+    const rows = await adapter.execute(
+      `SELECT metric_key, threshold_value
        FROM global_risk_threshold_defaults`,
-    ).all() as StationRiskThresholdOverrideRow[];
+    ) as StationRiskThresholdOverrideRow[];
 
     return mapGlobalRowsToOverrides(rows);
   } catch {
@@ -407,64 +370,63 @@ export function readGlobalThresholdDefaultsFromDb(db: SqliteDatabaseLike): Stati
   }
 }
 
-export function upsertStationThresholdOverrides(
-  db: SqliteDatabaseLike,
+export async function upsertStationThresholdOverrides(
+  adapter: AsyncDbAdapter,
   stationId: string | null | undefined,
   overrides: StationThresholdOverrideInput,
   updatedAt = Date.now(),
-): void {
+): Promise<void> {
   const normalizedStationId = normalizeStationId(stationId);
 
   if (normalizedStationId.length === 0) {
     return;
   }
 
-  ensureStationRiskThresholdTables(db);
+  await ensureStationRiskThresholdTables(adapter);
 
   const seaSurfaceTempC = normalizeThresholdOverride("seaSurfaceTempC", overrides.seaSurfaceTempC);
   const waveHeightM = normalizeThresholdOverride("waveHeightM", overrides.waveHeightM);
   const windSpeedMps = normalizeThresholdOverride("windSpeedMps", overrides.windSpeedMps);
   const pressureHpa = normalizeThresholdOverride("pressureHpa", overrides.pressureHpa);
 
-  runStatement(
-    toStatement(
-      db,
-      `INSERT INTO station_risk_threshold_overrides (
-        station_id,
-        sea_surface_temp_c,
-        wave_height_m,
-        wind_speed_mps,
-        pressure_hpa,
-        updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(station_id) DO UPDATE SET
-        sea_surface_temp_c = excluded.sea_surface_temp_c,
-        wave_height_m = excluded.wave_height_m,
-        wind_speed_mps = excluded.wind_speed_mps,
-        pressure_hpa = excluded.pressure_hpa,
-        updated_at = excluded.updated_at`,
-    ),
-    normalizedStationId,
-    seaSurfaceTempC,
-    waveHeightM,
-    windSpeedMps,
-    pressureHpa,
-    updatedAt,
+  await adapter.execute(
+    `INSERT INTO station_risk_threshold_overrides (
+      station_id,
+      sea_surface_temp_c,
+      wave_height_m,
+      wind_speed_mps,
+      pressure_hpa,
+      updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(station_id) DO UPDATE SET
+      sea_surface_temp_c = excluded.sea_surface_temp_c,
+      wave_height_m = excluded.wave_height_m,
+      wind_speed_mps = excluded.wind_speed_mps,
+      pressure_hpa = excluded.pressure_hpa,
+      updated_at = excluded.updated_at`,
+    [
+      normalizedStationId,
+      seaSurfaceTempC,
+      waveHeightM,
+      windSpeedMps,
+      pressureHpa,
+      updatedAt,
+    ]
   );
 
   invalidateStationThresholdCache(normalizedStationId);
 }
 
-export function resolveStationRiskThresholds(
+export async function resolveStationRiskThresholds(
   stationId: string | null | undefined,
   dependencies: StationRiskThresholdDependencies = {},
-): ResolvedStationRiskThreshold[] {
+): Promise<ResolvedStationRiskThreshold[]> {
   const normalizedStationId = normalizeStationId(stationId);
   const compileTimeStationOverrides = STATION_THRESHOLD_OVERRIDES[normalizedStationId] ?? {};
   const fallbackDefaults = defaultThresholdMap();
   const now = dependencies.now ?? Date.now;
 
-  if (!dependencies.db && normalizedStationId.length > 0) {
+  if (!dependencies.adapter && normalizedStationId.length > 0) {
     const cached = getCachedStationThresholds(normalizedStationId, now());
 
     if (cached) {
@@ -476,32 +438,34 @@ export function resolveStationRiskThresholds(
   let regionOverrides: StationThresholdOverrides = {};
   let stationOverrides: StationThresholdOverrides = {};
 
-  if (dependencies.db) {
-    globalOverrides = readGlobalThresholdDefaultsFromDb(dependencies.db);
-    const regionId = resolveRegionIdForStation(dependencies.db, normalizedStationId);
-    regionOverrides = readRegionThresholdOverridesFromDb(dependencies.db, regionId);
-    stationOverrides = readStationThresholdOverridesFromDb(dependencies.db, normalizedStationId);
+  if (dependencies.adapter) {
+    const adapter = dependencies.adapter;
+    globalOverrides = await readGlobalThresholdDefaultsFromDb(adapter);
+    const regionId = await resolveRegionIdForStation(adapter, normalizedStationId);
+    regionOverrides = await readRegionThresholdOverridesFromDb(adapter, regionId);
+    stationOverrides = await readStationThresholdOverridesFromDb(adapter, normalizedStationId);
   } else {
     const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
     const hasPath = dependencies.hasPath ?? hasDatabasePath;
-    const openReadOnly = dependencies.openReadOnly ?? openReadOnlyDatabase;
+    const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
     const dbPath = resolvePath();
 
-    if (hasPath(dbPath)) {
-      let db: SqliteDatabaseLike | null = null;
+    const isTurso = !!process.env.TURSO_DATABASE_URL;
+    if (isTurso || hasPath(dbPath)) {
+      let adapter: AsyncDbAdapter | null = null;
 
       try {
-        db = openReadOnly(dbPath);
-        globalOverrides = readGlobalThresholdDefaultsFromDb(db);
-        const regionId = resolveRegionIdForStation(db, normalizedStationId);
-        regionOverrides = readRegionThresholdOverridesFromDb(db, regionId);
-        stationOverrides = readStationThresholdOverridesFromDb(db, normalizedStationId);
+        adapter = getAdapter(true);
+        globalOverrides = await readGlobalThresholdDefaultsFromDb(adapter);
+        const regionId = await resolveRegionIdForStation(adapter, normalizedStationId);
+        regionOverrides = await readRegionThresholdOverridesFromDb(adapter, regionId);
+        stationOverrides = await readStationThresholdOverridesFromDb(adapter, normalizedStationId);
       } catch {
         globalOverrides = {};
         regionOverrides = {};
         stationOverrides = {};
       } finally {
-        db?.close();
+        if (adapter) await adapter.close();
       }
     }
   }
@@ -536,7 +500,7 @@ export function resolveStationRiskThresholds(
     };
   });
 
-  if (!dependencies.db && normalizedStationId.length > 0) {
+  if (!dependencies.adapter && normalizedStationId.length > 0) {
     setCachedStationThresholds(normalizedStationId, resolvedThresholds, now());
   }
 
@@ -548,7 +512,7 @@ export function collectTriggeredStationThresholds(
     NdbcMappedObservation,
     "stationId" | "seaSurfaceTempC" | "waveHeightM" | "windSpeedMps" | "pressureHpa"
   >,
-  thresholds: ResolvedStationRiskThreshold[] = resolveStationRiskThresholds(observation.stationId),
+  thresholds: ResolvedStationRiskThreshold[],
 ): ResolvedStationRiskThreshold[] {
   return thresholds.filter((threshold) => {
     const value = observation[threshold.metric];

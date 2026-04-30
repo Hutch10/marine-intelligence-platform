@@ -8,6 +8,7 @@ import type {
   InvestigationAnalysisTrack,
   InvestigationSpeciesSummary,
 } from "@marine/shared";
+import { SystemIntegrityStatus } from "@marine/shared";
 
 type InvestigationsReadResult =
   | { source: "db"; analysisTracks: InvestigationAnalysisTrack[] }
@@ -18,47 +19,51 @@ type InvestigationSpeciesSummaryReadResult =
   | { source: "db"; result: "not_found" }
   | { source: "mock"; fallbackReason: "db_path_missing" | "db_open_failed" | "db_query_failed" };
 
-function readDatabaseInvestigations(): InvestigationsReadResult {
+async function readDatabaseInvestigations(): Promise<InvestigationsReadResult> {
   try {
     const runtimeRequire = eval("require") as NodeRequire;
     const repository = runtimeRequire("../repositories/investigations") as {
-      listInvestigations: () => InvestigationsReadResult;
+      listInvestigations: () => Promise<InvestigationsReadResult>;
     };
 
-    return repository.listInvestigations();
+    return await repository.listInvestigations();
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   }
 }
 
-function readInvestigationSpeciesSummary(
+async function readInvestigationSpeciesSummary(
   investigationId: string,
-): InvestigationSpeciesSummaryReadResult {
+): Promise<InvestigationSpeciesSummaryReadResult> {
   try {
     const runtimeRequire = eval("require") as NodeRequire;
     const repository = runtimeRequire("../repositories/species") as {
-      getInvestigationSpeciesSummary: (investigationId: string) => InvestigationSpeciesSummaryReadResult;
+      getInvestigationSpeciesSummary: (investigationId: string) => Promise<InvestigationSpeciesSummaryReadResult>;
     };
 
-    return repository.getInvestigationSpeciesSummary(investigationId);
+    return await repository.getInvestigationSpeciesSummary(investigationId);
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   }
 }
 
-export function buildInvestigationsRouteResponse(
-  readResult = readDatabaseInvestigations(),
+export async function buildInvestigationsRouteResponse(
+  readResult?: InvestigationsReadResult,
   speciesSummaryResult?: InvestigationSpeciesSummaryReadResult,
-): { status: number; json: InvestigationsResponse; telemetry: InvestigationsTelemetry } {
+): Promise<{ status: number; json: InvestigationsResponse; telemetry: InvestigationsTelemetry }> {
+  const actualReadResult = readResult ?? await readDatabaseInvestigations();
+  
   const analysisTracks =
-    readResult.source === "db"
-      ? readResult.analysisTracks
+    actualReadResult.source === "db"
+      ? actualReadResult.analysisTracks
       : apiMockData.investigationsWorkspaceData.analysisTracks;
+
   const activeInvestigationId = analysisTracks[0]?.id;
   const resolvedSpeciesSummaryResult =
-    speciesSummaryResult ?? (activeInvestigationId ? readInvestigationSpeciesSummary(activeInvestigationId) : undefined);
+    speciesSummaryResult ?? (activeInvestigationId ? await readInvestigationSpeciesSummary(activeInvestigationId) : undefined);
+  
   const speciesSummary =
-    readResult.source === "mock"
+    actualReadResult.source === "mock"
       ? apiMockData.investigationsWorkspaceData.speciesSummary
       : resolvedSpeciesSummaryResult?.source === "db" && resolvedSpeciesSummaryResult.result === "found"
         ? resolvedSpeciesSummaryResult.summary
@@ -66,9 +71,9 @@ export function buildInvestigationsRouteResponse(
 
   const telemetry: InvestigationsTelemetry = {
     route: "GET /investigations",
-    source: readResult.source,
+    source: actualReadResult.source,
     trackCount: analysisTracks.length,
-    fallbackReason: readResult.source === "mock" ? readResult.fallbackReason : undefined,
+    fallbackReason: actualReadResult.source === "mock" ? actualReadResult.fallbackReason : undefined,
   };
 
   // Always preserve mock workspace fields alongside DB tracks
@@ -86,6 +91,10 @@ export function buildInvestigationsRouteResponse(
         hypothesisLog: mockWorkspace.hypothesisLog,
         evidenceItems: mockWorkspace.evidenceItems,
       },
+      systemIntegrity:
+        actualReadResult.source === "db"
+          ? SystemIntegrityStatus.NORMAL
+          : SystemIntegrityStatus.DEGRADED,
     },
     telemetry,
   };
@@ -94,7 +103,7 @@ export function buildInvestigationsRouteResponse(
 export const getInvestigationsRoute: RouteDefinition<InvestigationsResponse> = {
   method: "GET",
   path: "/investigations",
-  handler() {
-    return buildInvestigationsRouteResponse();
+  async handler() {
+    return await buildInvestigationsRouteResponse();
   },
 };

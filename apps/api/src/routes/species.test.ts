@@ -80,8 +80,8 @@ const RESEARCHER_AUTH: OceanStationAdminAuthContext = {
   csrfToken: "csrf-researcher",
 };
 
-test("species list route returns DB-backed entities", () => {
-  const response = buildSpeciesListRouteResponse(
+test("species list route returns DB-backed entities", async () => {
+  const response = await buildSpeciesListRouteResponse(
     { conservationStatus: "endangered" },
     {
       source: "db",
@@ -94,11 +94,11 @@ test("species list route returns DB-backed entities", () => {
   assert.equal(response.telemetry.source, "db");
   assert.equal(response.telemetry.speciesCount, 1);
   assert.ok("species" in response.json);
-  assert.equal(response.json.species[0]?.id, "SP-BLUE-WHALE");
+  assert.equal((response.json as any).species[0]?.id, "SP-BLUE-WHALE");
 });
 
-test("species list route validates conservation status", () => {
-  const response = buildSpeciesListRouteResponse({
+test("species list route validates conservation status", async () => {
+  const response = await buildSpeciesListRouteResponse({
     conservationStatus: "invalid_status" as never,
   });
 
@@ -107,8 +107,8 @@ test("species list route validates conservation status", () => {
   assert.ok("message" in response.json);
 });
 
-test("species detail route returns 404 for missing species", () => {
-  const response = buildSpeciesDetailRouteResponse("SP-MISSING", {
+test("species detail route returns 404 for missing species", async () => {
+  const response = await buildSpeciesDetailRouteResponse("SP-MISSING", {
     source: "db",
     result: "not_found",
   });
@@ -117,8 +117,8 @@ test("species detail route returns 404 for missing species", () => {
   assert.equal(response.telemetry.result, "not_found");
 });
 
-test("species sightings route rejects species id mismatch in query", () => {
-  const response = buildSpeciesSightingsRouteResponse(
+test("species sightings route rejects species id mismatch in query", async () => {
+  const response = await buildSpeciesSightingsRouteResponse(
     "SP-BLUE-WHALE",
     { speciesId: "SP-OTHER" },
     {
@@ -132,8 +132,8 @@ test("species sightings route rejects species id mismatch in query", () => {
   assert.equal(response.telemetry.filtersApplied, true);
 });
 
-test("species sightings route returns species scoped sightings", () => {
-  const response = buildSpeciesSightingsRouteResponse(
+test("species sightings route returns species scoped sightings", async () => {
+  const response = await buildSpeciesSightingsRouteResponse(
     "SP-BLUE-WHALE",
     { limit: 10 },
     {
@@ -146,11 +146,11 @@ test("species sightings route returns species scoped sightings", () => {
   assert.equal(response.status, 200);
   assert.equal(response.telemetry.result, "found");
   assert.ok("sightings" in response.json);
-  assert.equal(response.json.sightings.length, 1);
+  assert.equal((response.json as any).sightings.length, 1);
 });
 
-test("species movement signals route returns linked movement intelligence", () => {
-  const response = buildSpeciesMovementSignalsRouteResponse("SP-BLUE-WHALE", { minConfidence: 70 }, {
+test("species movement signals route returns linked movement intelligence", async () => {
+  const response = await buildSpeciesMovementSignalsRouteResponse("SP-BLUE-WHALE", { minConfidence: 70 }, {
     source: "db",
     result: "found",
     movementSignals: [BASE_MOVEMENT_SIGNAL],
@@ -160,11 +160,11 @@ test("species movement signals route returns linked movement intelligence", () =
   assert.equal(response.telemetry.result, "found");
   assert.equal(response.telemetry.filtersApplied, true);
   assert.ok("movementSignals" in response.json);
-  assert.equal(response.json.movementSignals[0]?.movementType, "route_deviation");
+  assert.equal((response.json as any).movementSignals[0]?.movementType, "route_deviation");
 });
 
-test("species sighting create route rejects when csrf token is missing", () => {
-  const response = buildSpeciesSightingCreateRouteResponse(
+test("species sighting create route rejects when csrf token is missing", async () => {
+  const response = await buildSpeciesSightingCreateRouteResponse(
     {
       speciesId: "SP-BLUE-WHALE",
       region: "North Pacific",
@@ -181,8 +181,8 @@ test("species sighting create route rejects when csrf token is missing", () => {
   assert.equal(response.telemetry.result, "forbidden");
 });
 
-test("species sighting create route rejects verification promotion without publish permission", () => {
-  const response = buildSpeciesSightingCreateRouteResponse(
+test("species sighting create route rejects verification promotion without publish permission", async () => {
+  const response = await buildSpeciesSightingCreateRouteResponse(
     {
       speciesId: "SP-BLUE-WHALE",
       region: "North Pacific",
@@ -204,8 +204,8 @@ test("species sighting create route rejects verification promotion without publi
   assert.equal(response.telemetry.result, "forbidden");
 });
 
-test("species sighting create route validates coordinate input", () => {
-  const response = buildSpeciesSightingCreateRouteResponse({
+test("species sighting create route validates coordinate input", async () => {
+  const response = await buildSpeciesSightingCreateRouteResponse({
     speciesId: "SP-BLUE-WHALE",
     region: "North Pacific",
     latitude: 200,
@@ -220,8 +220,8 @@ test("species sighting create route validates coordinate input", () => {
   assert.equal(response.telemetry.validationError, "invalid_latitude");
 });
 
-test("species sighting create route returns 404 when species is missing", () => {
-  const response = buildSpeciesSightingCreateRouteResponse(
+test("species sighting create route returns 404 when species is missing", async () => {
+  const response = await buildSpeciesSightingCreateRouteResponse(
     {
       speciesId: "SP-MISSING",
       region: "North Pacific",
@@ -243,8 +243,8 @@ test("species sighting create route returns 404 when species is missing", () => 
   assert.equal(response.telemetry.result, "not_found");
 });
 
-test("species sighting create route returns created sighting", () => {
-  const response = buildSpeciesSightingCreateRouteResponse(
+test("species sighting create route returns created sighting", async () => {
+  const response = await buildSpeciesSightingCreateRouteResponse(
     {
       speciesId: "SP-BLUE-WHALE",
       stationId: "STA-NPC-01",
@@ -271,8 +271,8 @@ test("species sighting create route returns created sighting", () => {
   assert.ok("sighting" in response.json);
 });
 
-test("species movement signals route rejects invalid movement type", () => {
-  const response = buildSpeciesMovementSignalsRouteResponse(
+test("species movement signals route rejects invalid movement type", async () => {
+  const response = await buildSpeciesMovementSignalsRouteResponse(
     "SP-BLUE-WHALE",
     { movementType: "unknown_type" as never },
     { source: "db", result: "found", movementSignals: [] },
@@ -283,8 +283,8 @@ test("species movement signals route rejects invalid movement type", () => {
   assert.equal(response.telemetry.filtersApplied, true);
 });
 
-test("species movement signals route returns 404 for missing species", () => {
-  const response = buildSpeciesMovementSignalsRouteResponse(
+test("species movement signals route returns 404 for missing species", async () => {
+  const response = await buildSpeciesMovementSignalsRouteResponse(
     "SP-MISSING",
     {},
     { source: "db", result: "not_found" },
@@ -295,8 +295,8 @@ test("species movement signals route returns 404 for missing species", () => {
   assert.ok("message" in response.json);
 });
 
-test("species movement signals route reports all filters applied in telemetry", () => {
-  const response = buildSpeciesMovementSignalsRouteResponse(
+test("species movement signals route reports all filters applied in telemetry", async () => {
+  const response = await buildSpeciesMovementSignalsRouteResponse(
     "SP-BLUE-WHALE",
     {
       movementType: "route_deviation",
@@ -316,8 +316,8 @@ test("species movement signals route reports all filters applied in telemetry", 
 
 // ── Role-gated sighting ingestion ─────────────────────────────────────────────
 
-test("sighting create route returns 401 when no auth is provided", () => {
-  const response = buildSpeciesSightingCreateRouteResponse(
+test("sighting create route returns 401 when no auth is provided", async () => {
+  const response = await buildSpeciesSightingCreateRouteResponse(
     {
       speciesId: "SP-BLUE-WHALE",
       region: "North Pacific",
@@ -336,8 +336,8 @@ test("sighting create route returns 401 when no auth is provided", () => {
   assert.ok("message" in response.json);
 });
 
-test("observer role can create a pending sighting (species.submit_sighting)", () => {
-  const response = buildSpeciesSightingCreateRouteResponse(
+test("observer role can create a pending sighting (species.submit_sighting)", async () => {
+  const response = await buildSpeciesSightingCreateRouteResponse(
     {
       speciesId: "SP-BLUE-WHALE",
       region: "North Pacific",
@@ -360,8 +360,8 @@ test("observer role can create a pending sighting (species.submit_sighting)", ()
   assert.ok("sighting" in response.json);
 });
 
-test("observer role cannot create a verified sighting (species.verify_sighting required)", () => {
-  const response = buildSpeciesSightingCreateRouteResponse(
+test("observer role cannot create a verified sighting (species.verify_sighting required)", async () => {
+  const response = await buildSpeciesSightingCreateRouteResponse(
     {
       speciesId: "SP-BLUE-WHALE",
       region: "North Pacific",
@@ -380,8 +380,8 @@ test("observer role cannot create a verified sighting (species.verify_sighting r
   assert.equal(response.telemetry.result, "forbidden");
 });
 
-test("researcher role can create a verified sighting (species.verify_sighting)", () => {
-  const response = buildSpeciesSightingCreateRouteResponse(
+test("researcher role can create a verified sighting (species.verify_sighting)", async () => {
+  const response = await buildSpeciesSightingCreateRouteResponse(
     {
       speciesId: "SP-BLUE-WHALE",
       region: "North Pacific",
@@ -403,8 +403,8 @@ test("researcher role can create a verified sighting (species.verify_sighting)",
   assert.equal(response.telemetry.actorId, "researcher.user");
 });
 
-test("researcher role can create a rejected sighting", () => {
-  const response = buildSpeciesSightingCreateRouteResponse(
+test("researcher role can create a rejected sighting", async () => {
+  const response = await buildSpeciesSightingCreateRouteResponse(
     {
       speciesId: "SP-BLUE-WHALE",
       region: "North Pacific",
@@ -425,8 +425,8 @@ test("researcher role can create a rejected sighting", () => {
   assert.equal(response.telemetry.verificationStatus, "rejected");
 });
 
-test("legacy station.edit_content permission still allows pending sighting (backward compat)", () => {
-  const response = buildSpeciesSightingCreateRouteResponse(
+test("legacy station.edit_content permission still allows pending sighting (backward compat)", async () => {
+  const response = await buildSpeciesSightingCreateRouteResponse(
     {
       speciesId: "SP-BLUE-WHALE",
       region: "North Pacific",
@@ -449,8 +449,8 @@ test("legacy station.edit_content permission still allows pending sighting (back
   assert.equal(response.telemetry.result, "created");
 });
 
-test("legacy station.publish permission still allows verified sighting (backward compat)", () => {
-  const response = buildSpeciesSightingCreateRouteResponse(
+test("legacy station.publish permission still allows verified sighting (backward compat)", async () => {
+  const response = await buildSpeciesSightingCreateRouteResponse(
     {
       speciesId: "SP-BLUE-WHALE",
       region: "North Pacific",
@@ -470,8 +470,8 @@ test("legacy station.publish permission still allows verified sighting (backward
   assert.equal(response.telemetry.result, "created");
 });
 
-test("sighting create route returns 503 when DB is unavailable (fallback)", () => {
-  const response = buildSpeciesSightingCreateRouteResponse(
+test("sighting create route returns 503 when DB is unavailable (fallback)", async () => {
+  const response = await buildSpeciesSightingCreateRouteResponse(
     {
       speciesId: "SP-BLUE-WHALE",
       region: "North Pacific",

@@ -1,5 +1,6 @@
 import { apiMockData } from "../data";
 import type { RegionsResponse, RegionsTelemetry, RouteDefinition } from "../types";
+import { SystemIntegrityStatus } from "@marine/shared";
 import type {
   MapOverlayEntityRow,
   RegionSummaryMetricValues,
@@ -18,6 +19,7 @@ type RegionSummary = {
   nearestBuoyLabel?: string | null;
   thermalAnomalyLabel?: string | null;
   currentDirectionLabel?: string | null;
+  centroid?: { lat: number; lng: number } | null;
 };
 
 type RegionsReadResult =
@@ -276,6 +278,7 @@ export function buildRegionsRouteResponse(
           status: region.status,
           summary: region.summary,
           metrics: buildRegionMetrics(region),
+          centroid: region.centroid ?? null,
         })),
         map: {
           ...apiMockData.oceanMapWorkspaceData,
@@ -285,6 +288,7 @@ export function buildRegionsRouteResponse(
           spatialOverlays,
           regionMetrics,
         },
+        systemIntegrity: SystemIntegrityStatus.NORMAL,
       },
       telemetry: {
         route: "GET /regions",
@@ -307,6 +311,7 @@ export function buildRegionsRouteResponse(
     json: {
       regions: mockRegions,
       map: apiMockData.oceanMapWorkspaceData,
+      systemIntegrity: SystemIntegrityStatus.DEGRADED,
     },
     telemetry: {
       route: "GET /regions",

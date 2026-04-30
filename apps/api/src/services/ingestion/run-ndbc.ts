@@ -1,8 +1,7 @@
 import {
-  openWritableDatabase,
   resolveDatabasePath,
-  type SqliteDatabaseLike,
 } from "../../db/client";
+import { getAsyncAdapter, type AsyncDbAdapter } from "../../db/async-client";
 import { fetchNdbcRealtimeText } from "../../connectors/ndbc/fetch";
 import { parseNdbcStationData } from "../../connectors/ndbc/parse";
 import {
@@ -87,7 +86,6 @@ export interface RunNdbcIngestionResult {
 
 interface RunNdbcIngestionDependencies {
   resolvePath?: typeof resolveDatabasePath;
-  openWritable?: typeof openWritableDatabase;
   now?: () => number;
   stations?: NdbcStationConfig[];
   staleAfterMs?: number;
@@ -96,9 +94,17 @@ interface RunNdbcIngestionDependencies {
   mapRows?: typeof mapNdbcRowsToObservations;
   resolveThresholds?: (
     stationId: string | null | undefined,
-    dependencies?: { db?: SqliteDatabaseLike },
-  ) => ResolvedStationRiskThreshold[];
-  evaluateAnomalies?: typeof evaluateNdbcAnomalies;
+    dependencies?: { adapter?: AsyncDbAdapter },
+  ) => Promise<ResolvedStationRiskThreshold[]>;
+  getAdapter?: (readOnly?: boolean) => AsyncDbAdapter;
+  evaluateAnomalies?: (
+    observation: NdbcMappedObservation,
+    options?: {
+      baselineHistory?: any[];
+      baseline?: any;
+      thresholds?: ResolvedStationRiskThreshold[];
+    }
+  ) => Promise<any[]>;
   logLine?: (line: string) => void;
 }
 
@@ -302,12 +308,12 @@ function incrementRejectionBreakdown(
   diagnostic.rejectionBreakdown[reason] = (diagnostic.rejectionBreakdown[reason] ?? 0) + 1;
 }
 
-export function validateMappedObservation(
+export async function validateMappedObservation(
   observation: NdbcMappedObservation,
   now: number,
   staleAfterMs: number,
-  db: SqliteDatabaseLike,
-): NdbcRejectReason | null {
+  adapter: AsyncDbAdapter,
+): Promise<NdbcRejectReason | null> {
   if (now - observation.observedAt > staleAfterMs) {
     return "timestamp_stale";
   }
@@ -321,7 +327,7 @@ export function validateMappedObservation(
     return "impossible_values";
   }
 
-  if (observationExists(db, observation.stationId, observation.observedAt, observation.source)) {
+  if (await observationExists(adapter, observation.stationId, observation.observedAt, observation.source)) {
     return "duplicate_row";
   }
 
@@ -332,7 +338,6 @@ export async function runNdbcIngestion(
   dependencies: RunNdbcIngestionDependencies = {},
 ): Promise<RunNdbcIngestionResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
-  const openWritable = dependencies.openWritable ?? openWritableDatabase;
   const nowFn = dependencies.now ?? Date.now;
   const stations = (dependencies.stations ?? loadConfiguredNdbcStations()).filter((station) => station.enabled !== false);
   const staleAfterMs = dependencies.staleAfterMs ?? DEFAULT_STALE_AFTER_MS;
@@ -346,20 +351,22 @@ export async function runNdbcIngestion(
   const startedAt = nowFn();
   const dbPath = resolvePath();
   logDiagnostic(logLine, `resolved DB path: ${dbPath}`);
-  const db = openWritable(dbPath);
+  
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
+  const adapter = getAdapter(false);
 
   logDiagnostic(logLine, `configured station count: ${stations.length}`);
 
-  ensureIngestionRunsTable(db);
-  ensureObservationsTable(db);
-  ensureProvenanceRecordsTable(db);
-  ensureOperationalAlertsTable(db);
-  ensureStationRiskThresholdTables(db);
+  await ensureIngestionRunsTable(adapter);
+  await ensureObservationsTable(adapter);
+  await ensureProvenanceRecordsTable(adapter);
+  await ensureOperationalAlertsTable(adapter);
+  await ensureStationRiskThresholdTables(adapter);
 
   const { DbAlertStore } = require("../db-alert-store");
-  const alertsService = createOperationalAlertsService({ db, alertStore: new DbAlertStore(db) });
+  const alertsService = createOperationalAlertsService({ adapter, alertStore: new DbAlertStore(adapter) });
 
-  const runId = createIngestionRun(db, {
+  const runId = await createIngestionRun(adapter, {
     source: "noaa_ndbc",
     startedAt,
     stationCount: stations.length,
@@ -440,13 +447,13 @@ export async function runNdbcIngestion(
       }
 
       const latest = mapped[0]!;
-      const rejectionReason = validateMappedObservation(latest, now, staleAfterMs, db);
-      const baselineHistory = readRecentObservationHistoryFromDb(
-        db,
+      const rejectionReason = await validateMappedObservation(latest, now, staleAfterMs, adapter);
+      const baselineHistory = await readRecentObservationHistoryFromDb(
+        adapter,
         latest.stationId,
         latest.observedAt - (45 * 24 * 60 * 60 * 1000),
       );
-      const resolvedThresholds = resolveThresholds(latest.stationId, { db });
+      const resolvedThresholds = await resolveThresholds(latest.stationId, { adapter });
 
       if (rejectionReason) {
         logDiagnostic(
@@ -460,7 +467,7 @@ export async function runNdbcIngestion(
         continue;
       }
 
-      const observationId = insertObservation(db, {
+      const observationId = await insertObservation(adapter, {
         stationId: latest.stationId,
         source: latest.source,
         observedAt: latest.observedAt,
@@ -475,7 +482,7 @@ export async function runNdbcIngestion(
         createdAt: now,
       });
 
-      insertProvenanceRecord(db, {
+      await insertProvenanceRecord(adapter, {
         ingestionRunId: runId,
         source: latest.source,
         sourceStationId: latest.stationId,
@@ -492,13 +499,13 @@ export async function runNdbcIngestion(
       });
 
       // Evaluate anomaly thresholds and raise operational alerts for any exceeded values.
-      const anomalyActions = evaluateAnomalies(latest, {
+      const anomalyActions = await evaluateAnomalies(latest, {
         baselineHistory,
         baseline: { windowDays: 45, zScoreThreshold: 2 },
         thresholds: resolvedThresholds,
       });
       if (anomalyActions.length > 0) {
-        alertsService.applyAlertActions(anomalyActions);
+        await alertsService.applyAlertActions(anomalyActions);
       }
 
       logDiagnostic(
@@ -518,7 +525,7 @@ export async function runNdbcIngestion(
 
     const finishedAt = nowFn();
 
-    finalizeIngestionRun(db, {
+    await finalizeIngestionRun(adapter, {
       runId,
       status: "completed",
       finishedAt,
@@ -542,7 +549,7 @@ export async function runNdbcIngestion(
     const message = error instanceof Error ? error.message : String(error);
     logDiagnostic(logLine, `failed: ${message}`);
 
-    finalizeIngestionRun(db, {
+    await finalizeIngestionRun(adapter, {
       runId,
       status: "failed",
       finishedAt: failedAt,
@@ -562,6 +569,6 @@ export async function runNdbcIngestion(
       error: message,
     };
   } finally {
-    db.close();
+    await adapter.close();
   }
 }

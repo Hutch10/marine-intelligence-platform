@@ -9,7 +9,7 @@ import {
   recordStationPageView,
   updateStationAdmin,
 } from "./stations";
-import type { SqliteDatabaseLike } from "../db/client";
+import type { AsyncDbAdapter } from "../db/async-client";
 
 interface StationTestRow {
   id: string;
@@ -311,155 +311,150 @@ function sortStations(rows: StationTestRow[]): StationTestRow[] {
   });
 }
 
-function createDatabase(
+function createMockAdapter(
   options?: { throwOnQuery?: boolean; throwOnChildren?: boolean },
-): SqliteDatabaseLike {
+): AsyncDbAdapter {
   const pageViews = STATION_PAGE_VIEWS.map((row) => ({ ...row }));
   const adminAudits = STATION_ADMIN_AUDITS.map((row) => ({ ...row }));
 
   return {
-    prepare(sql: string) {
-      const statementSql = sql;
+    resourceId: "mock-resource",
+    async execute(sql: string, params: unknown[] = []) {
+      if (options?.throwOnQuery) {
+        throw new Error("query failed");
+      }
 
-      return {
-        all(...params: unknown[]) {
-          if (options?.throwOnQuery) {
-            throw new Error("query failed");
-          }
+      const stationId = String(params[0] ?? "");
 
-          const stationId = String(params[0] ?? "");
+      if (options?.throwOnChildren && (
+        sql.includes("FROM station_species")
+        || sql.includes("FROM station_sensors")
+        || sql.includes("FROM station_alerts")
+        || sql.includes("FROM station_timelines")
+        || sql.includes("FROM station_content")
+      )) {
+        throw new Error("child query failed");
+      }
 
-          if (options?.throwOnChildren && (
-            sql.includes("FROM station_species")
-            || sql.includes("FROM station_sensors")
-            || sql.includes("FROM station_alerts")
-            || sql.includes("FROM station_timelines")
-            || sql.includes("FROM station_content")
-          )) {
-            throw new Error("child query failed");
-          }
+      if (sql.includes("FROM station_species")) {
+        return SPECIES.filter((row) => row.station_id === stationId).sort((left, right) => {
+          const orderCmp = left.sort_order - right.sort_order;
+          if (orderCmp !== 0) return orderCmp;
+          const observedCmp = (right.observed_at ?? "").localeCompare(left.observed_at ?? "");
+          if (observedCmp !== 0) return observedCmp;
+          return left.id.localeCompare(right.id);
+        });
+      }
 
-          if (sql.includes("FROM station_species")) {
-            return SPECIES.filter((row) => row.station_id === stationId).sort((left, right) => {
-              const orderCmp = left.sort_order - right.sort_order;
-              if (orderCmp !== 0) return orderCmp;
-              const observedCmp = (right.observed_at ?? "").localeCompare(left.observed_at ?? "");
-              if (observedCmp !== 0) return observedCmp;
-              return left.id.localeCompare(right.id);
-            });
-          }
+      if (sql.includes("FROM station_sensors")) {
+        return SENSORS.filter((row) => row.station_id === stationId).sort((left, right) => {
+          const orderCmp = left.sort_order - right.sort_order;
+          if (orderCmp !== 0) return orderCmp;
+          const sampledCmp = (right.sampled_at ?? "").localeCompare(left.sampled_at ?? "");
+          if (sampledCmp !== 0) return sampledCmp;
+          return left.id.localeCompare(right.id);
+        });
+      }
 
-          if (sql.includes("FROM station_sensors")) {
-            return SENSORS.filter((row) => row.station_id === stationId).sort((left, right) => {
-              const orderCmp = left.sort_order - right.sort_order;
-              if (orderCmp !== 0) return orderCmp;
-              const sampledCmp = (right.sampled_at ?? "").localeCompare(left.sampled_at ?? "");
-              if (sampledCmp !== 0) return sampledCmp;
-              return left.id.localeCompare(right.id);
-            });
-          }
+      if (sql.includes("FROM station_alerts")) {
+        return ALERTS.filter((row) => row.station_id === stationId).sort((left, right) => {
+          const detectedCmp = (right.detected_at ?? "").localeCompare(left.detected_at ?? "");
+          if (detectedCmp !== 0) return detectedCmp;
+          return left.id.localeCompare(right.id);
+        });
+      }
 
-          if (sql.includes("FROM station_alerts")) {
-            return ALERTS.filter((row) => row.station_id === stationId).sort((left, right) => {
-              const detectedCmp = (right.detected_at ?? "").localeCompare(left.detected_at ?? "");
-              if (detectedCmp !== 0) return detectedCmp;
-              return left.id.localeCompare(right.id);
-            });
-          }
+      if (sql.includes("FROM station_timelines")) {
+        return TIMELINE.filter((row) => row.station_id === stationId).sort((left, right) => {
+          const orderCmp = left.sort_order - right.sort_order;
+          if (orderCmp !== 0) return orderCmp;
+          const happenedCmp = (right.happened_at ?? "").localeCompare(left.happened_at ?? "");
+          if (happenedCmp !== 0) return happenedCmp;
+          return left.id.localeCompare(right.id);
+        });
+      }
 
-          if (sql.includes("FROM station_timelines")) {
-            return TIMELINE.filter((row) => row.station_id === stationId).sort((left, right) => {
-              const orderCmp = left.sort_order - right.sort_order;
-              if (orderCmp !== 0) return orderCmp;
-              const happenedCmp = (right.happened_at ?? "").localeCompare(left.happened_at ?? "");
-              if (happenedCmp !== 0) return happenedCmp;
-              return left.id.localeCompare(right.id);
-            });
-          }
+      if (sql.includes("FROM station_content")) {
+        return CONTENT.filter((row) => row.station_id === stationId).sort((left, right) => {
+          const orderCmp = left.sort_order - right.sort_order;
+          if (orderCmp !== 0) return orderCmp;
+          const publishedCmp = (right.published_at ?? "").localeCompare(left.published_at ?? "");
+          if (publishedCmp !== 0) return publishedCmp;
+          return left.id.localeCompare(right.id);
+        });
+      }
 
-          if (sql.includes("FROM station_content")) {
-            return CONTENT.filter((row) => row.station_id === stationId).sort((left, right) => {
-              const orderCmp = left.sort_order - right.sort_order;
-              if (orderCmp !== 0) return orderCmp;
-              const publishedCmp = (right.published_at ?? "").localeCompare(left.published_at ?? "");
-              if (publishedCmp !== 0) return publishedCmp;
-              return left.id.localeCompare(right.id);
-            });
-          }
+      if (sql.includes("FROM station_page_views")) {
+        const rows = pageViews.filter((row) => row.station_id === stationId);
+        const detailViews = rows.filter((row) => row.view_type === "detail").length;
+        const exhibitViews = rows.filter((row) => row.view_type === "exhibit").length;
+        const publicViews = rows.filter((row) => row.view_type === "public").length;
+        const lastViewedAt = rows
+          .map((row) => row.viewed_at)
+          .sort((left, right) => right.localeCompare(left))[0] ?? null;
 
-          if (sql.includes("FROM station_page_views")) {
-            const rows = pageViews.filter((row) => row.station_id === stationId);
-            const detailViews = rows.filter((row) => row.view_type === "detail").length;
-            const exhibitViews = rows.filter((row) => row.view_type === "exhibit").length;
-            const publicViews = rows.filter((row) => row.view_type === "public").length;
-            const lastViewedAt = rows
-              .map((row) => row.viewed_at)
-              .sort((left, right) => right.localeCompare(left))[0] ?? null;
+        return [{
+          detail_views: detailViews,
+          exhibit_views: exhibitViews,
+          public_views: publicViews,
+          last_viewed_at: lastViewedAt,
+        }];
+      }
 
-            return [{
-              detail_views: detailViews,
-              exhibit_views: exhibitViews,
-              public_views: publicViews,
-              last_viewed_at: lastViewedAt,
-            }];
-          }
+      if (sql.includes("FROM station_admin_audits")) {
+        return adminAudits
+          .filter((row) => row.station_id === stationId)
+          .sort((left, right) => {
+            const changedCmp = right.changed_at.localeCompare(left.changed_at);
+            if (changedCmp !== 0) return changedCmp;
+            return right.id.localeCompare(left.id);
+          });
+      }
 
-          if (sql.includes("FROM station_admin_audits")) {
-            return adminAudits
-              .filter((row) => row.station_id === stationId)
-              .sort((left, right) => {
-                const changedCmp = right.changed_at.localeCompare(left.changed_at);
-                if (changedCmp !== 0) return changedCmp;
-                return right.id.localeCompare(left.id);
-              });
-          }
+      if (sql.includes("WHERE s.id = ? OR s.slug = ?")) {
+        const stationIdOrSlug = String(params[0] ?? "");
+        const station = sortStations(STATIONS).find(
+          (row) => row.id === stationIdOrSlug || row.slug === stationIdOrSlug,
+        );
+        return station ? [station] : [];
+      }
 
-          if (sql.includes("WHERE s.id = ? OR s.slug = ?")) {
-            const stationIdOrSlug = String(params[0] ?? "");
-            const station = sortStations(STATIONS).find(
-              (row) => row.id === stationIdOrSlug || row.slug === stationIdOrSlug,
-            );
-            return station ? [station] : [];
-          }
+      if (sql.includes("INSERT INTO station_page_views")) {
+        pageViews.push({
+          id: String(params[0]),
+          station_id: String(params[1]),
+          view_type: params[2] as StationPageViewRow["view_type"],
+          viewed_at: String(params[3]),
+        });
+        return [];
+      }
 
-          return sortStations(STATIONS);
-        },
-        run(...params: unknown[]) {
-          if (statementSql.includes("INSERT INTO station_page_views")) {
-            pageViews.push({
-              id: String(params[0]),
-              station_id: String(params[1]),
-              view_type: params[2] as StationPageViewRow["view_type"],
-              viewed_at: String(params[3]),
-            });
-            return;
-          }
+      if (sql.includes("INSERT INTO station_admin_audits")) {
+        adminAudits.push({
+          id: String(params[0]),
+          station_id: String(params[1]),
+          actor_id: String(params[2]),
+          actor_role: String(params[3]),
+          area: String(params[4]),
+          changed_fields: String(params[5]),
+          changed_at: String(params[6]),
+        });
+        return [];
+      }
 
-          if (statementSql.includes("INSERT INTO station_admin_audits")) {
-            adminAudits.push({
-              id: String(params[0]),
-              station_id: String(params[1]),
-              actor_id: String(params[2]),
-              actor_role: String(params[3]),
-              area: String(params[4]),
-              changed_fields: String(params[5]),
-              changed_at: String(params[6]),
-            });
-          }
-        },
-      };
+      return sortStations(STATIONS);
     },
-    close() {},
+    async close() {},
   };
 }
 
 const NOW = () => Date.parse("2026-03-13T12:00:00.000Z");
 
-test("station repository returns DB-backed station summaries", () => {
-  const result = listStations({
+test("station repository returns DB-backed station summaries", async () => {
+  const result = await listStations({
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openDatabase: () => createDatabase(),
+    getAdapter: () => createMockAdapter(),
     now: NOW,
   });
 
@@ -476,15 +471,14 @@ test("station repository returns DB-backed station summaries", () => {
   }
 });
 
-test("station repository returns an empty DB list without fallback", () => {
-  const result = listStations({
+test("station repository returns an empty DB list without fallback", async () => {
+  const result = await listStations({
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openDatabase: () => ({
-      prepare() {
-        return { all() { return []; } };
-      },
-      close() {},
+    getAdapter: () => ({
+      resourceId: "empty",
+      async execute() { return []; },
+      async close() {},
     }),
   });
 
@@ -494,11 +488,11 @@ test("station repository returns an empty DB list without fallback", () => {
   }
 });
 
-test("station detail repository returns DB-backed detail for station id", () => {
-  const result = getStationById("STA-NPC-01", {
+test("station detail repository returns DB-backed detail for station id", async () => {
+  const result = await getStationById("STA-NPC-01", {
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openDatabase: () => createDatabase(),
+    getAdapter: () => createMockAdapter(),
     now: NOW,
   });
 
@@ -515,11 +509,11 @@ test("station detail repository returns DB-backed detail for station id", () => 
   }
 });
 
-test("station detail repository resolves DB-backed detail by slug", () => {
-  const result = getStationById("north-pacific-corridor", {
+test("station detail repository resolves DB-backed detail by slug", async () => {
+  const result = await getStationById("north-pacific-corridor", {
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openDatabase: () => createDatabase(),
+    getAdapter: () => createMockAdapter(),
     now: NOW,
   });
 
@@ -529,11 +523,11 @@ test("station detail repository resolves DB-backed detail by slug", () => {
   }
 });
 
-test("station detail repository tolerates child query failures with empty arrays", () => {
-  const result = getStationById("STA-NPC-01", {
+test("station detail repository tolerates child query failures with empty arrays", async () => {
+  const result = await getStationById("STA-NPC-01", {
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openDatabase: () => createDatabase({ throwOnChildren: true }),
+    getAdapter: () => createMockAdapter({ throwOnChildren: true }),
     now: NOW,
   });
 
@@ -547,23 +541,23 @@ test("station detail repository tolerates child query failures with empty arrays
   }
 });
 
-test("station detail repository returns not_found from DB when no row exists", () => {
-  const result = getStationById("STA-MISSING", {
+test("station detail repository returns not_found from DB when no row exists", async () => {
+  const result = await getStationById("STA-MISSING", {
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openDatabase: () => createDatabase(),
+    getAdapter: () => createMockAdapter(),
   });
 
   assert.deepEqual(result, { source: "db", result: "not_found" });
 });
 
-test("station repository falls back with db_path_missing", () => {
-  const listResult = listStations({
+test("station repository falls back with db_path_missing", async () => {
+  const listResult = await listStations({
     resolvePath: () => "missing.sqlite",
     hasPath: () => false,
   });
 
-  const detailResult = getStationById("STA-NPC-01", {
+  const detailResult = await getStationById("STA-NPC-01", {
     resolvePath: () => "missing.sqlite",
     hasPath: () => false,
   });
@@ -572,19 +566,19 @@ test("station repository falls back with db_path_missing", () => {
   assert.deepEqual(detailResult, { source: "mock", fallbackReason: "db_path_missing" });
 });
 
-test("station repository falls back with db_open_failed", () => {
-  const listResult = listStations({
+test("station repository falls back with db_open_failed", async () => {
+  const listResult = await listStations({
     resolvePath: () => "broken.sqlite",
     hasPath: () => true,
-    openDatabase: () => {
+    getAdapter: () => {
       throw new Error("open failed");
     },
   });
 
-  const detailResult = getStationById("STA-NPC-01", {
+  const detailResult = await getStationById("STA-NPC-01", {
     resolvePath: () => "broken.sqlite",
     hasPath: () => true,
-    openDatabase: () => {
+    getAdapter: () => {
       throw new Error("open failed");
     },
   });
@@ -593,28 +587,28 @@ test("station repository falls back with db_open_failed", () => {
   assert.deepEqual(detailResult, { source: "mock", fallbackReason: "db_open_failed" });
 });
 
-test("station repository falls back with db_query_failed", () => {
-  const listResult = listStations({
+test("station repository falls back with db_query_failed", async () => {
+  const listResult = await listStations({
     resolvePath: () => "query.sqlite",
     hasPath: () => true,
-    openDatabase: () => createDatabase({ throwOnQuery: true }),
+    getAdapter: () => createMockAdapter({ throwOnQuery: true }),
   });
 
-  const detailResult = getStationById("STA-NPC-01", {
+  const detailResult = await getStationById("STA-NPC-01", {
     resolvePath: () => "query.sqlite",
     hasPath: () => true,
-    openDatabase: () => createDatabase({ throwOnQuery: true }),
+    getAdapter: () => createMockAdapter({ throwOnQuery: true }),
   });
 
   assert.deepEqual(listResult, { source: "mock", fallbackReason: "db_query_failed" });
   assert.deepEqual(detailResult, { source: "mock", fallbackReason: "db_query_failed" });
 });
 
-test("station analytics repository returns DB-backed counts", () => {
-  const result = getStationAnalytics("STA-NPC-01", {
+test("station analytics repository returns DB-backed counts", async () => {
+  const result = await getStationAnalytics("STA-NPC-01", {
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openDatabase: () => createDatabase(),
+    getAdapter: () => createMockAdapter(),
   });
 
   assert.equal(result.source, "db");
@@ -628,11 +622,11 @@ test("station analytics repository returns DB-backed counts", () => {
   }
 });
 
-test("station page view tracking records a DB event", () => {
-  const result = recordStationPageView("STA-NPC-01", "detail", {
+test("station page view tracking records a DB event", async () => {
+  const result = await recordStationPageView("STA-NPC-01", "detail", {
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openWritable: () => createDatabase(),
+    getAdapter: () => createMockAdapter(),
     now: () => Date.parse("2026-03-13T12:10:00.000Z"),
   });
 
@@ -644,11 +638,11 @@ test("station page view tracking records a DB event", () => {
   }
 });
 
-test("station admin read mirrors detail read behavior", () => {
-  const result = getStationAdminById("STA-NPC-01", {
+test("station admin read mirrors detail read behavior", async () => {
+  const result = await getStationAdminById("STA-NPC-01", {
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openDatabase: () => createDatabase(),
+    getAdapter: () => createMockAdapter(),
     now: NOW,
   });
 
@@ -658,13 +652,13 @@ test("station admin read mirrors detail read behavior", () => {
   }
 });
 
-test("station admin update rejects invalid accent values", () => {
-  const result = updateStationAdmin("STA-NPC-01", {
+test("station admin update rejects invalid accent values", async () => {
+  const result = await updateStationAdmin("STA-NPC-01", {
     accentColor: "invalid" as "cyan",
   }, {
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openWritable: () => createDatabase(),
+    getAdapter: () => createMockAdapter(),
     now: NOW,
   });
 
@@ -674,8 +668,8 @@ test("station admin update rejects invalid accent values", () => {
   }
 });
 
-test("station admin update accepts valid branding and content patches", () => {
-  const result = updateStationAdmin("STA-NPC-01", {
+test("station admin update accepts valid branding and content patches", async () => {
+  const result = await updateStationAdmin("STA-NPC-01", {
     exhibitTitle: "North Pacific Admin Exhibit",
     publicDescription: "Updated description",
     sponsorName: "Updated Sponsor",
@@ -715,7 +709,7 @@ test("station admin update accepts valid branding and content patches", () => {
   }, {
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openWritable: () => createDatabase(),
+    getAdapter: () => createMockAdapter(),
     now: NOW,
   });
 
@@ -725,10 +719,10 @@ test("station admin update accepts valid branding and content patches", () => {
   }
 });
 
-test("station admin update creates audit entries with actor and changed areas", () => {
-  const sharedDb = createDatabase();
+test("station admin update creates audit entries with actor and changed areas", async () => {
+  const sharedAdapter = createMockAdapter();
 
-  const updateResult = updateStationAdmin("STA-NPC-01", {
+  const updateResult = await updateStationAdmin("STA-NPC-01", {
     exhibitTitle: "North Pacific Admin Exhibit",
     content: [
       {
@@ -741,7 +735,7 @@ test("station admin update creates audit entries with actor and changed areas", 
   }, {
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openWritable: () => sharedDb,
+    getAdapter: () => sharedAdapter,
     now: NOW,
   }, {
     actorId: "pilot.admin@marine.local",
@@ -761,10 +755,10 @@ test("station admin update creates audit entries with actor and changed areas", 
     assert.equal(updateResult.result, "updated");
   }
 
-  const auditResult = getStationAdminAuditById("STA-NPC-01", {
+  const auditResult = await getStationAdminAuditById("STA-NPC-01", {
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openDatabase: () => sharedDb,
+    getAdapter: () => sharedAdapter,
   });
 
   assert.equal(auditResult.source, "db");

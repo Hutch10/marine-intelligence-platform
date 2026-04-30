@@ -41,15 +41,15 @@ function confidenceQuality(score: number): "high" | "medium" | "low" {
   return "low";
 }
 
-export function buildV1RegionRiskRouteResponse(
+export async function buildV1RegionRiskRouteResponse(
   regionId: string,
   buildInternalResponse: typeof buildRegionRiskScoreRouteResponse = buildRegionRiskScoreRouteResponse,
-): {
+): Promise<{
   status: 200 | 404 | 503;
   json: V1RegionRiskResponse | { message: string };
   headers: Record<string, string>;
-} {
-  const response = buildInternalResponse(regionId);
+}> {
+  const response = await buildInternalResponse(regionId);
 
   if (response.status !== 200) {
     return {
@@ -62,8 +62,9 @@ export function buildV1RegionRiskRouteResponse(
   const score = response.json as InternalRegionRiskScoreResponse;
   const healthyStations = score.coverage.healthy_station_count;
   const minimumHealthyStations = score.coverage.minimum_healthy_station_requirement;
-  const riskLevel: V1RegionRiskLevel =
-    healthyStations < minimumHealthyStations ? "insufficient_data" : score.risk_level;
+  const riskLevel: V1RegionRiskLevel = healthyStations < minimumHealthyStations
+    ? "insufficient_data"
+    : (score.risk_level === "conflicting_signals" ? "unknown" : score.risk_level);
 
   return {
     status: 200,
@@ -79,7 +80,9 @@ export function buildV1RegionRiskRouteResponse(
       dominantDrivers: score.dominant_drivers,
       topStations: score.top_contributing_stations.map((station) => ({
         stationId: station.station_id,
-        riskLevel: station.risk_level,
+        riskLevel: station.risk_level === "conflicting_signals" || station.risk_level === "insufficient_data"
+          ? "unknown"
+          : station.risk_level,
       })),
       coverage: {
         configuredStations: score.coverage.configured_station_count,
@@ -105,7 +108,7 @@ export const getV1RegionRiskRoute: RouteDefinition<
 > = {
   method: "GET",
   path: "/v1/regions/:regionId/risk",
-  handler(request) {
+  async handler(request) {
     return buildV1RegionRiskRouteResponse(request.body.regionId);
   },
 };

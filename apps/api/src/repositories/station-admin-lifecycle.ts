@@ -11,9 +11,9 @@ import { resolveMfaSecret } from "../security/mfa-secret";
 import { buildRecentStepUpQuery } from "../security/stepup-policy";
 import {
   hasDatabasePath,
-  openWritableDatabase,
   resolveDatabasePath,
 } from "../db/client";
+import { getAsyncAdapter, type AsyncDbAdapter } from "../db/async-client";
 
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000; // 8 hours
 const MFA_CHALLENGE_DURATION_MS = 10 * 60 * 1000; // 10 minutes
@@ -37,6 +37,21 @@ const ALL_PERMISSIONS: OceanStationAdminPermission[] = [
   "station.view_audit",
   "station.publish",
 ];
+
+const writeLockByResource = new Map<string, Promise<void>>();
+
+async function acquireWriteLock(resourceId: string): Promise<() => void> {
+  let unlock: () => void;
+  const lock = new Promise<void>((resolve) => {
+    unlock = resolve;
+  });
+
+  const previousLock = writeLockByResource.get(resourceId) ?? Promise.resolve();
+  writeLockByResource.set(resourceId, lock);
+
+  await previousLock;
+  return unlock!;
+}
 
 interface CredentialsRow {
   id: string;
@@ -77,21 +92,10 @@ interface AuthEventThrottleRow {
   metadata: string | null;
 }
 
-interface WritableStmtLike {
-  all(...params: unknown[]): unknown[];
-  run(...params: unknown[]): unknown;
-}
-
-interface WritableDbLike {
-  prepare(sql: string): WritableStmtLike;
-  exec?: (sql: string) => void;
-  close(): void;
-}
-
 export interface StationAdminLifecycleDependencies {
   resolvePath?: () => string;
   hasPath?: (path: string) => boolean;
-  openDatabase?: (path: string) => WritableDbLike;
+  getAdapter?: (readOnly: boolean) => AsyncDbAdapter;
   now?: () => number;
   generateToken?: (bytes?: number) => string;
   maxLoginAttempts?: number;
@@ -198,26 +202,82 @@ interface StoredRecoveryCode {
   usedAt: string | null;
 }
 
-function writeAuthEvent(
-  db: WritableDbLike,
+async function ensureStationAdminTables(adapter: AsyncDbAdapter) {
+  await adapter.execute(
+    `CREATE TABLE IF NOT EXISTS station_admin_credentials (
+      id TEXT PRIMARY KEY,
+      actor_role TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      salt TEXT NOT NULL,
+      mfa_enabled INTEGER DEFAULT 0,
+      mfa_secret TEXT,
+      mfa_recovery_codes TEXT,
+      mfa_enrolled_at TEXT,
+      mfa_last_verified_at TEXT
+    )`,
+  );
+
+  await adapter.execute(
+    `CREATE TABLE IF NOT EXISTS station_admin_sessions (
+      id TEXT PRIMARY KEY,
+      actor_id TEXT NOT NULL REFERENCES station_admin_credentials(id),
+      actor_role TEXT NOT NULL,
+      permissions TEXT,
+      csrf_token TEXT NOT NULL,
+      issued_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      last_active_at TEXT,
+      revoked_at TEXT,
+      metadata TEXT
+    )`,
+  );
+
+  await adapter.execute(
+    `CREATE TABLE IF NOT EXISTS station_admin_mfa_challenges (
+      id TEXT PRIMARY KEY,
+      actor_id TEXT NOT NULL REFERENCES station_admin_credentials(id),
+      challenge_purpose TEXT NOT NULL,
+      session_id TEXT REFERENCES station_admin_sessions(id),
+      expires_at TEXT NOT NULL,
+      attempts_remaining INTEGER NOT NULL DEFAULT 5,
+      consumed_at TEXT,
+      metadata TEXT
+    )`,
+  );
+
+  await adapter.execute(
+    `CREATE TABLE IF NOT EXISTS station_admin_auth_events (
+      id TEXT PRIMARY KEY,
+      event_type TEXT NOT NULL,
+      actor_id TEXT REFERENCES station_admin_credentials(id),
+      session_id TEXT REFERENCES station_admin_sessions(id),
+      occurred_at TEXT NOT NULL,
+      metadata TEXT
+    )`,
+  );
+}
+
+async function writeAuthEvent(
+  adapter: AsyncDbAdapter,
   tokenFn: (bytes?: number) => string,
   nowMs: number,
   eventType: StationAdminAuthEventType,
   actorId: string | null,
   sessionId: string | null,
   metadata?: Record<string, unknown> | null,
-): void {
+): Promise<void> {
   try {
-    db.prepare(
+    await adapter.execute(
       `INSERT INTO station_admin_auth_events (id, event_type, actor_id, session_id, occurred_at, metadata)
        VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(
-      tokenFn(16),
-      eventType,
-      actorId,
-      sessionId,
-      new Date(nowMs).toISOString(),
-      metadata ? JSON.stringify(metadata) : null,
+      [
+        tokenFn(16),
+        eventType,
+        actorId,
+        sessionId,
+        new Date(nowMs).toISOString(),
+        metadata ? JSON.stringify(metadata) : null,
+      ]
     );
   } catch {
     // Auth event writes are non-fatal
@@ -325,36 +385,37 @@ function defaultPermissionsForRole(role: OceanStationAdminRole): OceanStationAdm
   return role === "admin" ? [...ALL_PERMISSIONS] : ["station.view_admin"];
 }
 
-function issueSession(
-  db: WritableDbLike,
+async function issueSession(
+  adapter: AsyncDbAdapter,
   tokenFn: (bytes?: number) => string,
   nowMs: number,
   actorId: string,
   role: OceanStationAdminRole,
   permissions: OceanStationAdminPermission[],
-): {
+): Promise<{
   sessionId: string;
   csrfToken: string;
   expiresAt: string;
-} {
+}> {
   const sessionId = tokenFn(32);
   const csrfToken = tokenFn(32);
   const issuedAt = new Date(nowMs).toISOString();
   const expiresAt = new Date(nowMs + SESSION_DURATION_MS).toISOString();
 
-  db.prepare(
+  await adapter.execute(
     `INSERT INTO station_admin_sessions
        (id, actor_id, actor_role, permissions, csrf_token, issued_at, expires_at, last_active_at, revoked_at, metadata)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
-  ).run(
-    sessionId,
-    actorId,
-    role,
-    JSON.stringify(permissions),
-    csrfToken,
-    issuedAt,
-    expiresAt,
-    issuedAt,
+    [
+      sessionId,
+      actorId,
+      role,
+      JSON.stringify(permissions),
+      csrfToken,
+      issuedAt,
+      expiresAt,
+      issuedAt,
+    ]
   );
 
   return {
@@ -470,8 +531,6 @@ function verifyMfaCode(code: string | undefined, secret: string | null, nowMs?: 
     return false;
   }
 
-  // Decrypt if the stored value is an AES-256-GCM envelope; pass through
-  // plaintext values for backward compatibility during migration.
   const resolvedSecret = resolveMfaSecret(secret);
   if (!resolvedSecret) {
     return false;
@@ -512,67 +571,8 @@ function consumeRecoveryCode(
   return { consumed, updatedCodes };
 }
 
-function parseMetadataObject(value: string | null): Record<string, unknown> | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    if (!parsed || typeof parsed !== "object") {
-      return undefined;
-    }
-
-    return parsed as Record<string, unknown>;
-  } catch {
-    return undefined;
-  }
-}
-
-function readStringMetadata(metadata: Record<string, unknown> | undefined, key: string): string | null {
-  const value = metadata?.[key];
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function getRunChanges(result: unknown): number | undefined {
-  if (!result || typeof result !== "object") {
-    return undefined;
-  }
-
-  const maybeChanges = (result as { changes?: unknown }).changes;
-  return typeof maybeChanges === "number" ? maybeChanges : undefined;
-}
-
-function executeSql(db: WritableDbLike, sql: string): void {
-  if (typeof db.exec === "function") {
-    db.exec(sql);
-    return;
-  }
-
-  db.prepare(sql).run();
-}
-
-function beginTransaction(db: WritableDbLike): void {
-  executeSql(db, "BEGIN IMMEDIATE");
-}
-
-function commitTransaction(db: WritableDbLike): void {
-  executeSql(db, "COMMIT");
-}
-
-function rollbackTransaction(db: WritableDbLike): void {
-  executeSql(db, "ROLLBACK");
-}
-
-interface MfaRateLimitDecision {
-  limited: boolean;
-  scope?: "challenge" | "actor" | "ip";
-  eventCount?: number;
-  threshold?: number;
-}
-
-function evaluateMfaVerifyRateLimit(
-  db: WritableDbLike,
+async function evaluateMfaVerifyRateLimit(
+  adapter: AsyncDbAdapter,
   challengeId: string,
   actorId: string,
   ip: string | null,
@@ -581,15 +581,21 @@ function evaluateMfaVerifyRateLimit(
   maxPerChallenge: number,
   maxPerActor: number,
   maxPerIp: number,
-): MfaRateLimitDecision {
+): Promise<{
+  limited: boolean;
+  scope?: "challenge" | "actor" | "ip";
+  eventCount?: number;
+  threshold?: number;
+}> {
   try {
     const sinceIso = new Date(nowMs - windowMs).toISOString();
-    const rows = db.prepare(
+    const rows = await adapter.execute(
       `SELECT actor_id, metadata
        FROM station_admin_auth_events
        WHERE event_type = 'mfa_challenge_failure'
          AND occurred_at > ?`,
-    ).all(sinceIso) as AuthEventThrottleRow[];
+      [sinceIso]
+    ) as AuthEventThrottleRow[];
 
     let challengeFailureCount = 0;
     let actorFailureCount = 0;
@@ -600,85 +606,73 @@ function evaluateMfaVerifyRateLimit(
         actorFailureCount += 1;
       }
 
-      const metadata = parseMetadataObject(row.metadata);
-      const rowChallengeId = readStringMetadata(metadata, "challengeId");
-      const rowIp = readStringMetadata(metadata, "ip");
+      if (!row.metadata) continue;
 
-      if (rowChallengeId === challengeId) {
-        challengeFailureCount += 1;
+      let rawMetadata: Record<string, any>;
+      try {
+        rawMetadata = JSON.parse(row.metadata);
+      } catch {
+        continue;
       }
 
-      if (ip && rowIp === ip) {
+      if (ip && rawMetadata.ip === ip) {
         ipFailureCount += 1;
+      }
+
+      if (rawMetadata.challengeId === challengeId) {
+        challengeFailureCount += 1;
       }
     }
 
     if (challengeFailureCount >= maxPerChallenge) {
-      return {
-        limited: true,
-        scope: "challenge",
-        eventCount: challengeFailureCount,
-        threshold: maxPerChallenge,
-      };
+      return { limited: true, scope: "challenge", eventCount: challengeFailureCount, threshold: maxPerChallenge };
     }
 
     if (actorFailureCount >= maxPerActor) {
-      return {
-        limited: true,
-        scope: "actor",
-        eventCount: actorFailureCount,
-        threshold: maxPerActor,
-      };
+      return { limited: true, scope: "actor", eventCount: actorFailureCount, threshold: maxPerActor };
     }
 
     if (ip && ipFailureCount >= maxPerIp) {
-      return {
-        limited: true,
-        scope: "ip",
-        eventCount: ipFailureCount,
-        threshold: maxPerIp,
-      };
+      return { limited: true, scope: "ip", eventCount: ipFailureCount, threshold: maxPerIp };
     }
-  } catch {
-    // If auth event reads fail, preserve availability by skipping rate limits.
-  }
 
-  return { limited: false };
+    return { limited: false };
+  } catch {
+    return { limited: false };
+  }
 }
 
-function countRecentAuthEvents(
-  db: WritableDbLike,
+async function countRecentAuthEvents(
+  adapter: AsyncDbAdapter,
   eventType: StationAdminAuthEventType,
   nowMs: number,
   windowMs: number,
   actorId: string | null,
   ip: string | null,
-): number {
+): Promise<number> {
   try {
     const sinceIso = new Date(nowMs - windowMs).toISOString();
-    const rows = db.prepare(
+    const rows = await adapter.execute(
       `SELECT actor_id, metadata
        FROM station_admin_auth_events
        WHERE event_type = ?
          AND occurred_at > ?`,
-    ).all(eventType, sinceIso) as AuthEventThrottleRow[];
+      [eventType, sinceIso]
+    ) as AuthEventThrottleRow[];
 
     let count = 0;
-
     for (const row of rows) {
-      if (actorId && row.actor_id !== actorId) {
+      if (actorId && row.actor_id === actorId) {
+        count += 1;
         continue;
       }
 
       if (ip) {
-        const metadata = parseMetadataObject(row.metadata);
-        const rowIp = readStringMetadata(metadata, "ip");
-        if (rowIp !== ip) {
-          continue;
+        const rowMetadata = parseRequestMetadata(row.metadata);
+        if (rowMetadata?.ip === ip) {
+          count += 1;
         }
       }
-
-      count += 1;
     }
 
     return count;
@@ -687,29 +681,28 @@ function countRecentAuthEvents(
   }
 }
 
-function maybeWriteMfaAbuseEvent(
-  db: WritableDbLike,
+async function maybeWriteMfaAbuseEvent(
+  adapter: AsyncDbAdapter,
   tokenFn: (bytes?: number) => string,
   nowMs: number,
   actorId: string,
   sessionId: string | null,
   requestMetadata: StationAdminRequestMetadata | undefined,
-  pattern: "repeated_locked_out" | "repeated_expired_challenge" | "repeated_invalid_verify_attempts",
+  pattern: string,
   eventCount: number,
   threshold: number,
   extra: Record<string, unknown>,
-): void {
+): Promise<void> {
   if (eventCount < threshold) {
     return;
   }
 
-  // Coalesce repeated abuse signals: emit on first threshold breach and each threshold multiple.
   if (eventCount > threshold && eventCount % threshold !== 0) {
     return;
   }
 
-  writeAuthEvent(
-    db,
+  await writeAuthEvent(
+    adapter,
     tokenFn,
     nowMs,
     "mfa_abuse_detected",
@@ -724,47 +717,34 @@ function maybeWriteMfaAbuseEvent(
   );
 }
 
-function toMfaChallenge(row: MfaChallengeRow): StationAdminMfaChallenge | null {
-  const purpose = normalizeMfaChallengePurpose(row.challenge_purpose);
-
-  if (!purpose) {
-    return null;
-  }
-
-  return {
-    challengeId: row.id,
-    purpose,
-    expiresAt: row.expires_at,
-    recoveryCodeAllowed: true,
-  };
-}
-
-function createMfaChallenge(
-  db: WritableDbLike,
+async function createMfaChallenge(
+  adapter: AsyncDbAdapter,
   tokenFn: (bytes?: number) => string,
   nowMs: number,
   actorId: string,
   purpose: StationAdminMfaChallengePurpose,
   requestMetadata: StationAdminRequestMetadata | undefined,
   sessionId?: string,
-): StationAdminMfaChallenge {
+): Promise<StationAdminMfaChallenge> {
   const challengeId = tokenFn(16);
   const expiresAt = new Date(nowMs + MFA_CHALLENGE_DURATION_MS).toISOString();
   const metadata = buildEventMetadata(requestMetadata, {
     purpose,
+    challengeId,
   });
 
-  db.prepare(
+  await adapter.execute(
     `INSERT INTO station_admin_mfa_challenges
        (id, actor_id, challenge_purpose, session_id, expires_at, attempts_remaining, consumed_at, metadata)
      VALUES (?, ?, ?, ?, ?, 5, NULL, ?)`,
-  ).run(
-    challengeId,
-    actorId,
-    purpose,
-    sessionId ?? null,
-    expiresAt,
-    metadata ? JSON.stringify(metadata) : null,
+    [
+      challengeId,
+      actorId,
+      purpose,
+      sessionId ?? null,
+      expiresAt,
+      metadata ? JSON.stringify(metadata) : null,
+    ]
   );
 
   return {
@@ -775,49 +755,28 @@ function createMfaChallenge(
   };
 }
 
-function hasRecentStepUp(
-  db: WritableDbLike,
+async function hasRecentStepUp(
+  adapter: AsyncDbAdapter,
   actorId: string,
   sessionId: string,
   purpose: StationAdminMfaChallengePurpose,
   nowMs: number,
   windowMs: number,
-): boolean {
+): Promise<boolean> {
   try {
     const { sql, params } = buildRecentStepUpQuery(actorId, sessionId, purpose, nowMs, windowMs);
-    const rows = db.prepare(sql).all(...params);
+    const rows = await adapter.execute(sql, params);
     return rows.length > 0;
   } catch {
-    // Default to requiring step-up MFA if auth event lookup is unavailable.
     return false;
   }
 }
 
-function openDb(
-  deps: StationAdminLifecycleDependencies,
-): { db: WritableDbLike; close: () => void } | null {
-  const resolvePath = deps.resolvePath ?? resolveDatabasePath;
-  const hasPath = deps.hasPath ?? hasDatabasePath;
-  const open = deps.openDatabase ?? (openWritableDatabase as unknown as (path: string) => WritableDbLike);
-  const dbPath = resolvePath();
-
-  if (!hasPath(dbPath)) {
-    return null;
-  }
-
-  try {
-    const db = open(dbPath);
-    return { db, close: () => db.close() };
-  } catch {
-    return null;
-  }
-}
-
-export function loginStationAdmin(
+export async function loginStationAdmin(
   actorId: string,
   password: string,
   dependencies: StationAdminLifecycleDependencies = {},
-): StationAdminLoginResult {
+): Promise<StationAdminLoginResult> {
   const normalizedActorId = actorId.trim();
   const now = dependencies.now ?? Date.now;
   const tokenFn = dependencies.generateToken ?? generateToken;
@@ -830,29 +789,22 @@ export function loginStationAdmin(
     return { result: "invalid_credentials" };
   }
 
-  const handle = openDb(dependencies);
-
-  if (!handle) {
-    return { result: "not_available" };
-  }
-
-  const { db, close } = handle;
-  let transactionOpen = false;
+  const adapter = dependencies.getAdapter ? dependencies.getAdapter(false) : getAsyncAdapter(false);
+  const unlock = await acquireWriteLock(adapter.resourceId);
 
   try {
-    beginTransaction(db);
-    transactionOpen = true;
+    await ensureStationAdminTables(adapter);
+    await adapter.execute("BEGIN IMMEDIATE");
 
     let lockoutScope: "actor" | "ip" | null = null;
     try {
       const sinceIso = new Date(now() - lockoutWindowMs).toISOString();
-      const recentFailureRows = db
-        .prepare(
-          `SELECT actor_id, metadata FROM station_admin_auth_events
-           WHERE event_type IN ('login_failure', 'login_locked')
-           AND occurred_at > ?`,
-        )
-        .all(sinceIso) as AuthEventThrottleRow[];
+      const recentFailureRows = await adapter.execute(
+        `SELECT actor_id, metadata FROM station_admin_auth_events
+         WHERE event_type IN ('login_failure', 'login_locked')
+         AND occurred_at > ?`,
+        [sinceIso]
+      ) as AuthEventThrottleRow[];
 
       let actorFailureCount = 0;
       let ipFailureCount = 0;
@@ -876,121 +828,47 @@ export function loginStationAdmin(
         lockoutScope = "ip";
       }
     } catch {
-      // If auth_events table is not yet available, skip lockout checks.
+      // Skip lockout checks if table missing
     }
 
     if (lockoutScope) {
-      writeAuthEvent(
-        db,
-        tokenFn,
-        now(),
-        "login_locked",
-        normalizedActorId,
-        null,
-        buildEventMetadata(requestMetadata, { lockoutScope }),
-      );
-      commitTransaction(db);
-      transactionOpen = false;
+      await writeAuthEvent(adapter, tokenFn, now(), "login_locked", normalizedActorId, null, buildEventMetadata(requestMetadata, { lockoutScope }));
+      await adapter.execute("COMMIT");
       return { result: "locked_out" };
     }
 
-    const credRows = db
-      .prepare(
-        `SELECT id, actor_role, password_hash, salt, mfa_enabled, mfa_secret, mfa_recovery_codes, mfa_enrolled_at, mfa_last_verified_at
-         FROM station_admin_credentials
-         WHERE id = ?
-         LIMIT 1`,
-      )
-      .all(normalizedActorId) as CredentialsRow[];
+    const credRows = await adapter.execute(
+      `SELECT id, actor_role, password_hash, salt, mfa_enabled, mfa_secret, mfa_recovery_codes, mfa_enrolled_at, mfa_last_verified_at
+       FROM station_admin_credentials
+       WHERE id = ? LIMIT 1`,
+      [normalizedActorId]
+    ) as CredentialsRow[];
     const cred = credRows[0];
 
-    if (!cred) {
-      writeAuthEvent(
-        db,
-        tokenFn,
-        now(),
-        "login_failure",
-        normalizedActorId,
-        null,
-        buildEventMetadata(requestMetadata),
-      );
-      commitTransaction(db);
-      transactionOpen = false;
-      return { result: "invalid_credentials" };
-    }
-
-    const passwordValid = verifyPassword(password, cred.salt, cred.password_hash);
-
-    if (!passwordValid) {
-      writeAuthEvent(
-        db,
-        tokenFn,
-        now(),
-        "login_failure",
-        normalizedActorId,
-        null,
-        buildEventMetadata(requestMetadata),
-      );
-      commitTransaction(db);
-      transactionOpen = false;
+    if (!cred || !verifyPassword(password, cred.salt, cred.password_hash)) {
+      await writeAuthEvent(adapter, tokenFn, now(), "login_failure", normalizedActorId, null, buildEventMetadata(requestMetadata));
+      await adapter.execute("COMMIT");
       return { result: "invalid_credentials" };
     }
 
     const role = normalizeRole(cred.actor_role);
-
     if (!role) {
-      writeAuthEvent(
-        db,
-        tokenFn,
-        now(),
-        "login_failure",
-        normalizedActorId,
-        null,
-        buildEventMetadata(requestMetadata),
-      );
-      commitTransaction(db);
-      transactionOpen = false;
+      await writeAuthEvent(adapter, tokenFn, now(), "login_failure", normalizedActorId, null, buildEventMetadata(requestMetadata));
+      await adapter.execute("COMMIT");
       return { result: "invalid_credentials" };
     }
 
     const mfaState = buildMfaEnrollmentState(cred);
-
     if (mfaState.enabled) {
-      const challenge = createMfaChallenge(
-        db,
-        tokenFn,
-        now(),
-        normalizedActorId,
-        "login",
-        requestMetadata,
-      );
-
-      commitTransaction(db);
-      transactionOpen = false;
-      return {
-        result: "pending_mfa",
-        actorId: normalizedActorId,
-        actorRole: role,
-        challenge,
-        mfa: mfaState,
-      };
+      const challenge = await createMfaChallenge(adapter, tokenFn, now(), normalizedActorId, "login", requestMetadata);
+      await adapter.execute("COMMIT");
+      return { result: "pending_mfa", actorId: normalizedActorId, actorRole: role, challenge, mfa: mfaState };
     }
-    const nowMs = now();
-    const permissions = defaultPermissionsForRole(role);
-    const issuedSession = issueSession(db, tokenFn, nowMs, normalizedActorId, role, permissions);
 
-    writeAuthEvent(
-      db,
-      tokenFn,
-      nowMs,
-      "login_success",
-      normalizedActorId,
-      issuedSession.sessionId,
-      buildEventMetadata(requestMetadata),
-    );
+    const issuedSession = await issueSession(adapter, tokenFn, now(), normalizedActorId, role, defaultPermissionsForRole(role));
+    await writeAuthEvent(adapter, tokenFn, now(), "login_success", normalizedActorId, issuedSession.sessionId, buildEventMetadata(requestMetadata));
+    await adapter.execute("COMMIT");
 
-    commitTransaction(db);
-    transactionOpen = false;
     return {
       result: "issued",
       sessionId: issuedSession.sessionId,
@@ -998,108 +876,67 @@ export function loginStationAdmin(
       expiresAt: issuedSession.expiresAt,
       actorId: normalizedActorId,
       actorRole: role,
-      permissions,
+      permissions: defaultPermissionsForRole(role),
       mfa: mfaState,
     };
-  } catch {
-    if (transactionOpen) {
-      try {
-        rollbackTransaction(db);
-      } catch {
-        // Ignore rollback failures.
-      }
-    }
+  } catch (err) {
+    await adapter.execute("ROLLBACK").catch(() => {});
     return { result: "not_available" };
   } finally {
-    close();
+    unlock();
+    await adapter.close();
   }
 }
 
-export function verifyStationAdminMfaChallenge(
+export async function verifyStationAdminMfaChallenge(
   challengeId: string,
   code: string | undefined,
   recoveryCode: string | undefined,
   sessionId: string | undefined,
   csrfToken: string | undefined,
   dependencies: StationAdminLifecycleDependencies = {},
-): StationAdminMfaVerifyResult {
+): Promise<StationAdminMfaVerifyResult> {
   const normalizedChallengeId = challengeId.trim();
   const normalizedCode = typeof code === "string" && code.trim() ? code.trim() : undefined;
   const normalizedRecoveryCode = typeof recoveryCode === "string" && recoveryCode.trim() ? recoveryCode.trim() : undefined;
-  const normalizedSessionId = typeof sessionId === "string" ? sessionId.trim() : "";
-  const normalizedCsrfToken = typeof csrfToken === "string" ? csrfToken.trim() : "";
   const now = dependencies.now ?? Date.now;
   const tokenFn = dependencies.generateToken ?? generateToken;
   const mfaVerifyRateLimitWindowMs = dependencies.mfaVerifyRateLimitWindowMs ?? DEFAULT_MFA_VERIFY_RATE_LIMIT_WINDOW_MS;
-  const maxMfaVerifyAttemptsPerChallenge = dependencies.maxMfaVerifyAttemptsPerChallenge
-    ?? DEFAULT_MAX_MFA_VERIFY_ATTEMPTS_PER_CHALLENGE;
-  const maxMfaVerifyAttemptsPerActor = dependencies.maxMfaVerifyAttemptsPerActor
-    ?? DEFAULT_MAX_MFA_VERIFY_ATTEMPTS_PER_ACTOR;
-  const maxMfaVerifyAttemptsPerIp = dependencies.maxMfaVerifyAttemptsPerIp
-    ?? DEFAULT_MAX_MFA_VERIFY_ATTEMPTS_PER_IP;
-  const repeatedMfaLockoutThreshold = dependencies.repeatedMfaLockoutThreshold
-    ?? DEFAULT_REPEATED_MFA_LOCKOUT_THRESHOLD;
-  const repeatedMfaExpiredThreshold = dependencies.repeatedMfaExpiredThreshold
-    ?? DEFAULT_REPEATED_MFA_EXPIRED_THRESHOLD;
-  const repeatedInvalidMfaAttemptThreshold = dependencies.repeatedInvalidMfaAttemptThreshold
-    ?? DEFAULT_REPEATED_INVALID_MFA_ATTEMPT_THRESHOLD;
+  const maxMfaVerifyAttemptsPerChallenge = dependencies.maxMfaVerifyAttemptsPerChallenge ?? DEFAULT_MAX_MFA_VERIFY_ATTEMPTS_PER_CHALLENGE;
+  const maxMfaVerifyAttemptsPerActor = dependencies.maxMfaVerifyAttemptsPerActor ?? DEFAULT_MAX_MFA_VERIFY_ATTEMPTS_PER_ACTOR;
+  const maxMfaVerifyAttemptsPerIp = dependencies.maxMfaVerifyAttemptsPerIp ?? DEFAULT_MAX_MFA_VERIFY_ATTEMPTS_PER_IP;
+  const repeatedMfaLockoutThreshold = dependencies.repeatedMfaLockoutThreshold ?? DEFAULT_REPEATED_MFA_LOCKOUT_THRESHOLD;
+  const repeatedMfaExpiredThreshold = dependencies.repeatedMfaExpiredThreshold ?? DEFAULT_REPEATED_MFA_EXPIRED_THRESHOLD;
+  const repeatedInvalidMfaAttemptThreshold = dependencies.repeatedInvalidMfaAttemptThreshold ?? DEFAULT_REPEATED_INVALID_MFA_ATTEMPT_THRESHOLD;
   const requestMetadata = normalizeRequestMetadata(dependencies.requestMetadata);
 
   if (!normalizedChallengeId || (!normalizedCode && !normalizedRecoveryCode)) {
     return { result: "invalid_request" };
   }
 
-  const handle = openDb(dependencies);
-
-  if (!handle) {
-    return { result: "not_found" };
-  }
-
-  const { db, close } = handle;
-  let transactionOpen = false;
+  const adapter = dependencies.getAdapter ? dependencies.getAdapter(false) : getAsyncAdapter(false);
+  const unlock = await acquireWriteLock(adapter.resourceId);
 
   try {
-    beginTransaction(db);
-    transactionOpen = true;
-    const rollbackAndReturn = (result: StationAdminMfaVerifyResult): StationAdminMfaVerifyResult => {
-      if (transactionOpen) {
-        try {
-          rollbackTransaction(db);
-        } catch {
-          // Ignore rollback failures to preserve previous error contract behavior.
-        }
-        transactionOpen = false;
-      }
+    await ensureStationAdminTables(adapter);
+    await adapter.execute("BEGIN IMMEDIATE");
 
-      return result;
-    };
-
-    // Single commit point: commit the transaction and return the result atomically.
-    // Using a helper prevents accidental code insertion between COMMIT and return.
-    const commitAndReturn = (result: StationAdminMfaVerifyResult): StationAdminMfaVerifyResult => {
-      commitTransaction(db);
-      transactionOpen = false;
-      return result;
-    };
-
-    const challengeRows = db
-      .prepare(
-        `SELECT id, actor_id, challenge_purpose, session_id, expires_at, attempts_remaining, consumed_at, metadata
-         FROM station_admin_mfa_challenges
-         WHERE id = ?
-         LIMIT 1`,
-      )
-      .all(normalizedChallengeId) as MfaChallengeRow[];
+    const challengeRows = await adapter.execute(
+      `SELECT id, actor_id, challenge_purpose, session_id, expires_at, attempts_remaining, consumed_at, metadata
+       FROM station_admin_mfa_challenges WHERE id = ? LIMIT 1`,
+      [normalizedChallengeId]
+    ) as MfaChallengeRow[];
     const challengeRow = challengeRows[0];
 
     if (!challengeRow || challengeRow.consumed_at !== null) {
-      return rollbackAndReturn({ result: "not_found" });
+      await adapter.execute("ROLLBACK");
+      return { result: "not_found" };
     }
 
     const challengePurpose = normalizeMfaChallengePurpose(challengeRow.challenge_purpose);
-
     if (!challengePurpose) {
-      return rollbackAndReturn({ result: "not_found" });
+      await adapter.execute("ROLLBACK");
+      return { result: "not_found" };
     }
 
     const nowMs = now();
@@ -1107,179 +944,44 @@ export function verifyStationAdminMfaChallenge(
     const expiresAtMs = new Date(challengeRow.expires_at).getTime();
 
     if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) {
-      db.prepare("UPDATE station_admin_mfa_challenges SET consumed_at = COALESCE(consumed_at, ?) WHERE id = ?").run(
-        nowIso,
-        normalizedChallengeId,
-      );
-      writeAuthEvent(
-        db,
-        tokenFn,
-        nowMs,
-        "mfa_challenge_expired",
-        challengeRow.actor_id,
-        challengeRow.session_id,
-        buildEventMetadata(requestMetadata, {
-          challengeId: normalizedChallengeId,
-          challengePurpose,
-        }),
-      );
-
-      const expiredEventCount = countRecentAuthEvents(
-        db,
-        "mfa_challenge_expired",
-        nowMs,
-        MFA_ABUSE_EVENT_WINDOW_MS,
-        challengeRow.actor_id,
-        requestMetadata?.ip ?? null,
-      );
-
-      maybeWriteMfaAbuseEvent(
-        db,
-        tokenFn,
-        nowMs,
-        challengeRow.actor_id,
-        challengeRow.session_id,
-        requestMetadata,
-        "repeated_expired_challenge",
-        expiredEventCount,
-        repeatedMfaExpiredThreshold,
-        {
-          challengeId: normalizedChallengeId,
-        },
-      );
-
-      return commitAndReturn({ result: "expired" });
+      await adapter.execute("UPDATE station_admin_mfa_challenges SET consumed_at = COALESCE(consumed_at, ?) WHERE id = ?", [nowIso, normalizedChallengeId]);
+      await writeAuthEvent(adapter, tokenFn, nowMs, "mfa_challenge_expired", challengeRow.actor_id, challengeRow.session_id, buildEventMetadata(requestMetadata, { challengeId: normalizedChallengeId, challengePurpose }));
+      
+      const expiredEventCount = await countRecentAuthEvents(adapter, "mfa_challenge_expired", nowMs, MFA_ABUSE_EVENT_WINDOW_MS, challengeRow.actor_id, requestMetadata?.ip ?? null);
+      await maybeWriteMfaAbuseEvent(adapter, tokenFn, nowMs, challengeRow.actor_id, challengeRow.session_id, requestMetadata, "repeated_expired_challenge", expiredEventCount, repeatedMfaExpiredThreshold, { challengeId: normalizedChallengeId });
+      
+      await adapter.execute("COMMIT");
+      return { result: "expired" };
     }
 
     if (challengeRow.attempts_remaining <= 0) {
-      db.prepare("UPDATE station_admin_mfa_challenges SET consumed_at = COALESCE(consumed_at, ?) WHERE id = ?").run(
-        nowIso,
-        normalizedChallengeId,
-      );
-
-      writeAuthEvent(
-        db,
-        tokenFn,
-        nowMs,
-        "mfa_challenge_locked",
-        challengeRow.actor_id,
-        challengeRow.session_id,
-        buildEventMetadata(requestMetadata, {
-          challengeId: normalizedChallengeId,
-          challengePurpose,
-          attemptsRemaining: 0,
-          lockedOut: true,
-        }),
-      );
-
-      const lockoutEventCount = countRecentAuthEvents(
-        db,
-        "mfa_challenge_locked",
-        nowMs,
-        MFA_ABUSE_EVENT_WINDOW_MS,
-        challengeRow.actor_id,
-        requestMetadata?.ip ?? null,
-      );
-
-      maybeWriteMfaAbuseEvent(
-        db,
-        tokenFn,
-        nowMs,
-        challengeRow.actor_id,
-        challengeRow.session_id,
-        requestMetadata,
-        "repeated_locked_out",
-        lockoutEventCount,
-        repeatedMfaLockoutThreshold,
-        {
-          challengeId: normalizedChallengeId,
-        },
-      );
-
-      return commitAndReturn({ result: "locked_out", attemptsRemaining: 0 });
+      await adapter.execute("UPDATE station_admin_mfa_challenges SET consumed_at = COALESCE(consumed_at, ?) WHERE id = ?", [nowIso, normalizedChallengeId]);
+      await writeAuthEvent(adapter, tokenFn, nowMs, "mfa_challenge_locked", challengeRow.actor_id, challengeRow.session_id, buildEventMetadata(requestMetadata, { challengeId: normalizedChallengeId, challengePurpose, attemptsRemaining: 0, lockedOut: true }));
+      
+      const lockoutEventCount = await countRecentAuthEvents(adapter, "mfa_challenge_locked", nowMs, MFA_ABUSE_EVENT_WINDOW_MS, challengeRow.actor_id, requestMetadata?.ip ?? null);
+      await maybeWriteMfaAbuseEvent(adapter, tokenFn, nowMs, challengeRow.actor_id, challengeRow.session_id, requestMetadata, "repeated_locked_out", lockoutEventCount, repeatedMfaLockoutThreshold, { challengeId: normalizedChallengeId });
+      
+      await adapter.execute("COMMIT");
+      return { result: "locked_out", attemptsRemaining: 0 };
     }
 
-    const verifyRateLimit = evaluateMfaVerifyRateLimit(
-      db,
-      normalizedChallengeId,
-      challengeRow.actor_id,
-      requestMetadata?.ip ?? null,
-      nowMs,
-      mfaVerifyRateLimitWindowMs,
-      maxMfaVerifyAttemptsPerChallenge,
-      maxMfaVerifyAttemptsPerActor,
-      maxMfaVerifyAttemptsPerIp,
-    );
-
+    const verifyRateLimit = await evaluateMfaVerifyRateLimit(adapter, normalizedChallengeId, challengeRow.actor_id, requestMetadata?.ip ?? null, nowMs, mfaVerifyRateLimitWindowMs, maxMfaVerifyAttemptsPerChallenge, maxMfaVerifyAttemptsPerActor, maxMfaVerifyAttemptsPerIp);
     if (verifyRateLimit.limited) {
-      writeAuthEvent(
-        db,
-        tokenFn,
-        nowMs,
-        "mfa_verify_rate_limited",
-        challengeRow.actor_id,
-        challengeRow.session_id,
-        buildEventMetadata(requestMetadata, {
-          challengeId: normalizedChallengeId,
-          challengePurpose,
-          rateLimitScope: verifyRateLimit.scope,
-          eventCount: verifyRateLimit.eventCount,
-          threshold: verifyRateLimit.threshold,
-          retryAfterSeconds: Math.max(1, Math.ceil(mfaVerifyRateLimitWindowMs / 1000)),
-        }),
-      );
-
-      return commitAndReturn({
-        result: "rate_limited",
-        retryAfterSeconds: Math.max(1, Math.ceil(mfaVerifyRateLimitWindowMs / 1000)),
-      });
+      await writeAuthEvent(adapter, tokenFn, nowMs, "mfa_verify_rate_limited", challengeRow.actor_id, challengeRow.session_id, buildEventMetadata(requestMetadata, { challengeId: normalizedChallengeId, challengePurpose, rateLimitScope: verifyRateLimit.scope, eventCount: verifyRateLimit.eventCount, threshold: verifyRateLimit.threshold, retryAfterSeconds: Math.max(1, Math.ceil(mfaVerifyRateLimitWindowMs / 1000)) }));
+      await adapter.execute("COMMIT");
+      return { result: "rate_limited", retryAfterSeconds: Math.max(1, Math.ceil(mfaVerifyRateLimitWindowMs / 1000)) };
     }
 
-    if (challengePurpose === "session_revoke") {
-      if (!normalizedSessionId || !normalizedCsrfToken) {
-        return rollbackAndReturn({ result: "invalid_request" });
-      }
-
-      if (!challengeRow.session_id || challengeRow.session_id !== normalizedSessionId) {
-        return rollbackAndReturn({ result: "invalid_request" });
-      }
-
-      const sessionRows = db
-        .prepare(
-          `SELECT id, actor_id, csrf_token, expires_at, revoked_at
-           FROM station_admin_sessions
-           WHERE id = ?
-           LIMIT 1`,
-        )
-        .all(normalizedSessionId) as Array<Pick<SessionRow, "id" | "actor_id" | "csrf_token" | "expires_at" | "revoked_at">>;
-      const sessionRow = sessionRows[0];
-
-      if (!sessionRow || sessionRow.revoked_at !== null || sessionRow.actor_id !== challengeRow.actor_id) {
-        return rollbackAndReturn({ result: "invalid_request" });
-      }
-
-      if (sessionRow.csrf_token !== normalizedCsrfToken) {
-        return rollbackAndReturn({ result: "invalid_request" });
-      }
-
-      const sessionExpiresMs = new Date(sessionRow.expires_at).getTime();
-      if (!Number.isFinite(sessionExpiresMs) || sessionExpiresMs <= nowMs) {
-        return rollbackAndReturn({ result: "invalid_request" });
-      }
-    }
-
-    const credentialRows = db
-      .prepare(
-        `SELECT id, actor_role, password_hash, salt, mfa_enabled, mfa_secret, mfa_recovery_codes, mfa_enrolled_at, mfa_last_verified_at
-         FROM station_admin_credentials
-         WHERE id = ?
-         LIMIT 1`,
-      )
-      .all(challengeRow.actor_id) as CredentialsRow[];
-    const credential = credentialRows[0];
+    const credRows = await adapter.execute(
+      `SELECT id, actor_role, password_hash, salt, mfa_enabled, mfa_secret, mfa_recovery_codes, mfa_enrolled_at, mfa_last_verified_at
+       FROM station_admin_credentials WHERE id = ? LIMIT 1`,
+      [challengeRow.actor_id]
+    ) as CredentialsRow[];
+    const credential = credRows[0];
 
     if (!credential || !toBooleanFlag(credential.mfa_enabled)) {
-      return rollbackAndReturn({ result: "not_found" });
+      await adapter.execute("ROLLBACK");
+      return { result: "not_found" };
     }
 
     const recoveryCodes = parseStoredRecoveryCodes(credential.mfa_recovery_codes);
@@ -1290,558 +992,220 @@ export function verifyStationAdminMfaChallenge(
     if (!codeVerified && !recovered) {
       const nextAttemptsRemaining = Math.max(0, challengeRow.attempts_remaining - 1);
       const consumedAt = nextAttemptsRemaining === 0 ? nowIso : null;
-
-      const failedAttemptWrite = db.prepare(
-        "UPDATE station_admin_mfa_challenges SET attempts_remaining = ?, consumed_at = COALESCE(consumed_at, ?) WHERE id = ? AND consumed_at IS NULL",
-      ).run(nextAttemptsRemaining, consumedAt, normalizedChallengeId);
-
-      if (getRunChanges(failedAttemptWrite) === 0) {
-        return rollbackAndReturn({ result: "not_found" });
-      }
-
-      writeAuthEvent(
-        db,
-        tokenFn,
-        nowMs,
-        "mfa_challenge_failure",
-        challengeRow.actor_id,
-        challengeRow.session_id,
-        buildEventMetadata(requestMetadata, {
-          challengeId: normalizedChallengeId,
-          challengePurpose,
-          attemptsRemaining: nextAttemptsRemaining,
-          lockedOut: nextAttemptsRemaining === 0,
-        }),
-      );
-
-      if (nextAttemptsRemaining === 0) {
-        writeAuthEvent(
-          db,
-          tokenFn,
-          nowMs,
-          "mfa_challenge_locked",
-          challengeRow.actor_id,
-          challengeRow.session_id,
-          buildEventMetadata(requestMetadata, {
-            challengeId: normalizedChallengeId,
-            challengePurpose,
-            attemptsRemaining: 0,
-            lockedOut: true,
-          }),
-        );
-
-        const lockoutEventCount = countRecentAuthEvents(
-          db,
-          "mfa_challenge_locked",
-          nowMs,
-          MFA_ABUSE_EVENT_WINDOW_MS,
-          challengeRow.actor_id,
-          requestMetadata?.ip ?? null,
-        );
-
-        maybeWriteMfaAbuseEvent(
-          db,
-          tokenFn,
-          nowMs,
-          challengeRow.actor_id,
-          challengeRow.session_id,
-          requestMetadata,
-          "repeated_locked_out",
-          lockoutEventCount,
-          repeatedMfaLockoutThreshold,
-          {
-            challengeId: normalizedChallengeId,
-          },
-        );
-      }
-
-      const invalidAttemptEventCount = countRecentAuthEvents(
-        db,
-        "mfa_challenge_failure",
-        nowMs,
-        MFA_ABUSE_EVENT_WINDOW_MS,
-        challengeRow.actor_id,
-        requestMetadata?.ip ?? null,
-      );
-
-      maybeWriteMfaAbuseEvent(
-        db,
-        tokenFn,
-        nowMs,
-        challengeRow.actor_id,
-        challengeRow.session_id,
-        requestMetadata,
-        "repeated_invalid_verify_attempts",
-        invalidAttemptEventCount,
-        repeatedInvalidMfaAttemptThreshold,
-        {
-          challengeId: normalizedChallengeId,
-          challengePurpose,
-        },
-      );
-
-      return commitAndReturn({
-        result: "mfa_failed",
-        attemptsRemaining: nextAttemptsRemaining,
-        lockedOut: nextAttemptsRemaining === 0,
-      });
+      await adapter.execute("UPDATE station_admin_mfa_challenges SET attempts_remaining = ?, consumed_at = COALESCE(consumed_at, ?) WHERE id = ? AND consumed_at IS NULL", [nextAttemptsRemaining, consumedAt, normalizedChallengeId]);
+      
+      await writeAuthEvent(adapter, tokenFn, nowMs, "mfa_challenge_failure", challengeRow.actor_id, challengeRow.session_id, buildEventMetadata(requestMetadata, { challengeId: normalizedChallengeId, challengePurpose, attemptsRemaining: nextAttemptsRemaining, lockedOut: nextAttemptsRemaining === 0 }));
+      
+      const invalidAttemptEventCount = await countRecentAuthEvents(adapter, "mfa_challenge_failure", nowMs, MFA_ABUSE_EVENT_WINDOW_MS, challengeRow.actor_id, requestMetadata?.ip ?? null);
+      await maybeWriteMfaAbuseEvent(adapter, tokenFn, nowMs, challengeRow.actor_id, challengeRow.session_id, requestMetadata, "repeated_invalid_verify_attempts", invalidAttemptEventCount, repeatedInvalidMfaAttemptThreshold, { challengeId: normalizedChallengeId, challengePurpose });
+      
+      await adapter.execute("COMMIT");
+      return { result: "mfa_failed", attemptsRemaining: nextAttemptsRemaining, lockedOut: nextAttemptsRemaining === 0 };
     }
 
     if (recovered) {
-      db.prepare("UPDATE station_admin_credentials SET mfa_recovery_codes = ? WHERE id = ?").run(
-        JSON.stringify(recoveryAttempt.updatedCodes),
-        credential.id,
-      );
-
-      writeAuthEvent(
-        db,
-        tokenFn,
-        nowMs,
-        "recovery_code_used",
-        credential.id,
-        challengeRow.session_id,
-        buildEventMetadata(requestMetadata, {
-          challengePurpose,
-        }),
-      );
+      await adapter.execute("UPDATE station_admin_credentials SET mfa_recovery_codes = ? WHERE id = ?", [JSON.stringify(recoveryAttempt.updatedCodes), credential.id]);
+      await writeAuthEvent(adapter, tokenFn, nowMs, "recovery_code_used", credential.id, challengeRow.session_id, buildEventMetadata(requestMetadata, { challengePurpose }));
     }
 
-    const consumeChallengeWrite = db.prepare(
-      "UPDATE station_admin_mfa_challenges SET consumed_at = ?, attempts_remaining = ? WHERE id = ? AND consumed_at IS NULL",
-    ).run(nowIso, challengeRow.attempts_remaining, normalizedChallengeId);
-
-    if (getRunChanges(consumeChallengeWrite) === 0) {
-      return rollbackAndReturn({ result: "not_found" });
-    }
-
-    db.prepare(
-      "UPDATE station_admin_credentials SET mfa_last_verified_at = ?, mfa_enrolled_at = COALESCE(mfa_enrolled_at, ?) WHERE id = ?",
-    ).run(nowIso, nowIso, credential.id);
-
-    writeAuthEvent(
-      db,
-      tokenFn,
-      nowMs,
-      "mfa_challenge_success",
-      credential.id,
-      challengeRow.session_id,
-      buildEventMetadata(requestMetadata, {
-        challengePurpose,
-        recoveryCodeUsed: recovered,
-      }),
-    );
+    await adapter.execute("UPDATE station_admin_mfa_challenges SET consumed_at = ?, attempts_remaining = ? WHERE id = ? AND consumed_at IS NULL", [nowIso, challengeRow.attempts_remaining, normalizedChallengeId]);
+    await adapter.execute("UPDATE station_admin_credentials SET mfa_last_verified_at = ?, mfa_enrolled_at = COALESCE(mfa_enrolled_at, ?) WHERE id = ?", [nowIso, nowIso, credential.id]);
+    
+    await writeAuthEvent(adapter, tokenFn, nowMs, "mfa_challenge_success", credential.id, challengeRow.session_id, buildEventMetadata(requestMetadata, { challengePurpose, recoveryCodeUsed: recovered }));
 
     const role = normalizeRole(credential.actor_role);
-
     if (!role) {
-      return rollbackAndReturn({ result: "not_found" });
+      await adapter.execute("ROLLBACK");
+      return { result: "not_found" };
     }
 
     const mfaState: StationAdminMfaEnrollmentState = {
       enabled: true,
       enrolledAt: credential.mfa_enrolled_at ?? nowIso,
       lastVerifiedAt: nowIso,
-      recoveryCodesRemaining: (recovered ? recoveryAttempt.updatedCodes : recoveryCodes)
-        .filter((storedCode) => storedCode.usedAt === null)
-        .length,
+      recoveryCodesRemaining: (recovered ? recoveryAttempt.updatedCodes : recoveryCodes).filter(c => c.usedAt === null).length
     };
 
     if (challengePurpose === "login") {
       const permissions = defaultPermissionsForRole(role);
-      const issuedSession = issueSession(db, tokenFn, nowMs, credential.id, role, permissions);
-
-      writeAuthEvent(
-        db,
-        tokenFn,
-        nowMs,
-        "login_success",
-        credential.id,
-        issuedSession.sessionId,
-        buildEventMetadata(requestMetadata, {
-          challengeId: challengeRow.id,
-        }),
-      );
-
-      return commitAndReturn({
-        result: "issued",
-        sessionId: issuedSession.sessionId,
-        csrfToken: issuedSession.csrfToken,
-        expiresAt: issuedSession.expiresAt,
-        actorId: credential.id,
-        actorRole: role,
-        permissions,
-        mfa: mfaState,
-      });
+      const session = await issueSession(adapter, tokenFn, nowMs, credential.id, role, permissions);
+      await writeAuthEvent(adapter, tokenFn, nowMs, "login_success", credential.id, session.sessionId, buildEventMetadata(requestMetadata, { challengeId: challengeRow.id }));
+      await adapter.execute("COMMIT");
+      return { result: "issued", sessionId: session.sessionId, csrfToken: session.csrfToken, expiresAt: session.expiresAt, actorId: credential.id, actorRole: role, permissions, mfa: mfaState };
     }
 
-    return commitAndReturn({
-      result: "verified",
-      challengePurpose,
-      actorId: credential.id,
-      mfa: mfaState,
-    });
-  } catch {
-    if (transactionOpen) {
-      try {
-        rollbackTransaction(db);
-      } catch {
-        // Preserve historical not_found catch contract.
-      }
-      transactionOpen = false;
-    }
-
+    await adapter.execute("COMMIT");
+    return { result: "verified", challengePurpose, actorId: credential.id, mfa: mfaState };
+  } catch (err) {
+    await adapter.execute("ROLLBACK").catch(() => {});
     return { result: "not_found" };
   } finally {
-    if (transactionOpen) {
-      try {
-        rollbackTransaction(db);
-      } catch {
-        // Ignore rollback failures during final cleanup.
-      }
-    }
-
-    close();
+    unlock();
+    await adapter.close();
   }
 }
 
-export function logoutStationAdmin(
+export async function logoutStationAdmin(
   sessionId: string,
   csrfToken: string,
   dependencies: StationAdminLifecycleDependencies = {},
-): StationAdminLogoutResult {
+): Promise<StationAdminLogoutResult> {
   const normalizedSessionId = sessionId.trim();
   const now = dependencies.now ?? Date.now;
   const tokenFn = dependencies.generateToken ?? generateToken;
   const requestMetadata = normalizeRequestMetadata(dependencies.requestMetadata);
 
-  if (!normalizedSessionId || !csrfToken) {
-    return { result: "not_found" };
-  }
+  if (!normalizedSessionId || !csrfToken) return { result: "not_found" };
 
-  const handle = openDb(dependencies);
-
-  if (!handle) {
-    return { result: "not_found" };
-  }
-
-  const { db, close } = handle;
-  let transactionOpen = false;
+  const adapter = dependencies.getAdapter ? dependencies.getAdapter(false) : getAsyncAdapter(false);
+  const unlock = await acquireWriteLock(adapter.resourceId);
 
   try {
-    beginTransaction(db);
-    transactionOpen = true;
-    const rows = db
-      .prepare(
-        `SELECT id, actor_id, actor_role, csrf_token, expires_at, revoked_at
-         FROM station_admin_sessions WHERE id = ? LIMIT 1`,
-      )
-      .all(normalizedSessionId) as SessionRow[];
+    await ensureStationAdminTables(adapter);
+    await adapter.execute("BEGIN IMMEDIATE");
+
+    const rows = await adapter.execute(`SELECT id, actor_id, csrf_token, expires_at, revoked_at FROM station_admin_sessions WHERE id = ? LIMIT 1`, [normalizedSessionId]) as SessionRow[];
     const row = rows[0];
 
-    if (!row || row.revoked_at !== null) {
-      commitTransaction(db);
-      transactionOpen = false;
-      return { result: "not_found" };
-    }
-
-    const expiresAtMs = new Date(row.expires_at).getTime();
-
-    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= now()) {
+    if (!row || row.revoked_at !== null || new Date(row.expires_at).getTime() <= now()) {
+      await adapter.execute("COMMIT");
       return { result: "not_found" };
     }
 
     if (row.csrf_token !== csrfToken) {
-      commitTransaction(db);
-      transactionOpen = false;
+      await adapter.execute("COMMIT");
       return { result: "csrf_invalid" };
     }
 
-    const nowMs = now();
-    const revokedAt = new Date(nowMs).toISOString();
-    db.prepare("UPDATE station_admin_sessions SET revoked_at = ? WHERE id = ?").run(revokedAt, normalizedSessionId);
-
-    writeAuthEvent(
-      db,
-      tokenFn,
-      nowMs,
-      "logout",
-      row.actor_id,
-      normalizedSessionId,
-      buildEventMetadata(requestMetadata),
-    );
-
-    commitTransaction(db);
-    transactionOpen = false;
+    const revokedAt = new Date(now()).toISOString();
+    await adapter.execute("UPDATE station_admin_sessions SET revoked_at = ? WHERE id = ?", [revokedAt, normalizedSessionId]);
+    await writeAuthEvent(adapter, tokenFn, now(), "logout", row.actor_id, normalizedSessionId, buildEventMetadata(requestMetadata));
+    
+    await adapter.execute("COMMIT");
     return { result: "revoked", actorId: row.actor_id };
   } catch {
-    if (transactionOpen) {
-      try {
-        rollbackTransaction(db);
-      } catch {
-        // Ignore rollback failures.
-      }
-    }
+    await adapter.execute("ROLLBACK").catch(() => {});
     return { result: "not_found" };
   } finally {
-    close();
+    unlock();
+    await adapter.close();
   }
 }
 
-export function refreshStationAdminSession(
+export async function refreshStationAdminSession(
   sessionId: string,
   csrfToken: string,
   dependencies: StationAdminLifecycleDependencies = {},
-): StationAdminRefreshResult {
+): Promise<StationAdminRefreshResult> {
   const normalizedSessionId = sessionId.trim();
   const now = dependencies.now ?? Date.now;
   const tokenFn = dependencies.generateToken ?? generateToken;
   const requestMetadata = normalizeRequestMetadata(dependencies.requestMetadata);
 
-  if (!normalizedSessionId || !csrfToken) {
-    return { result: "not_found" };
-  }
+  if (!normalizedSessionId || !csrfToken) return { result: "not_found" };
 
-  const handle = openDb(dependencies);
-
-  if (!handle) {
-    return { result: "not_found" };
-  }
-
-  const { db, close } = handle;
-  let transactionOpen = false;
+  const adapter = dependencies.getAdapter ? dependencies.getAdapter(false) : getAsyncAdapter(false);
+  const unlock = await acquireWriteLock(adapter.resourceId);
 
   try {
-    beginTransaction(db);
-    transactionOpen = true;
+    await ensureStationAdminTables(adapter);
+    await adapter.execute("BEGIN IMMEDIATE");
 
-    const rows = db
-      .prepare(
-        `SELECT id, actor_id, actor_role, permissions, csrf_token, expires_at, revoked_at
-         FROM station_admin_sessions WHERE id = ? LIMIT 1`,
-      )
-      .all(normalizedSessionId) as SessionRow[];
+    const rows = await adapter.execute(`SELECT id, actor_id, actor_role, permissions, csrf_token, expires_at, revoked_at FROM station_admin_sessions WHERE id = ? LIMIT 1`, [normalizedSessionId]) as SessionRow[];
     const row = rows[0];
 
-    if (!row || row.revoked_at !== null) {
-      commitTransaction(db);
-      transactionOpen = false;
-      return { result: "not_found" };
-    }
-
-    const expiresAtMs = new Date(row.expires_at).getTime();
-
-    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= now()) {
-      commitTransaction(db);
-      transactionOpen = false;
+    if (!row || row.revoked_at !== null || new Date(row.expires_at).getTime() <= now()) {
+      await adapter.execute("COMMIT");
       return { result: "not_found" };
     }
 
     if (row.csrf_token !== csrfToken) {
-      commitTransaction(db);
-      transactionOpen = false;
+      await adapter.execute("COMMIT");
       return { result: "csrf_invalid" };
     }
 
-    const newSessionId = tokenFn(32);
-    const newCsrfToken = tokenFn(32);
-    const nowMs = now();
-    const issuedAt = new Date(nowMs).toISOString();
-    const newExpiresAt = new Date(nowMs + SESSION_DURATION_MS).toISOString();
-    const revokedAt = issuedAt;
+    const newSession = await issueSession(adapter, tokenFn, now(), row.actor_id, normalizeRole(row.actor_role)!, JSON.parse(row.permissions || "[]"));
+    await adapter.execute("UPDATE station_admin_sessions SET revoked_at = ? WHERE id = ?", [new Date(now()).toISOString(), normalizedSessionId]);
+    await writeAuthEvent(adapter, tokenFn, now(), "refresh", row.actor_id, newSession.sessionId, buildEventMetadata(requestMetadata));
 
-    db.prepare(
-      `INSERT INTO station_admin_sessions
-         (id, actor_id, actor_role, permissions, csrf_token, issued_at, expires_at, last_active_at, revoked_at, metadata)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
-    ).run(
-      newSessionId,
-      row.actor_id,
-      row.actor_role,
-      row.permissions,
-      newCsrfToken,
-      issuedAt,
-      newExpiresAt,
-      issuedAt,
-    );
-
-    db.prepare("UPDATE station_admin_sessions SET revoked_at = ? WHERE id = ?").run(revokedAt, normalizedSessionId);
-
-    writeAuthEvent(
-      db,
-      tokenFn,
-      nowMs,
-      "refresh",
-      row.actor_id,
-      newSessionId,
-      buildEventMetadata(requestMetadata),
-    );
-
-    commitTransaction(db);
-    transactionOpen = false;
-    return {
-      result: "refreshed",
-      sessionId: newSessionId,
-      csrfToken: newCsrfToken,
-      expiresAt: newExpiresAt,
-      actorId: row.actor_id,
-    };
+    await adapter.execute("COMMIT");
+    return { result: "refreshed", ...newSession, actorId: row.actor_id };
   } catch {
-    if (transactionOpen) {
-      try {
-        rollbackTransaction(db);
-      } catch {
-        // Ignore rollback failures.
-      }
-    }
+    await adapter.execute("ROLLBACK").catch(() => {});
     return { result: "not_found" };
   } finally {
-    close();
+    unlock();
+    await adapter.close();
   }
 }
 
-export function revokeStationAdminSession(
+export async function revokeStationAdminSession(
   adminSessionId: string,
   adminCsrfToken: string,
   targetSessionId: string,
   dependencies: StationAdminLifecycleDependencies = {},
-): StationAdminRevokeResult {
-  const normalizedAdminSessionId = adminSessionId.trim();
-  const normalizedTargetSessionId = targetSessionId.trim();
+): Promise<StationAdminRevokeResult> {
   const now = dependencies.now ?? Date.now;
   const tokenFn = dependencies.generateToken ?? generateToken;
   const mfaStepUpWindowMs = dependencies.mfaStepUpWindowMs ?? DEFAULT_MFA_STEP_UP_WINDOW_MS;
   const requestMetadata = normalizeRequestMetadata(dependencies.requestMetadata);
 
-  if (!normalizedAdminSessionId || !adminCsrfToken || !normalizedTargetSessionId) {
-    return { result: "not_found" };
-  }
-
-  const handle = openDb(dependencies);
-
-  if (!handle) {
-    return { result: "not_found" };
-  }
-
-  const { db, close } = handle;
-  let transactionOpen = false;
+  const adapter = dependencies.getAdapter ? dependencies.getAdapter(false) : getAsyncAdapter(false);
+  const unlock = await acquireWriteLock(adapter.resourceId);
 
   try {
-    beginTransaction(db);
-    transactionOpen = true;
+    await ensureStationAdminTables(adapter);
+    await adapter.execute("BEGIN IMMEDIATE");
 
-    // Validate the admin's own session
-    const adminRows = db
-      .prepare(
-        `SELECT id, actor_id, actor_role, csrf_token, expires_at, revoked_at
-         FROM station_admin_sessions WHERE id = ? LIMIT 1`,
-      )
-      .all(normalizedAdminSessionId) as SessionRow[];
+    const adminRows = await adapter.execute(`SELECT id, actor_id, actor_role, csrf_token, expires_at, revoked_at FROM station_admin_sessions WHERE id = ? LIMIT 1`, [adminSessionId.trim()]) as SessionRow[];
     const adminRow = adminRows[0];
 
-    if (!adminRow || adminRow.revoked_at !== null) {
-      commitTransaction(db);
-      transactionOpen = false;
-      return { result: "not_found" };
-    }
-
-    const expiresAtMs = new Date(adminRow.expires_at).getTime();
-
-    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= now()) {
-      commitTransaction(db);
-      transactionOpen = false;
+    if (!adminRow || adminRow.revoked_at !== null || new Date(adminRow.expires_at).getTime() <= now()) {
+      await adapter.execute("COMMIT");
       return { result: "not_found" };
     }
 
     if (adminRow.csrf_token !== adminCsrfToken) {
-      commitTransaction(db);
-      transactionOpen = false;
+      await adapter.execute("COMMIT");
       return { result: "csrf_invalid" };
     }
 
     if (adminRow.actor_role !== "admin") {
-      commitTransaction(db);
-      transactionOpen = false;
+      await adapter.execute("COMMIT");
       return { result: "forbidden" };
     }
 
-    const adminCredentialRows = db
-      .prepare(
-        `SELECT id, actor_role, password_hash, salt, mfa_enabled, mfa_secret, mfa_recovery_codes, mfa_enrolled_at, mfa_last_verified_at
-         FROM station_admin_credentials
-         WHERE id = ?
-         LIMIT 1`,
-      )
-      .all(adminRow.actor_id) as CredentialsRow[];
-    const adminCredential = adminCredentialRows[0];
-
-    // Find the target session
-    const targetRows = db
-      .prepare("SELECT id, actor_id, revoked_at FROM station_admin_sessions WHERE id = ? LIMIT 1")
-      .all(normalizedTargetSessionId) as SessionRow[];
+    const targetRows = await adapter.execute(`SELECT id, actor_id, revoked_at FROM station_admin_sessions WHERE id = ? LIMIT 1`, [targetSessionId.trim()]) as SessionRow[];
     const targetRow = targetRows[0];
 
     if (!targetRow) {
-      commitTransaction(db);
-      transactionOpen = false;
+      await adapter.execute("COMMIT");
       return { result: "not_found" };
     }
 
-    if (
-      adminCredential
-      && toBooleanFlag(adminCredential.mfa_enabled)
-      && targetRow.actor_id !== adminRow.actor_id
-      && !hasRecentStepUp(db, adminRow.actor_id, adminRow.id, "session_revoke", now(), mfaStepUpWindowMs)
-    ) {
-      const challenge = createMfaChallenge(
-        db,
-        tokenFn,
-        now(),
-        adminRow.actor_id,
-        "session_revoke",
-        requestMetadata,
-        adminRow.id,
-      );
+    const credRows = await adapter.execute(`SELECT id, mfa_enabled FROM station_admin_credentials WHERE id = ? LIMIT 1`, [adminRow.actor_id]) as CredentialsRow[];
+    const adminCred = credRows[0];
 
-      commitTransaction(db);
-      transactionOpen = false;
-      return {
-        result: "mfa_required",
-        challenge,
-      };
+    if (adminCred && toBooleanFlag(adminCred.mfa_enabled) && targetRow.actor_id !== adminRow.actor_id && !(await hasRecentStepUp(adapter, adminRow.actor_id, adminRow.id, "session_revoke", now(), mfaStepUpWindowMs))) {
+      const challenge = await createMfaChallenge(adapter, tokenFn, now(), adminRow.actor_id, "session_revoke", requestMetadata, adminRow.id);
+      await adapter.execute("COMMIT");
+      return { result: "mfa_required", challenge };
     }
 
-    // Allow revoking already-revoked sessions idempotently (return the actorId)
     const revokedAt = targetRow.revoked_at ?? new Date(now()).toISOString();
-
     if (!targetRow.revoked_at) {
-      db.prepare("UPDATE station_admin_sessions SET revoked_at = ? WHERE id = ?").run(revokedAt, normalizedTargetSessionId);
+      await adapter.execute("UPDATE station_admin_sessions SET revoked_at = ? WHERE id = ?", [revokedAt, targetSessionId.trim()]);
     }
 
-    writeAuthEvent(
-      db,
-      tokenFn,
-      now(),
-      "revoke",
-      targetRow.actor_id,
-      normalizedTargetSessionId,
-      buildEventMetadata(requestMetadata, {
-        revokedBy: adminRow.actor_id,
-      }),
-    );
-
-    commitTransaction(db);
-    transactionOpen = false;
+    await writeAuthEvent(adapter, tokenFn, now(), "revoke", targetRow.actor_id, targetSessionId.trim(), buildEventMetadata(requestMetadata, { revokedBy: adminRow.actor_id }));
+    
+    await adapter.execute("COMMIT");
     return { result: "revoked", actorId: targetRow.actor_id };
   } catch {
-    if (transactionOpen) {
-      try {
-        rollbackTransaction(db);
-      } catch {
-        // Ignore rollback failures.
-      }
-    }
+    await adapter.execute("ROLLBACK").catch(() => {});
     return { result: "not_found" };
   } finally {
-    close();
+    unlock();
+    await adapter.close();
   }
 }

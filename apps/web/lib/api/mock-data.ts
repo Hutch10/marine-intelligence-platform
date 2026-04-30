@@ -304,6 +304,9 @@ function buildSignalFallbackData(): SignalDetection[] {
     createdAt: new Date(now - 6 * 60_000).toISOString(),
     updatedAt: new Date(now - 6 * 60_000).toISOString(),
     linkedInvestigationId: null,
+    linkedMissionId: null,
+    validationState: "UNVERIFIED",
+    validationMetadata: null,
   };
 
   const thermalSignal: SignalDetection = {
@@ -323,6 +326,9 @@ function buildSignalFallbackData(): SignalDetection[] {
     createdAt: new Date(now - 3 * 60_000).toISOString(),
     updatedAt: new Date(now - 3 * 60_000).toISOString(),
     linkedInvestigationId: null,
+    linkedMissionId: null,
+    validationState: "CORROBORATED",
+    validationMetadata: { automated: true, source_purity: 0.94 },
   };
 
   const oxygenSignal: SignalDetection = {
@@ -342,6 +348,9 @@ function buildSignalFallbackData(): SignalDetection[] {
     createdAt: new Date(now - 9 * 60_000).toISOString(),
     updatedAt: new Date(now - 9 * 60_000).toISOString(),
     linkedInvestigationId: null,
+    linkedMissionId: null,
+    validationState: "UNVERIFIED",
+    validationMetadata: null,
   };
 
   return [thermalSignal, oxygenSignal, stationHealthSignal];
@@ -391,6 +400,7 @@ export const speciesFallbackData: SpeciesProfile[] = [
 export const speciesSightingsFallbackData: SpeciesSighting[] = [
   {
     id: "SIGHT-001",
+    ...MOCK_METADATA,
     speciesId: "SP-BLUE-WHALE",
     stationId: "STA-NPC-01",
     region: "North Pacific",
@@ -400,7 +410,6 @@ export const speciesSightingsFallbackData: SpeciesSighting[] = [
     count: 2,
     source: "Acoustic buoy mesh",
     summary: "Two tagged whales exhibited widened spacing along the thermal corridor edge.",
-    ...MOCK_METADATA,
     verificationStatus: "verified",
     verifiedAt: "2026-03-13T11:12:00.000Z",
     verifiedBy: "ops.admin",
@@ -408,6 +417,7 @@ export const speciesSightingsFallbackData: SpeciesSighting[] = [
   },
   {
     id: "SIGHT-002",
+    ...MOCK_METADATA,
     speciesId: "SP-GREEN-TURTLE",
     stationId: "STA-NPC-01",
     region: "Eastern Shelf",
@@ -417,7 +427,6 @@ export const speciesSightingsFallbackData: SpeciesSighting[] = [
     count: 4,
     source: "ROV visual survey",
     summary: "Tagged turtles shifted downslope relative to the previous monitoring pass.",
-    ...MOCK_METADATA,
     verificationStatus: "pending",
     verifiedAt: null,
     verifiedBy: null,
@@ -425,6 +434,7 @@ export const speciesSightingsFallbackData: SpeciesSighting[] = [
   },
   {
     id: "SIGHT-003",
+    ...MOCK_METADATA,
     speciesId: "SP-REEF-SHARK",
     stationId: "STA-GBR-02",
     region: "Great Barrier Reef",
@@ -434,7 +444,6 @@ export const speciesSightingsFallbackData: SpeciesSighting[] = [
     count: 7,
     source: "Autonomous drone transect",
     summary: "Higher-than-baseline shark aggregation observed in outer-arc hunting lanes.",
-    ...MOCK_METADATA,
     verificationStatus: "rejected",
     verifiedAt: null,
     verifiedBy: null,
@@ -445,36 +454,36 @@ export const speciesSightingsFallbackData: SpeciesSighting[] = [
 export const speciesMovementSignalsFallbackData: SpeciesMovementSignal[] = [
   {
     id: "MOV-001",
+    ...MOCK_METADATA,
     speciesId: "SP-BLUE-WHALE",
     signalId: "SIG-THERMAL-001",
     investigationId: "TRK-201",
     movementType: "route_deviation",
     confidence: 84,
-    ...MOCK_METADATA,
     summary:
       "Blue whale route deviated south of expected corridor while thermal anomaly pressure remained elevated.",
     createdAt: "2026-03-13T11:10:00.000Z",
   },
   {
     id: "MOV-002",
+    ...MOCK_METADATA,
     speciesId: "SP-GREEN-TURTLE",
     signalId: "SIG-OXYGEN-001",
     investigationId: "TRK-193",
     movementType: "habitat_exit",
     confidence: 73,
-    ...MOCK_METADATA,
     summary:
       "Green turtle cluster moved away from low oxygen shelf pockets aligned with oxygen depletion signals.",
     createdAt: "2026-03-13T10:48:00.000Z",
   },
   {
     id: "MOV-003",
+    ...MOCK_METADATA,
     speciesId: "SP-REEF-SHARK",
     signalId: "SIG-STATION-001",
     investigationId: null,
     movementType: "aggregation_shift",
     confidence: 68,
-    ...MOCK_METADATA,
     summary:
       "Reef shark aggregation intensified near a station health variance zone and remains under watch.",
     createdAt: "2026-03-13T09:14:00.000Z",

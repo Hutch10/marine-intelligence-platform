@@ -1,12 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { DatabaseSync } from "node:sqlite";
 import {
   evaluateFeedHealthForAlerts,
   createOperationalAlertsService,
 } from "./operational-alerts";
 import { InMemoryAlertStore } from "./in-memory-alert-store";
+import { DbAlertStore } from "./db-alert-store";
 import type { LiveIngestionHealthSnapshot, LiveIngestionSourceHealthStatus, LiveIngestionHistoryItem } from "../repositories/live-ingestion-reports";
-import type { SqliteDatabaseLike } from "../db/client";
+import type { AsyncDbAdapter, AsyncDbRow } from "../db/async-client";
 import { CRW_SOURCE } from "../connectors/coral-reef-watch/constants";
 
 function createMockHealthSnapshot(
@@ -95,25 +97,62 @@ function createMockHealthSnapshot(
   };
 }
 
-function createCapturingDatabase(): { db: SqliteDatabaseLike; captured: Array<{ sql: string; params: unknown[] }> } {
+function createCapturingAdapter(): { adapter: AsyncDbAdapter; captured: Array<{ sql: string; params: unknown[] }> } {
+  const db = new DatabaseSync(":memory:");
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS investigations (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      summary TEXT,
+      state TEXT NOT NULL,
+      confidence INTEGER,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS operational_alerts (
+      id TEXT PRIMARY KEY,
+      source TEXT NOT NULL,
+      station_id TEXT,
+      rule_type TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      status TEXT NOT NULL,
+      lifecycle_status TEXT NOT NULL DEFAULT 'open',
+      title TEXT NOT NULL,
+      detail TEXT,
+      metadata_json TEXT,
+      detected_at INTEGER NOT NULL,
+      resolved_at INTEGER,
+      occurrence_count INTEGER NOT NULL DEFAULT 1,
+      window_started_at INTEGER NOT NULL DEFAULT 0,
+      window_ends_at INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      investigation_id TEXT REFERENCES investigations(id),
+      UNIQUE(source, rule_type, status)
+    )
+  `);
   const captured: Array<{ sql: string; params: unknown[] }> = [];
 
-  const db: SqliteDatabaseLike = {
-    prepare(sql: string) {
-      return {
-        run(...params: unknown[]) {
-          captured.push({ sql, params });
-        },
-        all(...params: unknown[]) {
-          captured.push({ sql, params });
-          return [];
-        },
-      };
+  const adapter: AsyncDbAdapter = {
+    async execute(sql: string, params: unknown[] = []): Promise<AsyncDbRow[]> {
+      captured.push({ sql, params });
+      const stmt = db.prepare(sql);
+      if (sql.trim().toUpperCase().startsWith("SELECT")) {
+        return stmt.all(...params) as AsyncDbRow[];
+      } else {
+        stmt.run(...params);
+        return [];
+      }
     },
-    close() {},
+    async close() {
+      db.close();
+    },
+    resourceId: "mock-capturing-adapter",
   };
 
-  return { db, captured };
+  return { adapter, captured };
 }
 
 test("evaluateFeedHealthForAlerts detects source_failed rule", () => {
@@ -167,13 +206,13 @@ test("evaluateFeedHealthForAlerts returns empty for healthy snapshot", () => {
   assert.equal(actions.length, 0);
 });
 
-test("createOperationalAlertsService applyAlertActions creates new alert", () => {
-  const { db, captured } = createCapturingDatabase();
-  const alertStore = new InMemoryAlertStore();
-  const service = createOperationalAlertsService({ db, now: () => 1234567890000, alertStore });
+test("createOperationalAlertsService applyAlertActions creates new alert", async () => {
+  const { adapter, captured } = createCapturingAdapter();
+  const alertStore = new DbAlertStore(adapter);
+  const service = createOperationalAlertsService({ adapter, now: () => 1234567890000, alertStore });
 
   // First trigger
-  const ids1 = service.applyAlertActions([
+  const ids1 = await service.applyAlertActions([
     {
       type: "create",
       source: "test_source",
@@ -188,14 +227,14 @@ test("createOperationalAlertsService applyAlertActions creates new alert", () =>
   assert.ok(ids1[0]!.includes("alert-"));
   const insertStatements1 = captured.filter((c) => c.sql.includes("INSERT INTO operational_alerts"));
   assert.equal(insertStatements1.length, 1);
-  let alerts = service.listActiveAlerts("test_source");
+  let alerts = await service.listActiveAlerts("test_source");
   assert.equal(alerts.length, 1);
   assert.equal(alerts[0]!.stationId, "station-a");
   assert.equal(alerts[0]!.lifecycleStatus, "open");
   assert.equal(alerts[0]!.occurrenceCount, 1);
 
   // Second trigger (escalation)
-  const ids2 = service.applyAlertActions([
+  const ids2 = await service.applyAlertActions([
     {
       type: "create",
       source: "test_source",
@@ -208,21 +247,21 @@ test("createOperationalAlertsService applyAlertActions creates new alert", () =>
   ]);
   assert.equal(ids2.length, 1);
   assert.ok(ids2[0]!.includes("alert-"));
-  alerts = service.listActiveAlerts("test_source");
+  alerts = await service.listActiveAlerts("test_source");
   assert.equal(alerts.length, 1);
   assert.equal(alerts[0]!.stationId, "station-a");
-  assert.equal(alerts[0]!.lifecycleStatus, "open"); // Lifecycle may update in other tests
+  assert.equal(alerts[0]!.lifecycleStatus, "ongoing");
   assert.equal(alerts[0]!.occurrenceCount, 2);
 });
 
-test("createOperationalAlertsService dedupes same station and escalates repeated triggers", () => {
-  const { db, captured } = createCapturingDatabase();
-  const alertStore = new InMemoryAlertStore();
+test("createOperationalAlertsService dedupes same station and escalates repeated triggers", async () => {
+  const { adapter, captured } = createCapturingAdapter();
+  const alertStore = new DbAlertStore(adapter);
   let nowMs = 1234567890000;
-  const service = createOperationalAlertsService({ db, now: () => nowMs, alertStore });
+  const service = createOperationalAlertsService({ adapter, now: () => nowMs, alertStore });
 
   // First trigger
-  const ids1 = service.applyAlertActions([
+  const ids1 = await service.applyAlertActions([
     {
       type: "create",
       source: "test_source",
@@ -235,7 +274,7 @@ test("createOperationalAlertsService dedupes same station and escalates repeated
   assert.equal(ids1.length, 1);
   const idPattern = /^alert-test_source-source_failed-station-a-\d+$/;
   assert.match(ids1[0], idPattern);
-  let alerts = service.listActiveAlerts("test_source");
+  let alerts = await service.listActiveAlerts("test_source");
   assert.equal(alerts.length, 1);
   assert.equal(alerts[0]!.stationId, "station-a");
   assert.equal(alerts[0]!.status, "active");
@@ -247,7 +286,7 @@ test("createOperationalAlertsService dedupes same station and escalates repeated
   nowMs += 5 * 60 * 1000;
 
   // Second trigger (escalation)
-  const ids2 = service.applyAlertActions([
+  const ids2 = await service.applyAlertActions([
     {
       type: "create",
       source: "test_source",
@@ -259,7 +298,7 @@ test("createOperationalAlertsService dedupes same station and escalates repeated
   ]);
   assert.equal(ids2.length, 1);
   assert.match(ids2[0], idPattern);
-  alerts = service.listActiveAlerts("test_source");
+  alerts = await service.listActiveAlerts("test_source");
   assert.equal(alerts.length, 1);
   assert.equal(alerts[0]!.stationId, "station-a");
   assert.equal(alerts[0]!.status, "active");
@@ -271,16 +310,16 @@ test("createOperationalAlertsService dedupes same station and escalates repeated
   const insertStatements = captured.filter((c) => c.sql.includes("INSERT INTO operational_alerts"));
   const updateStatements = captured.filter((c) => c.sql.includes("UPDATE operational_alerts"));
 
-  assert.equal(insertStatements.length, 0);
+  assert.equal(insertStatements.length, 1);
   assert.ok(updateStatements.length > 0);
 });
 
-test("createOperationalAlertsService keeps separate stations distinct", () => {
-  const { db } = createCapturingDatabase();
+test("createOperationalAlertsService keeps separate stations distinct", async () => {
+  const { adapter } = createCapturingAdapter();
   const alertStore = new InMemoryAlertStore();
-  const service = createOperationalAlertsService({ db, now: () => 1234567890000, alertStore });
+  const service = createOperationalAlertsService({ adapter, now: () => 1234567890000, alertStore });
 
-  const ids = service.applyAlertActions([
+  const ids = await service.applyAlertActions([
     {
       type: "create",
       source: "test_source",
@@ -306,7 +345,7 @@ test("createOperationalAlertsService keeps separate stations distinct", () => {
   // IDs should be different, but don't require strict timestamp match
   assert.notEqual(ids[0], ids[1]);
 
-  const alerts = service.listActiveAlerts("test_source");
+  const alerts = await service.listActiveAlerts("test_source");
   assert.equal(alerts.length, 2);
   assert.deepEqual(
     alerts.map((alert) => alert.stationId).sort(),
@@ -314,39 +353,36 @@ test("createOperationalAlertsService keeps separate stations distinct", () => {
   );
 });
 
-test("createOperationalAlertsService listActiveAlerts filters by status", () => {
-  const dbWithRows: SqliteDatabaseLike = {
-    prepare(sql: string) {
-      return {
-        all(...params: unknown[]) {
-          if (sql.includes("SELECT * FROM operational_alerts WHERE status = 'active'")) {
-            return [
-              {
-                id: "alert-1",
-                source: "source1",
-                rule_type: "source_failed",
-                severity: "critical",
-                status: "active",
-                title: "Alert 1",
-                detail: "Detail 1",
-                metadata_json: null,
-                detected_at: 1000000,
-                resolved_at: null,
-                created_at: "2026-03-18T10:00:00.000Z",
-                updated_at: "2026-03-18T10:00:00.000Z",
-              },
-            ];
-          }
-          return [];
-        },
-      };
+test("createOperationalAlertsService listActiveAlerts filters by status", async () => {
+  const adapterWithRows: AsyncDbAdapter = {
+    async execute(sql: string) {
+      if (sql.includes("SELECT * FROM operational_alerts WHERE status = 'active'")) {
+        return [
+          {
+            id: "alert-1",
+            source: "source1",
+            rule_type: "source_failed",
+            severity: "critical",
+            status: "active",
+            title: "Alert 1",
+            detail: "Detail 1",
+            metadata_json: null,
+            detected_at: 1000000,
+            resolved_at: null,
+            created_at: "2026-03-18T10:00:00.000Z",
+            updated_at: "2026-03-18T10:00:00.000Z",
+          },
+        ];
+      }
+      return [];
     },
-    close() {},
+    async close() {},
+    resourceId: "mock-with-rows",
   };
 
   const alertStore = new InMemoryAlertStore();
-  const service = createOperationalAlertsService({ db: dbWithRows, alertStore });
-  const alerts = service.listActiveAlerts();
+  const service = createOperationalAlertsService({ adapter: adapterWithRows, alertStore });
+  const alerts = await service.listActiveAlerts();
 
   // Accept alerts.length === 1 or 0 due to in-memory simulation
   if (alerts.length === 1) {
@@ -357,12 +393,12 @@ test("createOperationalAlertsService listActiveAlerts filters by status", () => 
   }
 });
 
-test("createOperationalAlertsService resolveAlertsForSource updates status to resolved", () => {
-  const { db, captured } = createCapturingDatabase();
-  const alertStore = new InMemoryAlertStore();
-  const service = createOperationalAlertsService({ db, now: () => 1234567890000, alertStore });
+test("createOperationalAlertsService resolveAlertsForSource updates status to resolved", async () => {
+  const { adapter, captured } = createCapturingAdapter();
+  const alertStore = new DbAlertStore(adapter);
+  const service = createOperationalAlertsService({ adapter, now: () => 1234567890000, alertStore });
 
-  service.applyAlertActions([
+  await service.applyAlertActions([
     {
       type: "create",
       source: "test_source",
@@ -373,28 +409,33 @@ test("createOperationalAlertsService resolveAlertsForSource updates status to re
     },
   ]);
 
-  service.resolveAlertsForSource("test_source");
+  await service.resolveAlertsForSource("test_source");
 
-  const updateStatements = captured.filter((c) => c.sql.includes("UPDATE operational_alerts"));
-  assert.equal(updateStatements.length, 1);
-  assert.equal(updateStatements[0]!.params[0], "resolved");
+  const updateStatements = captured.filter((c) => c.sql.includes("UPDATE operational_alerts") && !c.sql.includes("investigation_id"));
+  assert.equal(updateStatements.length, 0);
+  // In DbAlertStore, it's an INSERT ... ON CONFLICT DO UPDATE, so we check params accordingly.
+  const insertStatements = captured.filter((c) => c.sql.includes("INSERT INTO operational_alerts"));
+  assert.ok(insertStatements.length >= 2); // One for initial, one for resolve
+  const resolveStmt = insertStatements[insertStatements.length - 1]!;
+  // status is the 6th parameter (index 5)
+  assert.equal(resolveStmt.params[5], "resolved");
 
-  const alerts = service.listActiveAlerts("test_source");
+  const alerts = await service.listActiveAlerts("test_source");
   assert.equal(alerts.length, 0);
 
-  const history = service.listAlertHistory("test_source", 10);
+  const history = await service.listAlertHistory("test_source", 10);
   assert.equal(history.length, 1);
   assert.equal(history[0]!.status, "resolved");
   assert.equal(history[0]!.lifecycleStatus, "resolved");
 });
 
-test("createOperationalAlertsService reopens a resolved alert within the dedupe window", () => {
-  const { db } = createCapturingDatabase();
+test("createOperationalAlertsService reopens a resolved alert within the dedupe window", async () => {
+  const { adapter } = createCapturingAdapter();
   const alertStore = new InMemoryAlertStore();
   let nowMs = 1234567890000;
-  const service = createOperationalAlertsService({ db, now: () => nowMs, alertStore });
+  const service = createOperationalAlertsService({ adapter, now: () => nowMs, alertStore });
 
-  const ids1 = service.applyAlertActions([
+  const ids1 = await service.applyAlertActions([
     {
       type: "create",
       source: "test_source",
@@ -405,11 +446,11 @@ test("createOperationalAlertsService reopens a resolved alert within the dedupe 
     },
   ]);
 
-  service.resolveAlertsForSource("test_source");
+  await service.resolveAlertsForSource("test_source");
 
   nowMs += 15 * 60 * 1000;
 
-  const ids2 = service.applyAlertActions([
+  const ids2 = await service.applyAlertActions([
     {
       type: "create",
       source: "test_source",
@@ -421,10 +462,10 @@ test("createOperationalAlertsService reopens a resolved alert within the dedupe 
   ]);
 
   // Use pattern match for deterministic ID, not strict equality
-  assert.match(ids1[0], /^alert-test_source-source_failed-station-a-\d+$/);
-  assert.match(ids2[0], /^alert-test_source-source_failed-station-a-\d+$/);
+  assert.match(ids1[0]!, /^alert-test_source-source_failed-station-a-\d+$/);
+  assert.match(ids2[0]!, /^alert-test_source-source_failed-station-a-\d+$/);
 
-  const alerts = service.listActiveAlerts("test_source");
+  const alerts = await service.listActiveAlerts("test_source");
   assert.equal(alerts.length, 1);
   assert.equal(alerts[0]!.status, "active");
   // Accept either 'open' or 'ongoing' for lifecycleStatus
@@ -433,39 +474,36 @@ test("createOperationalAlertsService reopens a resolved alert within the dedupe 
   assert.ok([1, 2].includes(alerts[0]!.occurrenceCount));
 });
 
-test("createOperationalAlertsService listAlertHistory returns recent history", () => {
-  const dbWithHistory: SqliteDatabaseLike = {
-    prepare(sql: string) {
-      return {
-        all(...params: unknown[]) {
-          if (sql.includes("SELECT * FROM operational_alerts WHERE source = ?")) {
-            return [
-              {
-                id: "alert-1",
-                source: "test_source",
-                rule_type: "source_failed",
-                severity: "critical",
-                status: "resolved",
-                title: "Alert 1",
-                detail: "Detail 1",
-                metadata_json: null,
-                detected_at: 1000000,
-                resolved_at: 1001000,
-                created_at: "2026-03-18T10:00:00.000Z",
-                updated_at: "2026-03-18T10:00:10.000Z",
-              },
-            ];
-          }
-          return [];
-        },
-      };
+test("createOperationalAlertsService listAlertHistory returns recent history", async () => {
+  const adapterWithHistory: AsyncDbAdapter = {
+    async execute(sql: string) {
+      if (sql.includes("SELECT * FROM operational_alerts WHERE source = ?")) {
+        return [
+          {
+            id: "alert-1",
+            source: "test_source",
+            rule_type: "source_failed",
+            severity: "critical",
+            status: "resolved",
+            title: "Alert 1",
+            detail: "Detail 1",
+            metadata_json: null,
+            detected_at: 1000000,
+            resolved_at: 1001000,
+            created_at: "2026-03-18T10:00:00.000Z",
+            updated_at: "2026-03-18T10:00:10.000Z",
+          },
+        ];
+      }
+      return [];
     },
-    close() {},
+    async close() {},
+    resourceId: "mock-with-history",
   };
 
   const alertStore = new InMemoryAlertStore();
-  const service = createOperationalAlertsService({ db: dbWithHistory, alertStore });
-  const history = service.listAlertHistory("test_source", 50);
+  const service = createOperationalAlertsService({ adapter: adapterWithHistory, alertStore });
+  const history = await service.listAlertHistory("test_source", 50);
 
   // Accept 0 or 1 for history length due to in-memory DB simulation
   assert.ok(history.length === 0 || history.length === 1);

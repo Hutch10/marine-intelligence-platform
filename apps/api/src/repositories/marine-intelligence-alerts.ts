@@ -1,10 +1,8 @@
 import {
   hasDatabasePath,
-  openReadOnlyDatabase,
-  openWritableDatabase,
   resolveDatabasePath,
-  type SqliteDatabaseLike,
 } from "../db/client";
+import { getAsyncAdapter, type AsyncDbAdapter } from "../db/async-client";
 import type {
   MarineAlertCreateInput,
   MarineAlertCreateResult,
@@ -43,8 +41,7 @@ const MAX_LIMIT = 200;
 interface MarineAlertRepositoryDeps {
   resolvePath?: typeof resolveDatabasePath;
   hasPath?: typeof hasDatabasePath;
-  openReadOnly?: typeof openReadOnlyDatabase;
-  openWritable?: typeof openWritableDatabase;
+  getAdapter?: typeof getAsyncAdapter;
   now?: () => number;
 }
 
@@ -125,17 +122,6 @@ function normalizeLimit(limit: number | undefined): number {
   return Math.min(Math.max(Math.floor(limit as number), 1), MAX_LIMIT);
 }
 
-function runStatement(
-  stmt: { all(...p: unknown[]): unknown[]; run?(...p: unknown[]): unknown },
-  ...params: unknown[]
-) {
-  if (typeof stmt.run === "function") {
-    stmt.run(...params);
-    return;
-  }
-  stmt.all(...params);
-}
-
 function mapRow(row: MarineAlertRow): MarineAlertRecord {
   return {
     id: row.id,
@@ -155,63 +141,52 @@ function mapRow(row: MarineAlertRow): MarineAlertRecord {
   };
 }
 
-function nextAlertId(db: SqliteDatabaseLike, nowMs: number): string {
-  const rows = db
-    .prepare("SELECT COUNT(*) AS total FROM marine_intelligence_alerts")
-    .all() as Array<{ total: number }>;
+async function nextAlertId(adapter: AsyncDbAdapter, nowMs: number): Promise<string> {
+  const rows = await adapter.execute("SELECT COUNT(*) AS total FROM marine_intelligence_alerts") as Array<{ total: number }>;
   const total = Number(rows[0]?.total ?? 0);
   return `MALT-${nowMs}-${total + 1}`;
 }
 
-export function ensureMarineAlertTables(db: SqliteDatabaseLike) {
-  runStatement(
-    db.prepare(`
-      CREATE TABLE IF NOT EXISTS marine_intelligence_alerts (
-        id TEXT PRIMARY KEY,
-        event_id TEXT NOT NULL,
-        investigation_id TEXT,
-        severity TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'active',
-        rule_type TEXT NOT NULL,
-        title TEXT NOT NULL,
-        detail TEXT,
-        detected_at TEXT NOT NULL,
-        acknowledged_at TEXT,
-        resolved_at TEXT,
-        truth_partition TEXT NOT NULL DEFAULT 'FIELD_TRUTH',
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      )
-    `),
-  );
+export async function ensureMarineAlertTables(adapter: AsyncDbAdapter) {
+  await adapter.execute(`
+    CREATE TABLE IF NOT EXISTS marine_intelligence_alerts (
+      id TEXT PRIMARY KEY,
+      event_id TEXT NOT NULL,
+      investigation_id TEXT,
+      severity TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      rule_type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      detail TEXT,
+      detected_at TEXT NOT NULL,
+      acknowledged_at TEXT,
+      resolved_at TEXT,
+      truth_partition TEXT NOT NULL DEFAULT 'FIELD_TRUTH',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `);
 
   // Column Guard: truth_partition
   try {
-    runStatement(toStatement(db, "ALTER TABLE marine_intelligence_alerts ADD COLUMN truth_partition TEXT NOT NULL DEFAULT 'FIELD_TRUTH'"));
+    await adapter.execute("ALTER TABLE marine_intelligence_alerts ADD COLUMN truth_partition TEXT NOT NULL DEFAULT 'FIELD_TRUTH'");
   } catch {
     // Column already exists
   }
 
-
-  runStatement(
-    db.prepare(
-      `CREATE INDEX IF NOT EXISTS idx_alerts_event
-       ON marine_intelligence_alerts (event_id)`,
-    ),
+  await adapter.execute(
+    `CREATE INDEX IF NOT EXISTS idx_alerts_event
+     ON marine_intelligence_alerts (event_id)`,
   );
 
-  runStatement(
-    db.prepare(
-      `CREATE INDEX IF NOT EXISTS idx_alerts_partition_at
-       ON marine_intelligence_alerts (truth_partition, detected_at DESC)`,
-    ),
+  await adapter.execute(
+    `CREATE INDEX IF NOT EXISTS idx_alerts_partition_at
+     ON marine_intelligence_alerts (truth_partition, detected_at DESC)`,
   );
 
-  runStatement(
-    db.prepare(
-      `CREATE INDEX IF NOT EXISTS idx_alerts_status_severity
-       ON marine_intelligence_alerts (status, severity, detected_at DESC)`,
-    ),
+  await adapter.execute(
+    `CREATE INDEX IF NOT EXISTS idx_alerts_status_severity
+     ON marine_intelligence_alerts (status, severity, detected_at DESC)`,
   );
 }
 
@@ -236,13 +211,13 @@ function validateAlertInput(
   return { ok: true };
 }
 
-export function createMarineAlert(
+export async function createMarineAlert(
   input: MarineAlertCreateInput,
   dependencies: MarineAlertRepositoryDeps = {},
-): MarineAlertsRepositoryCreateResult {
+): Promise<MarineAlertsRepositoryCreateResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openWritable = dependencies.openWritable ?? openWritableDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const now = dependencies.now ?? Date.now;
 
   const validation = validateAlertInput(input);
@@ -260,36 +235,36 @@ export function createMarineAlert(
   }
 
   const dbPath = resolvePath();
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
 
-  if (!hasPath(dbPath)) {
+  if (!isTurso && !hasPath(dbPath)) {
     return { source: "unavailable", fallbackReason: "db_path_missing" };
   }
 
-  let db: SqliteDatabaseLike;
+  let adapter: AsyncDbAdapter;
 
   try {
-    db = openWritable(dbPath);
+    adapter = getAdapter(false);
   } catch {
     return { source: "unavailable", fallbackReason: "db_open_failed" };
   }
 
   try {
-    ensureMarineAlertTables(db);
+    await ensureMarineAlertTables(adapter);
 
     const nowMs = now();
     const nowIso = new Date(nowMs).toISOString();
-    const id = nextAlertId(db, nowMs);
+    const id = await nextAlertId(adapter, nowMs);
     const detectedAt = normalizeIsoTimestamp(input.detectedAt) ?? nowIso;
     const truthPartition = input.truthPartition || "FIELD_TRUTH";
 
-    runStatement(
-      db.prepare(`
-        INSERT INTO marine_intelligence_alerts
-          (id, event_id, investigation_id, severity, status, rule_type,
-           title, detail, detected_at, acknowledged_at, resolved_at,
-           truth_partition, created_at, updated_at)
-        VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, NULL, NULL, ?, ?, ?)
-      `),
+    await adapter.execute(`
+      INSERT INTO marine_intelligence_alerts
+        (id, event_id, investigation_id, severity, status, rule_type,
+         title, detail, detected_at, acknowledged_at, resolved_at,
+         truth_partition, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, NULL, NULL, ?, ?, ?)
+    `, [
       id,
       input.eventId.trim(),
       input.investigationId ?? null,
@@ -301,45 +276,47 @@ export function createMarineAlert(
       truthPartition,
       nowIso,
       nowIso,
-    );
+    ]);
 
-    const rows = db
-      .prepare("SELECT * FROM marine_intelligence_alerts WHERE id = ?")
-      .all(id) as MarineAlertRow[];
+    const rows = await adapter.execute(
+      "SELECT * FROM marine_intelligence_alerts WHERE id = ?",
+      [id]
+    ) as MarineAlertRow[];
 
     const alert = rows[0] ? mapRow(rows[0]) : null;
     return { source: "db", result: { ok: true, alert } };
   } catch {
     return { source: "unavailable", fallbackReason: "db_query_failed" };
   } finally {
-    db.close();
+    await adapter.close();
   }
 }
 
-export function listMarineAlerts(
+export async function listMarineAlerts(
   filters: MarineAlertListFilters & { includeAllPartitions?: boolean; truthPartition?: TruthPartition } = {},
   dependencies: MarineAlertRepositoryDeps = {},
-): MarineAlertsRepositoryListResult {
+): Promise<MarineAlertsRepositoryListResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openReadOnly = dependencies.openReadOnly ?? openReadOnlyDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
 
   const dbPath = resolvePath();
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
 
-  if (!hasPath(dbPath)) {
+  if (!isTurso && !hasPath(dbPath)) {
     return { source: "unavailable", fallbackReason: "db_path_missing" };
   }
 
-  let db: SqliteDatabaseLike;
+  let adapter: AsyncDbAdapter;
 
   try {
-    db = openReadOnly(dbPath);
+    adapter = getAdapter(true);
   } catch {
     return { source: "unavailable", fallbackReason: "db_open_failed" };
   }
 
   try {
-    ensureMarineAlertTables(db);
+    await ensureMarineAlertTables(adapter);
 
     const clauses: string[] = [];
     const params: unknown[] = [];
@@ -375,67 +352,67 @@ export function listMarineAlerts(
 
     params.push(limit);
 
-    const rows = db
-      .prepare(
-        `SELECT * FROM marine_intelligence_alerts
-         ${where}
-         ORDER BY detected_at DESC
-         LIMIT ?`,
-      )
-      .all(...params) as MarineAlertRow[];
+    const rows = await adapter.execute(`
+      SELECT * FROM marine_intelligence_alerts
+      ${where}
+      ORDER BY detected_at DESC
+      LIMIT ?
+    `, params) as MarineAlertRow[];
 
     return { source: "db", result: { ok: true, alerts: rows.map(mapRow) } };
   } catch {
     return { source: "unavailable", fallbackReason: "db_query_failed" };
   } finally {
-    db.close();
+    await adapter.close();
   }
 }
 
-export function acknowledgeMarineAlert(
+export async function acknowledgeMarineAlert(
   id: string,
   dependencies: MarineAlertRepositoryDeps = {},
-): MarineAlertsRepositoryMutationResult {
+): Promise<MarineAlertsRepositoryMutationResult> {
   return updateAlertStatus(id, "acknowledged", dependencies);
 }
 
-export function resolveMarineAlert(
+export async function resolveMarineAlert(
   id: string,
   dependencies: MarineAlertRepositoryDeps = {},
-): MarineAlertsRepositoryMutationResult {
+): Promise<MarineAlertsRepositoryMutationResult> {
   return updateAlertStatus(id, "resolved", dependencies);
 }
 
-function updateAlertStatus(
+async function updateAlertStatus(
   id: string,
   newStatus: MarineAlertStatus,
   dependencies: MarineAlertRepositoryDeps,
-): MarineAlertsRepositoryMutationResult {
+): Promise<MarineAlertsRepositoryMutationResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openWritable = dependencies.openWritable ?? openWritableDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const now = dependencies.now ?? Date.now;
 
   const dbPath = resolvePath();
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
 
-  if (!hasPath(dbPath)) {
+  if (!isTurso && !hasPath(dbPath)) {
     return { source: "unavailable", fallbackReason: "db_path_missing" };
   }
 
-  let db: SqliteDatabaseLike;
+  let adapter: AsyncDbAdapter;
 
   try {
-    db = openWritable(dbPath);
+    adapter = getAdapter(false);
   } catch {
     return { source: "unavailable", fallbackReason: "db_open_failed" };
   }
 
   try {
-    ensureMarineAlertTables(db);
+    await ensureMarineAlertTables(adapter);
 
-    const rows = db
-      .prepare("SELECT * FROM marine_intelligence_alerts WHERE id = ?")
-      .all(id) as MarineAlertRow[];
+    const rows = await adapter.execute(
+      "SELECT * FROM marine_intelligence_alerts WHERE id = ?",
+      [id]
+    ) as MarineAlertRow[];
 
     if (!rows[0]) {
       return {
@@ -456,28 +433,28 @@ function updateAlertStatus(
     const resolvedAt =
       newStatus === "resolved" ? nowIso : previous.resolved_at;
 
-    runStatement(
-      db.prepare(`
-        UPDATE marine_intelligence_alerts
-        SET status = ?, updated_at = ?, acknowledged_at = ?, resolved_at = ?
-        WHERE id = ?
-      `),
+    await adapter.execute(`
+      UPDATE marine_intelligence_alerts
+      SET status = ?, updated_at = ?, acknowledged_at = ?, resolved_at = ?
+      WHERE id = ?
+    `, [
       newStatus,
       nowIso,
       acknowledgedAt,
       resolvedAt,
       id,
-    );
+    ]);
 
-    const updatedRows = db
-      .prepare("SELECT * FROM marine_intelligence_alerts WHERE id = ?")
-      .all(id) as MarineAlertRow[];
+    const updatedRows = await adapter.execute(
+      "SELECT * FROM marine_intelligence_alerts WHERE id = ?",
+      [id]
+    ) as MarineAlertRow[];
 
     const alert = updatedRows[0] ? mapRow(updatedRows[0]) : null;
     return { source: "db", result: { ok: true, alert } };
   } catch {
     return { source: "unavailable", fallbackReason: "db_query_failed" };
   } finally {
-    db.close();
+    await adapter.close();
   }
 }

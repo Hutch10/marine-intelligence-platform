@@ -8,29 +8,24 @@ import {
 import type { IoosParsedRecord } from "../../connectors/ioos/parse";
 import type { SqliteDatabaseLike } from "../../db/client";
 
-function createDb(hasObservationDuplicate = false, hasMetricDuplicate = false): SqliteDatabaseLike {
+function createDb(hasObservationDuplicate = false, hasMetricDuplicate = false): any {
   return {
-    prepare(sql: string) {
-      return {
-        all() {
-          if (sql.includes("FROM observations") && hasObservationDuplicate) {
-            return [{ found: 1 }];
-          }
+    async execute(sql: string, params: unknown[] = []) {
+      if (sql.includes("FROM observations") && hasObservationDuplicate) {
+        return [{ found: 1 }];
+      }
 
-          if (sql.includes("FROM station_metrics") && hasMetricDuplicate) {
-            return [{ found: 1 }];
-          }
+      if (sql.includes("FROM station_metrics") && hasMetricDuplicate) {
+        return [{ found: 1 }];
+      }
 
-          return [];
-        },
-        run() {},
-      };
+      return [];
     },
-    close() {},
+    async close() {},
   };
 }
 
-function createCaptureDb(captured: Array<{ sql: string; params: unknown[] }>): SqliteDatabaseLike {
+function createCaptureDb(captured: Array<{ sql: string; params: unknown[] }>): any {
   return {
     prepare(sql: string) {
       return {
@@ -87,8 +82,8 @@ test("loadConfiguredIoosSources parses station configuration", () => {
   ]);
 });
 
-test("validateIoosRecord rejects schema drift", () => {
-  const reason = validateIoosRecord(
+test("validateIoosRecord rejects schema drift", async () => {
+  const reason = await validateIoosRecord(
     baseRecord({ observedAt: null }),
     Date.parse("2026-03-18T11:00:00.000Z"),
     24 * 60 * 60 * 1000,
@@ -99,8 +94,8 @@ test("validateIoosRecord rejects schema drift", () => {
   assert.equal(reason, "schema_drift");
 });
 
-test("validateIoosRecord rejects stale timestamps", () => {
-  const reason = validateIoosRecord(
+test("validateIoosRecord rejects stale timestamps", async () => {
+  const reason = await validateIoosRecord(
     baseRecord(),
     Date.parse("2026-03-20T12:00:00.000Z"),
     6 * 60 * 60 * 1000,
@@ -111,8 +106,8 @@ test("validateIoosRecord rejects stale timestamps", () => {
   assert.equal(reason, "timestamp_stale");
 });
 
-test("validateIoosRecord rejects impossible values", () => {
-  const reason = validateIoosRecord(
+test("validateIoosRecord rejects impossible values", async () => {
+  const reason = await validateIoosRecord(
     baseRecord({ salinityPsu: 92 }),
     Date.parse("2026-03-18T12:00:00.000Z"),
     24 * 60 * 60 * 1000,
@@ -123,8 +118,8 @@ test("validateIoosRecord rejects impossible values", () => {
   assert.equal(reason, "impossible_values");
 });
 
-test("validateIoosRecord rejects duplicate records", () => {
-  const reason = validateIoosRecord(
+test("validateIoosRecord rejects duplicate records", async () => {
+  const reason = await validateIoosRecord(
     baseRecord(),
     Date.parse("2026-03-18T12:00:00.000Z"),
     24 * 60 * 60 * 1000,
@@ -141,6 +136,15 @@ test("runIoosIngestion persists observations, station_metrics, and provenance", 
   const result = await runIoosIngestion({
     resolvePath: () => "marine.sqlite",
     openWritable: () => createCaptureDb(captured),
+    getAdapter: () => {
+      return {
+        async execute(sql: string, params: unknown[] = []) {
+          captured.push({ sql, params });
+          return [];
+        },
+        async close() {},
+      } as any;
+    },
     now: (() => {
       const values = [
         Date.parse("2026-03-18T10:00:00.000Z"),

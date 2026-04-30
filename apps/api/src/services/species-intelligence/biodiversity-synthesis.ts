@@ -28,9 +28,12 @@ export interface BiodiversitySynthesisService {
 
 export function createBiodiversitySynthesisService(
   dependencies: {
-    impactService?: typeof calculateRegionalImpact;
+    impactService?: (regionId: string, environmentalRiskScore: number) => Promise<RegionalImpactResult>;
     evidenceService?: EvidenceGraphService;
-    speciesRepo?: { list: typeof listSpecies; get: typeof getSpeciesById };
+    speciesRepo?: { 
+      list: (filters: import("../../repositories/species").SpeciesListFilters) => Promise<import("../../repositories/species").SpeciesListResult>; 
+      get: (speciesId: string) => Promise<import("../../repositories/species").SpeciesDetailResult> 
+    };
   } = {}
 ): BiodiversitySynthesisService {
   const calculateImpact = dependencies.impactService ?? calculateRegionalImpact;
@@ -43,10 +46,10 @@ export function createBiodiversitySynthesisService(
     environmentalRiskScore: number = 0.5
   ): Promise<BiodiversitySynthesisResult> {
     // 1. Gather Regional Data
-    const impact = calculateImpact(regionId, environmentalRiskScore);
+    const impact = await calculateImpact(regionId, environmentalRiskScore);
     
     // 2. Gather Species Data
-    const speciesList = listSpeciesRepo({ region: regionId, limit: 5 });
+    const speciesList = await listSpeciesRepo({ region: regionId, limit: 5 });
     const species = speciesList.source === "db" ? speciesList.species : [];
     
     // 3. Gather Evidence

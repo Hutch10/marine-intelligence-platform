@@ -6,7 +6,7 @@ export const getV1RegionImpactRoute: RouteDefinition<any> = {
   method: "GET",
   path: "/v1/regions/:id/impact",
   handler: async (req) => {
-    const regionId = req.params.id;
+    const regionId = req.params?.id;
     if (!regionId) {
       return {
         status: 400,
@@ -14,8 +14,8 @@ export const getV1RegionImpactRoute: RouteDefinition<any> = {
       };
     }
 
-    const riskResponse = buildRegionRiskScoreRouteResponse(regionId);
-    
+    const riskResponse = await buildRegionRiskScoreRouteResponse(regionId);
+
     if (riskResponse.status !== 200) {
       return riskResponse;
     }

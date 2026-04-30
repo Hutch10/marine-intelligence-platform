@@ -55,50 +55,50 @@ const VALID_SIGNAL_STATUSES = new Set<SignalStatus>([
   "dismissed",
 ]);
 
-function readSignals(filters: SignalListFilters): SignalsListResult {
+async function readSignals(filters: SignalListFilters): Promise<SignalsListResult> {
   try {
     const runtimeRequire = eval("require") as NodeRequire;
     const repository = runtimeRequire("../repositories/signals") as {
-      listSignals: (query: SignalListFilters) => SignalsListResult;
+      listSignals: (query: SignalListFilters) => Promise<SignalsListResult>;
     };
 
-    return repository.listSignals(filters);
+    return await repository.listSignals(filters);
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   }
 }
 
-function readSignalById(signalId: string): SignalDetailResult {
+async function readSignalById(signalId: string): Promise<SignalDetailResult> {
   try {
     const runtimeRequire = eval("require") as NodeRequire;
     const repository = runtimeRequire("../repositories/signals") as {
-      getSignalById: (id: string) => SignalDetailResult;
+      getSignalById: (id: string) => Promise<SignalDetailResult>;
     };
 
-    return repository.getSignalById(signalId);
+    return await repository.getSignalById(signalId);
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   }
 }
 
-function createSignalRecord(input: CreateSignalInput): SignalCreateResult {
+async function createSignalRecord(input: CreateSignalInput): Promise<SignalCreateResult> {
   try {
     const runtimeRequire = eval("require") as NodeRequire;
     const repository = runtimeRequire("../repositories/signals") as {
-      createSignal: (value: CreateSignalInput) => SignalCreateResult;
+      createSignal: (value: CreateSignalInput) => Promise<SignalCreateResult>;
     };
 
-    return repository.createSignal(input);
+    return await repository.createSignal(input);
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   }
 }
 
-function promoteSignalRecord(
+async function promoteSignalRecord(
   signalId: string,
   investigationId: string,
   actor: string | undefined,
-): SignalPromoteResult {
+): Promise<SignalPromoteResult> {
   try {
     const runtimeRequire = eval("require") as NodeRequire;
     const repository = runtimeRequire("../repositories/signals") as {
@@ -106,23 +106,23 @@ function promoteSignalRecord(
         signalId: string,
         investigationId: string,
         actor?: string,
-      ) => SignalPromoteResult;
+      ) => Promise<SignalPromoteResult>;
     };
 
-    return repository.promoteSignalToInvestigation(signalId, investigationId, actor);
+    return await repository.promoteSignalToInvestigation(signalId, investigationId, actor);
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   }
 }
 
-function dismissSignalRecord(signalId: string, actor: string | undefined): SignalDismissResult {
+async function dismissSignalRecord(signalId: string, actor: string | undefined): Promise<SignalDismissResult> {
   try {
     const runtimeRequire = eval("require") as NodeRequire;
     const repository = runtimeRequire("../repositories/signals") as {
-      dismissSignal: (signalId: string, actor?: string) => SignalDismissResult;
+      dismissSignal: (signalId: string, actor?: string) => Promise<SignalDismissResult>;
     };
 
-    return repository.dismissSignal(signalId, actor);
+    return await repository.dismissSignal(signalId, actor);
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   }
@@ -198,24 +198,25 @@ function filterMockSignals(query: SignalsListQuery = {}): SignalDetection[] {
   return filtered.slice(0, normalizeLimit(query.limit));
 }
 
-export function buildSignalsListRouteResponse(
+export async function buildSignalsListRouteResponse(
   query: SignalsListQuery = {},
-  readResult = readSignals(normalizeSignalFilters(query)),
-): {
+  readResult?: SignalsListResult,
+): Promise<{
   status: number;
   json: SignalsListResponse;
   telemetry: SignalsListTelemetry;
-} {
+}> {
+  const actualReadResult = readResult ?? await readSignals(normalizeSignalFilters(query));
   const queryHasFilters = filtersApplied(query);
 
-  if (readResult.source === "db") {
+  if (actualReadResult.source === "db") {
     return {
       status: 200,
-      json: { signals: readResult.signals },
+      json: { signals: actualReadResult.signals },
       telemetry: {
         route: "GET /signals",
         source: "db",
-        signalCount: readResult.signals.length,
+        signalCount: actualReadResult.signals.length,
         filtersApplied: queryHasFilters,
       },
     };
@@ -231,23 +232,25 @@ export function buildSignalsListRouteResponse(
       source: "mock",
       signalCount: fallbackSignals.length,
       filtersApplied: queryHasFilters,
-      fallbackReason: readResult.fallbackReason,
+      fallbackReason: actualReadResult.fallbackReason,
     },
   };
 }
 
-export function buildSignalDetailRouteResponse(
+export async function buildSignalDetailRouteResponse(
   signalId: string,
-  readResult = readSignalById(signalId),
-): {
+  readResult?: SignalDetailResult,
+): Promise<{
   status: number;
   json: SignalDetailResponse | { message: string };
   telemetry: SignalDetailTelemetry;
-} {
-  if (readResult.source === "db" && readResult.result === "found") {
+}> {
+  const actualReadResult = readResult ?? await readSignalById(signalId);
+
+  if (actualReadResult.source === "db" && actualReadResult.result === "found") {
     return {
       status: 200,
-      json: { signal: readResult.signal },
+      json: { signal: actualReadResult.signal },
       telemetry: {
         route: "GET /signals/:id",
         source: "db",
@@ -257,7 +260,7 @@ export function buildSignalDetailRouteResponse(
     };
   }
 
-  if (readResult.source === "db") {
+  if (actualReadResult.source === "db") {
     return {
       status: 404,
       json: { message: "Signal not found" },
@@ -281,7 +284,7 @@ export function buildSignalDetailRouteResponse(
         source: "mock",
         signalId,
         result: "found",
-        fallbackReason: readResult.fallbackReason,
+        fallbackReason: actualReadResult.fallbackReason,
       },
     };
   }
@@ -294,19 +297,19 @@ export function buildSignalDetailRouteResponse(
       source: "mock",
       signalId,
       result: "not_found",
-      fallbackReason: readResult.fallbackReason,
+      fallbackReason: actualReadResult.fallbackReason,
     },
   };
 }
 
-export function buildSignalCreateRouteResponse(
+export async function buildSignalCreateRouteResponse(
   body: SignalCreateRequest,
   createResult?: SignalCreateResult,
-): {
+): Promise<{
   status: number;
   json: SignalCreateResponse | { message: string };
   telemetry: SignalCreateTelemetry;
-} {
+}> {
   const signalType = body.signalType;
   const severity = body.severity;
   const status = body.status;
@@ -447,7 +450,7 @@ export function buildSignalCreateRouteResponse(
     };
   }
 
-  const result = createResult ?? createSignalRecord({
+  const result = createResult ?? await createSignalRecord({
     signalType,
     severity,
     confidence: body.confidence,
@@ -486,15 +489,15 @@ export function buildSignalCreateRouteResponse(
   };
 }
 
-export function buildSignalPromoteRouteResponse(
+export async function buildSignalPromoteRouteResponse(
   signalId: string,
   body: SignalPromoteRequest,
   promoteResult?: SignalPromoteResult,
-): {
+): Promise<{
   status: number;
   json: SignalPromoteResponse | { message: string };
   telemetry: SignalPromoteTelemetry;
-} {
+}> {
   const investigationId = body.investigationId?.trim();
 
   if (!signalId || signalId !== body.id) {
@@ -527,7 +530,7 @@ export function buildSignalPromoteRouteResponse(
     };
   }
 
-  const result = promoteResult ?? promoteSignalRecord(signalId, investigationId, body.actor?.trim());
+  const result = promoteResult ?? await promoteSignalRecord(signalId, investigationId, body.actor?.trim());
 
   if (result.source === "mock") {
     return {
@@ -571,15 +574,15 @@ export function buildSignalPromoteRouteResponse(
   };
 }
 
-export function buildSignalDismissRouteResponse(
+export async function buildSignalDismissRouteResponse(
   signalId: string,
   body: SignalDismissRequest,
   dismissResult?: SignalDismissResult,
-): {
+): Promise<{
   status: number;
   json: SignalDismissResponse | { message: string };
   telemetry: SignalDismissTelemetry;
-} {
+}> {
   if (!signalId || signalId !== body.id) {
     return {
       status: 400,
@@ -594,7 +597,7 @@ export function buildSignalDismissRouteResponse(
     };
   }
 
-  const result = dismissResult ?? dismissSignalRecord(signalId, body.actor?.trim());
+  const result = dismissResult ?? await dismissSignalRecord(signalId, body.actor?.trim());
 
   if (result.source === "mock") {
     return {
@@ -638,39 +641,39 @@ export function buildSignalDismissRouteResponse(
 export const getSignalsRoute: RouteDefinition<SignalsListResponse, undefined, SignalsListQuery> = {
   method: "GET",
   path: "/signals",
-  handler(request) {
-    return buildSignalsListRouteResponse(request.query ?? {});
+  async handler(request) {
+    return await buildSignalsListRouteResponse(request.query ?? {});
   },
 };
 
 export const getSignalByIdRoute: RouteDefinition<SignalDetailResponse | { message: string }, { id: string }> = {
   method: "GET",
   path: "/signals/:id",
-  handler(request) {
-    return buildSignalDetailRouteResponse(request.body.id);
+  async handler(request) {
+    return await buildSignalDetailRouteResponse(request.body.id);
   },
 };
 
 export const postSignalCreateRoute: RouteDefinition<SignalCreateResponse | { message: string }, SignalCreateRequest> = {
   method: "POST",
   path: "/signals",
-  handler(request) {
-    return buildSignalCreateRouteResponse(request.body);
+  async handler(request) {
+    return await buildSignalCreateRouteResponse(request.body);
   },
 };
 
 export const postSignalPromoteRoute: RouteDefinition<SignalPromoteResponse | { message: string }, SignalPromoteRequest> = {
   method: "POST",
   path: "/signals/:id/promote",
-  handler(request) {
-    return buildSignalPromoteRouteResponse(request.body.id, request.body);
+  async handler(request) {
+    return await buildSignalPromoteRouteResponse(request.body.id, request.body);
   },
 };
 
 export const postSignalDismissRoute: RouteDefinition<SignalDismissResponse | { message: string }, SignalDismissRequest> = {
   method: "POST",
   path: "/signals/:id/dismiss",
-  handler(request) {
-    return buildSignalDismissRouteResponse(request.body.id, request.body);
+  async handler(request) {
+    return await buildSignalDismissRouteResponse(request.body.id, request.body);
   },
 };

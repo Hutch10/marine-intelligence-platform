@@ -64,13 +64,13 @@ function normalizeIsoTimestamp(value: string | undefined | null): string | null 
   return new Date(parsed).toISOString();
 }
 
-export function buildValidationSummaryRouteResponse(
+export async function buildValidationSummaryRouteResponse(
   query: ValidationSummaryQuery = {},
-  summaryResult?: ReturnType<typeof buildValidationSummary>,
-): {
+  summaryResult?: Awaited<ReturnType<typeof buildValidationSummary>>,
+): Promise<{
   status: 200 | 400 | 503;
   json: ValidationSummaryResponse | { message: string };
-} {
+}> {
   const since = query.since === undefined ? null : normalizeIsoTimestamp(query.since);
 
   if (query.since !== undefined && since === null) {
@@ -80,7 +80,7 @@ export function buildValidationSummaryRouteResponse(
     };
   }
 
-  const resolvedSummary = summaryResult ?? buildValidationSummary({
+  const resolvedSummary = summaryResult ?? await buildValidationSummary({
     stationId: normalizeText(query.stationId),
     since,
   });
@@ -125,17 +125,26 @@ export function buildValidationSummaryRouteResponse(
   };
 }
 
-export function buildAttachValidationOutcomeRouteResponse(
+export async function buildAttachValidationOutcomeRouteResponse(
   auth: OceanStationAdminAuthContext | undefined,
   body: RiskEvaluationOutcomeRequest,
-  attachResult: MarineRiskEvaluationOutcomeAttachResult = attachMarineRiskEvaluationOutcome({
-    ...body,
-    apiKeyId: extractApiKeyId(auth?.actorId),
-  }),
-): {
+  attachResult?: MarineRiskEvaluationOutcomeAttachResult,
+): Promise<{
   status: 200 | 400 | 403 | 404 | 503;
   json: MarineWorkflowValidationOutcomeResponse | { message: string };
-} {
+}> {
+  const resolvedAttachResult = attachResult ?? await attachMarineRiskEvaluationOutcome({
+    ...body,
+    apiKeyId: extractApiKeyId(auth?.actorId),
+  });
+
+  if (resolvedAttachResult.source === "unavailable") {
+    return {
+      status: 503,
+      json: { message: "Validation storage is unavailable" },
+    };
+  }
+
   if (!hasViewAdminPermission(auth)) {
     return {
       status: 403,
@@ -143,37 +152,39 @@ export function buildAttachValidationOutcomeRouteResponse(
     };
   }
 
-  if (attachResult.source === "unavailable") {
+  if (!resolvedAttachResult.result.ok || !resolvedAttachResult.result.evaluation) {
     return {
-      status: 503,
-      json: { message: "Validation outcome storage unavailable" },
-    };
-  }
-
-  if (!attachResult.result.ok || !attachResult.result.evaluation) {
-    return {
-      status: attachResult.result.reason === "not_found" ? 404 : 400,
-      json: { message: attachResult.result.error },
+      status: resolvedAttachResult.result.reason === "not_found" ? 404 : 400,
+      json: { message: resolvedAttachResult.result.error },
     };
   }
 
   return {
     status: 200,
-    json: { evaluation: attachResult.result.evaluation },
+    json: { evaluation: resolvedAttachResult.result.evaluation },
   };
 }
 
-export function buildAttachValidationFeedbackRouteResponse(
+export async function buildAttachValidationFeedbackRouteResponse(
   auth: OceanStationAdminAuthContext | undefined,
   body: RiskEvaluationFeedbackRequest,
-  attachResult: MarineRiskEvaluationOutcomeAttachResult = attachFeedbackToMarineRiskEvaluation({
-    ...body,
-    apiKeyId: extractApiKeyId(auth?.actorId),
-  }),
-): {
+  attachResult?: MarineRiskEvaluationOutcomeAttachResult,
+): Promise<{
   status: 200 | 400 | 403 | 404 | 503;
   json: MarineWorkflowValidationOutcomeResponse | { message: string };
-} {
+}> {
+  const resolvedAttachResult = attachResult ?? await attachFeedbackToMarineRiskEvaluation({
+    ...body,
+    apiKeyId: extractApiKeyId(auth?.actorId),
+  });
+
+  if (resolvedAttachResult.source === "unavailable") {
+    return {
+      status: 503,
+      json: { message: "Validation storage is unavailable" },
+    };
+  }
+
   if (!hasViewAdminPermission(auth)) {
     return {
       status: 403,
@@ -181,23 +192,16 @@ export function buildAttachValidationFeedbackRouteResponse(
     };
   }
 
-  if (attachResult.source === "unavailable") {
+  if (!resolvedAttachResult.result.ok || !resolvedAttachResult.result.evaluation) {
     return {
-      status: 503,
-      json: { message: "Validation feedback storage unavailable" },
-    };
-  }
-
-  if (!attachResult.result.ok || !attachResult.result.evaluation) {
-    return {
-      status: attachResult.result.reason === "not_found" ? 404 : 400,
-      json: { message: attachResult.result.error },
+      status: resolvedAttachResult.result.reason === "not_found" ? 404 : 400,
+      json: { message: resolvedAttachResult.result.error },
     };
   }
 
   return {
     status: 200,
-    json: { evaluation: attachResult.result.evaluation },
+    json: { evaluation: resolvedAttachResult.result.evaluation },
   };
 }
 
@@ -208,8 +212,8 @@ export const getValidationSummaryRoute: RouteDefinition<
 > = {
   method: "GET",
   path: "/validation/summary",
-  handler(request) {
-    return buildValidationSummaryRouteResponse(request.query ?? {});
+  async handler(request) {
+    return await buildValidationSummaryRouteResponse(request.query ?? {});
   },
 };
 
@@ -219,8 +223,8 @@ export const postValidationOutcomeRoute: RouteDefinition<
 > = {
   method: "POST",
   path: "/validation/outcomes",
-  handler(request) {
-    return buildAttachValidationOutcomeRouteResponse(request.auth, request.body);
+  async handler(request) {
+    return await buildAttachValidationOutcomeRouteResponse(request.auth, request.body);
   },
 };
 
@@ -230,7 +234,7 @@ export const postValidationFeedbackRoute: RouteDefinition<
 > = {
   method: "POST",
   path: "/validation/feedback",
-  handler(request) {
-    return buildAttachValidationFeedbackRouteResponse(request.auth, request.body);
+  async handler(request) {
+    return await buildAttachValidationFeedbackRouteResponse(request.auth, request.body);
   },
 };

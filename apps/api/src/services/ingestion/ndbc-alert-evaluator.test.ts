@@ -67,13 +67,13 @@ function makeThresholds(
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-test("evaluateNdbcAnomalies returns empty array when all readings are within thresholds", () => {
-  const result = evaluateNdbcAnomalies(makeObs());
+test("evaluateNdbcAnomalies returns empty array when all readings are within thresholds", async () => {
+  const result = await evaluateNdbcAnomalies(makeObs());
   assert.equal(result.length, 0);
 });
 
-test("evaluateNdbcAnomalies returns empty array when all sensor fields are null", () => {
-  const result = evaluateNdbcAnomalies(
+test("evaluateNdbcAnomalies returns empty array when all sensor fields are null", async () => {
+  const result = await evaluateNdbcAnomalies(
     makeObs({ seaSurfaceTempC: null, waveHeightM: null, windSpeedMps: null, pressureHpa: null }),
   );
   assert.equal(result.length, 0);
@@ -81,8 +81,8 @@ test("evaluateNdbcAnomalies returns empty array when all sensor fields are null"
 
 // ─── SST threshold ────────────────────────────────────────────────────────────
 
-test("evaluateNdbcAnomalies triggers high_sea_temperature when SST > 30 °C", () => {
-  const result = evaluateNdbcAnomalies(makeObs({ seaSurfaceTempC: 30.1 }));
+test("evaluateNdbcAnomalies triggers high_sea_temperature when SST > 30 °C", async () => {
+  const result = await evaluateNdbcAnomalies(makeObs({ seaSurfaceTempC: 30.1 }));
   const alert = result.find((a) => a.ruleType === "high_sea_temperature");
   assert.ok(alert, "expected high_sea_temperature alert");
   assert.equal(alert.type, "create");
@@ -91,72 +91,72 @@ test("evaluateNdbcAnomalies triggers high_sea_temperature when SST > 30 °C", ()
   assert.ok(alert.title.includes("30.1"), `title should include value: ${alert.title}`);
 });
 
-test("evaluateNdbcAnomalies does NOT trigger high_sea_temperature when SST === 30 °C", () => {
-  const result = evaluateNdbcAnomalies(makeObs({ seaSurfaceTempC: 30 }));
+test("evaluateNdbcAnomalies does NOT trigger high_sea_temperature when SST === 30 °C", async () => {
+  const result = await evaluateNdbcAnomalies(makeObs({ seaSurfaceTempC: 30 }));
   assert.equal(result.find((a) => a.ruleType === "high_sea_temperature"), undefined);
 });
 
-test("evaluateNdbcAnomalies does NOT trigger high_sea_temperature when SST is null", () => {
-  const result = evaluateNdbcAnomalies(makeObs({ seaSurfaceTempC: null }));
+test("evaluateNdbcAnomalies does NOT trigger high_sea_temperature when SST is null", async () => {
+  const result = await evaluateNdbcAnomalies(makeObs({ seaSurfaceTempC: null }));
   assert.equal(result.find((a) => a.ruleType === "high_sea_temperature"), undefined);
 });
 
 // ─── Wave height threshold ────────────────────────────────────────────────────
 
-test("evaluateNdbcAnomalies triggers high_wave_height when wave > 5 m", () => {
-  const result = evaluateNdbcAnomalies(makeObs({ waveHeightM: 5.5 }));
+test("evaluateNdbcAnomalies triggers high_wave_height when wave > 5 m", async () => {
+  const result = await evaluateNdbcAnomalies(makeObs({ waveHeightM: 5.5 }));
   const alert = result.find((a) => a.ruleType === "high_wave_height");
   assert.ok(alert, "expected high_wave_height alert");
   assert.ok(alert.title.includes("5.5"), `title should include value: ${alert.title}`);
 });
 
-test("evaluateNdbcAnomalies does NOT trigger high_wave_height when wave === 5 m", () => {
-  const result = evaluateNdbcAnomalies(makeObs({ waveHeightM: 5 }));
+test("evaluateNdbcAnomalies does NOT trigger high_wave_height when wave === 5 m", async () => {
+  const result = await evaluateNdbcAnomalies(makeObs({ waveHeightM: 5 }));
   assert.equal(result.find((a) => a.ruleType === "high_wave_height"), undefined);
 });
 
-test("evaluateNdbcAnomalies does NOT trigger high_wave_height when wave is null", () => {
-  const result = evaluateNdbcAnomalies(makeObs({ waveHeightM: null }));
+test("evaluateNdbcAnomalies does NOT trigger high_wave_height when wave is null", async () => {
+  const result = await evaluateNdbcAnomalies(makeObs({ waveHeightM: null }));
   assert.equal(result.find((a) => a.ruleType === "high_wave_height"), undefined);
 });
 
 // ─── Wind speed threshold ─────────────────────────────────────────────────────
 
-test("evaluateNdbcAnomalies triggers high_wind_speed when wind > 20 m/s", () => {
-  const result = evaluateNdbcAnomalies(makeObs({ windSpeedMps: 21 }));
+test("evaluateNdbcAnomalies triggers high_wind_speed when wind > 20 m/s", async () => {
+  const result = await evaluateNdbcAnomalies(makeObs({ windSpeedMps: 21 }));
   const alert = result.find((a) => a.ruleType === "high_wind_speed");
   assert.ok(alert, "expected high_wind_speed alert");
   assert.ok((alert.detail ?? "").includes("21.0 m/s"), `detail should include value: ${alert.detail}`);
 });
 
-test("evaluateNdbcAnomalies does NOT trigger high_wind_speed when wind === 20 m/s", () => {
-  const result = evaluateNdbcAnomalies(makeObs({ windSpeedMps: 20 }));
+test("evaluateNdbcAnomalies does NOT trigger high_wind_speed when wind === 20 m/s", async () => {
+  const result = await evaluateNdbcAnomalies(makeObs({ windSpeedMps: 20 }));
   assert.equal(result.find((a) => a.ruleType === "high_wind_speed"), undefined);
 });
 
 // ─── Pressure threshold ───────────────────────────────────────────────────────
 
-test("evaluateNdbcAnomalies triggers low_pressure_system when pressure < 960 hPa", () => {
-  const result = evaluateNdbcAnomalies(makeObs({ pressureHpa: 955 }));
+test("evaluateNdbcAnomalies triggers low_pressure_system when pressure < 960 hPa", async () => {
+  const result = await evaluateNdbcAnomalies(makeObs({ pressureHpa: 955 }));
   const alert = result.find((a) => a.ruleType === "low_pressure_system");
   assert.ok(alert, "expected low_pressure_system alert");
   assert.ok(alert.title.includes("955"), `title should include value: ${alert.title}`);
 });
 
-test("evaluateNdbcAnomalies does NOT trigger low_pressure_system when pressure === 960 hPa", () => {
-  const result = evaluateNdbcAnomalies(makeObs({ pressureHpa: 960 }));
+test("evaluateNdbcAnomalies does NOT trigger low_pressure_system when pressure === 960 hPa", async () => {
+  const result = await evaluateNdbcAnomalies(makeObs({ pressureHpa: 960 }));
   assert.equal(result.find((a) => a.ruleType === "low_pressure_system"), undefined);
 });
 
-test("evaluateNdbcAnomalies does NOT trigger low_pressure_system when pressure is null", () => {
-  const result = evaluateNdbcAnomalies(makeObs({ pressureHpa: null }));
+test("evaluateNdbcAnomalies does NOT trigger low_pressure_system when pressure is null", async () => {
+  const result = await evaluateNdbcAnomalies(makeObs({ pressureHpa: null }));
   assert.equal(result.find((a) => a.ruleType === "low_pressure_system"), undefined);
 });
 
 // ─── Multiple alerts ──────────────────────────────────────────────────────────
 
-test("evaluateNdbcAnomalies returns multiple alerts when several thresholds are exceeded", () => {
-  const result = evaluateNdbcAnomalies(
+test("evaluateNdbcAnomalies returns multiple alerts when several thresholds are exceeded", async () => {
+  const result = await evaluateNdbcAnomalies(
     makeObs({ seaSurfaceTempC: 32, waveHeightM: 7, windSpeedMps: 25, pressureHpa: 950 }),
   );
   assert.equal(result.length, 4);
@@ -169,22 +169,22 @@ test("evaluateNdbcAnomalies returns multiple alerts when several thresholds are 
 
 // ─── Source formatting ────────────────────────────────────────────────────────
 
-test("evaluateNdbcAnomalies prefixes source with 'noaa_ndbc:' + station ID", () => {
+test("evaluateNdbcAnomalies prefixes source with 'noaa_ndbc:' + station ID", async () => {
   const obs = makeObs({ seaSurfaceTempC: 31, stationId: "41009" });
-  const result = evaluateNdbcAnomalies(obs);
+  const result = await evaluateNdbcAnomalies(obs);
   assert.equal(result[0]?.source, "noaa_ndbc:41009");
   assert.equal(result[0]?.stationId, "41009");
 });
 
 // ─── Detail content ───────────────────────────────────────────────────────────
 
-test("evaluateNdbcAnomalies includes source timestamp in detail message", () => {
+test("evaluateNdbcAnomalies includes source timestamp in detail message", async () => {
   const obs = makeObs({ seaSurfaceTempC: 35 });
-  const result = evaluateNdbcAnomalies(obs);
+  const result = await evaluateNdbcAnomalies(obs);
   assert.ok((result[0]?.detail ?? "").includes(obs.sourceTimestamp));
 });
 
-test("evaluateNdbcAnomalies adds a baseline anomaly alert when history shows a strong z-score", () => {
+test("evaluateNdbcAnomalies adds a baseline anomaly alert when history shows a strong z-score", async () => {
   const obs = makeObs({ seaSurfaceTempC: 27.8, stationId: "46042" });
   const history: BaselineObservationInput[] = Array.from({ length: 12 }, (_, index) => ({
     stationId: "46042",
@@ -196,20 +196,20 @@ test("evaluateNdbcAnomalies adds a baseline anomaly alert when history shows a s
     sourceTimestamp: `2023-11-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`,
   }));
 
-  const result = evaluateNdbcAnomalies(obs, { baselineHistory: history, baseline: { zScoreThreshold: 2 } });
+  const result = await evaluateNdbcAnomalies(obs, { baselineHistory: history, baseline: { zScoreThreshold: 2 } });
 
   const alert = result.find((item) => item.ruleType === "high_sea_temperature");
   assert.ok(alert);
   assert.ok((alert.detail ?? "").includes("z-score"));
 });
 
-test("evaluateNdbcAnomalies preserves default thresholds when no station override exists", () => {
-  const result = evaluateNdbcAnomalies(makeObs({ stationId: "DEFAULT-ONLY-01", seaSurfaceTempC: 29.5 }));
+test("evaluateNdbcAnomalies preserves default thresholds when no station override exists", async () => {
+  const result = await evaluateNdbcAnomalies(makeObs({ stationId: "DEFAULT-ONLY-01", seaSurfaceTempC: 29.5 }));
   assert.equal(result.find((a) => a.ruleType === "high_sea_temperature"), undefined);
 });
 
-test("evaluateNdbcAnomalies uses station-specific SST override when configured", () => {
-  const result = evaluateNdbcAnomalies(
+test("evaluateNdbcAnomalies uses station-specific SST override when configured", async () => {
+  const result = await evaluateNdbcAnomalies(
     makeObs({ stationId: "CUSTOM-SST-01", seaSurfaceTempC: 28.4 }),
     { thresholds: makeThresholds({ seaSurfaceTempC: 28 }) },
   );
@@ -218,8 +218,8 @@ test("evaluateNdbcAnomalies uses station-specific SST override when configured",
   assert.ok((alert.detail ?? "").includes("> 28.0 °C"), `detail should include override threshold: ${alert?.detail}`);
 });
 
-test("evaluateNdbcAnomalies uses station-specific pressure override when configured", () => {
-  const result = evaluateNdbcAnomalies(
+test("evaluateNdbcAnomalies uses station-specific pressure override when configured", async () => {
+  const result = await evaluateNdbcAnomalies(
     makeObs({ stationId: "CUSTOM-PRESSURE-01", pressureHpa: 975 }),
     { thresholds: makeThresholds({ pressureHpa: 980 }) },
   );
@@ -228,8 +228,8 @@ test("evaluateNdbcAnomalies uses station-specific pressure override when configu
   assert.ok((alert.detail ?? "").includes("< 980 hPa"), `detail should include override threshold: ${alert?.detail}`);
 });
 
-test("evaluateNdbcAnomalies supports mixed station overrides and defaults together", () => {
-  const result = evaluateNdbcAnomalies(
+test("evaluateNdbcAnomalies supports mixed station overrides and defaults together", async () => {
+  const result = await evaluateNdbcAnomalies(
     makeObs({
       stationId: "CUSTOM-MIXED-01",
       seaSurfaceTempC: 29.2,
@@ -248,7 +248,7 @@ test("evaluateNdbcAnomalies supports mixed station overrides and defaults togeth
   assert.equal(ruleTypes.includes("low_pressure_system"), false);
 });
 
-test("evaluateNdbcAnomalies lowers SST threshold using seasonal baseline deviation", () => {
+test("evaluateNdbcAnomalies lowers SST threshold using seasonal baseline deviation", async () => {
   const obs = makeObs({
     stationId: "46042",
     observedAt: Date.parse("2023-11-15T00:00:00.000Z"),
@@ -265,7 +265,7 @@ test("evaluateNdbcAnomalies lowers SST threshold using seasonal baseline deviati
     sourceTimestamp: `2023-11-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`,
   }));
 
-  const result = evaluateNdbcAnomalies(obs, { baselineHistory: history, baseline: { zScoreThreshold: 2 } });
+  const result = await evaluateNdbcAnomalies(obs, { baselineHistory: history, baseline: { zScoreThreshold: 2 } });
   const alert = result.find((item) => item.ruleType === "high_sea_temperature");
 
   assert.ok(alert, "expected hybrid SST threshold alert");
@@ -274,7 +274,7 @@ test("evaluateNdbcAnomalies lowers SST threshold using seasonal baseline deviati
   assert.ok((alert.detail ?? "").includes("seasonal baseline"), alert?.detail);
 });
 
-test("evaluateNdbcAnomalies preserves static threshold when baseline deviation is below hybrid gate", () => {
+test("evaluateNdbcAnomalies preserves static threshold when baseline deviation is below hybrid gate", async () => {
   const obs = makeObs({
     stationId: "46042",
     observedAt: Date.parse("2023-11-15T00:00:00.000Z"),
@@ -291,12 +291,12 @@ test("evaluateNdbcAnomalies preserves static threshold when baseline deviation i
     sourceTimestamp: `2023-11-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`,
   }));
 
-  const result = evaluateNdbcAnomalies(obs, { baselineHistory: history, baseline: { zScoreThreshold: 2 } });
+  const result = await evaluateNdbcAnomalies(obs, { baselineHistory: history, baseline: { zScoreThreshold: 2 } });
 
   assert.equal(result.find((item) => item.ruleType === "high_sea_temperature"), undefined);
 });
 
-test("evaluateNdbcAnomalies raises low-pressure sensitivity using seasonal baseline deviation", () => {
+test("evaluateNdbcAnomalies raises low-pressure sensitivity using seasonal baseline deviation", async () => {
   const obs = makeObs({
     stationId: "46042",
     observedAt: Date.parse("2023-11-15T00:00:00.000Z"),
@@ -313,7 +313,7 @@ test("evaluateNdbcAnomalies raises low-pressure sensitivity using seasonal basel
     sourceTimestamp: `2023-11-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`,
   }));
 
-  const result = evaluateNdbcAnomalies(obs, { baselineHistory: history, baseline: { zScoreThreshold: 2 } });
+  const result = await evaluateNdbcAnomalies(obs, { baselineHistory: history, baseline: { zScoreThreshold: 2 } });
   const alert = result.find((item) => item.ruleType === "low_pressure_system");
 
   assert.ok(alert, "expected hybrid low pressure alert");

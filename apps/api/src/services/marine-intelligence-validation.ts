@@ -67,27 +67,28 @@ function bandState(gap: number | null, evaluationCount: number): ValidationConfi
   return "well_calibrated";
 }
 
-export function buildValidationSummary(
+export async function buildValidationSummary(
   input: {
     stationId?: string | null;
     since?: string | null;
   } = {},
-  readResult: MarineRiskEvaluationListResult = listMarineRiskEvaluations(input),
-): {
+  readResult?: MarineRiskEvaluationListResult,
+): Promise<{
   ok: true;
   summary: ValidationSummaryResponse;
 } | {
   ok: false;
   fallbackReason: "db_path_missing" | "db_open_failed" | "db_query_failed";
-} {
-  if (readResult.source === "unavailable") {
+}> {
+  const resolvedReadResult = readResult ?? await listMarineRiskEvaluations(input);
+  if (resolvedReadResult.source === "unavailable") {
     return {
       ok: false,
-      fallbackReason: readResult.fallbackReason,
+      fallbackReason: resolvedReadResult.fallbackReason,
     };
   }
 
-  const evaluations = readResult.result.evaluations;
+  const evaluations = resolvedReadResult.result.evaluations;
   const completed = evaluations.filter(
     (evaluation) => evaluation.actualOutcome !== null && evaluation.actualOutcome.source !== "simulated",
   );
@@ -264,19 +265,21 @@ export function buildValidationSummary(
   };
 }
 
-export function calculateCalibrationAdjustedConfidence(
+export async function calculateCalibrationAdjustedConfidence(
   prediction: Pick<RiskEvaluationPredictionRequest, "confidenceScore" | "contributingSignals" | "stationId">,
-  readResult: MarineRiskEvaluationListResult = listMarineRiskEvaluations({
+  readResult?: MarineRiskEvaluationListResult,
+): Promise<number | null> {
+  const resolvedReadResult = readResult ?? await listMarineRiskEvaluations({
     limit: 500,
     sinceDays: 90,
     stationId: prediction.stationId,
-  }),
-): number | null {
-  if (readResult.source === "unavailable") {
+  });
+
+  if (resolvedReadResult.source === "unavailable") {
     return null;
   }
 
-  const completed = readResult.result.evaluations.filter(
+  const completed = resolvedReadResult.result.evaluations.filter(
     (evaluation) => evaluation.actualOutcome !== null && evaluation.actualOutcome.source !== "simulated",
   );
   const baseConfidence = round(prediction.confidenceScore);
@@ -350,11 +353,11 @@ function buildSignalPenaltyMap(
   return penalties;
 }
 
-export function recordMarineRiskEvaluationWithCalibration(
+export async function recordMarineRiskEvaluationWithCalibration(
   input: RiskEvaluationPredictionRequest,
   createResult?: MarineRiskEvaluationPredictionCreateResult,
-): MarineRiskEvaluationPredictionCreateResult {
-  const adjusted = calculateCalibrationAdjustedConfidence(input);
+): Promise<MarineRiskEvaluationPredictionCreateResult> {
+  const adjusted = await calculateCalibrationAdjustedConfidence(input);
   const payload: RiskEvaluationPredictionRequest = {
     ...input,
     calibrationAdjustedConfidenceScore:
@@ -363,5 +366,5 @@ export function recordMarineRiskEvaluationWithCalibration(
         : input.calibrationAdjustedConfidenceScore,
   };
 
-  return createResult ?? recordMarineRiskEvaluationPrediction(payload);
+  return createResult ?? await recordMarineRiskEvaluationPrediction(payload);
 }

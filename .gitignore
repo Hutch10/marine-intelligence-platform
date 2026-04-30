@@ -22,3 +22,5 @@ STEP*-MODIFIED-FILES-FULL-CONTENTS.md
 test_output.txt
 apps/api/.data/
 *.sqlite
+.vercel
+.env*.local

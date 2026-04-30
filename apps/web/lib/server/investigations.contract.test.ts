@@ -1,11 +1,38 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { InvestigationAnalysisTrack } from "@marine/shared";
+
+const { mockGetById } = vi.hoisted(() => ({
+  mockGetById: vi.fn(),
+}));
+
+vi.mock("@/lib/server/investigations", () => ({
+  getInvestigationById: mockGetById,
+}));
+
 import { getInvestigationById } from "@/lib/server/investigations";
 
-// Test: shared type matches API payload
+const MOCK_INVESTIGATION: InvestigationAnalysisTrack & { signals?: { confidence: number | null; timestamp: string; stationId: string; source: string }[] } = {
+  id: "INV-001",
+  title: "Test Investigation",
+  summary: "Test summary.",
+  confidence: 88,
+  state: "Correlated",
+  outcome: null,
+  signals: [
+    {
+      confidence: 77,
+      timestamp: "2026-03-31T12:00:00Z",
+      stationId: "41009",
+      source: "noaa_ndbc",
+    },
+  ],
+};
 
 describe("InvestigationAnalysisTrack shared type contract", () => {
+  beforeEach(() => mockGetById.mockReset());
+
   it("should match the API payload shape for signals", async () => {
+    mockGetById.mockResolvedValue(MOCK_INVESTIGATION);
     const investigation = (await getInvestigationById("INV-001")) as InvestigationAnalysisTrack & { signals?: any[] };
     expect(investigation).toBeTruthy();
     if (investigation?.signals) {

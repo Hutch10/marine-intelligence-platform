@@ -82,6 +82,7 @@ export interface RegionSummary {
   nearestBuoyLabel: string | null;
   thermalAnomalyLabel: string | null;
   currentDirectionLabel: string | null;
+  centroid: { lat: number; lng: number } | null;
 }
 
 export interface RegionSummaryMetricValues {
@@ -171,7 +172,7 @@ function normalizeTimestamp(value: number | string, fallback: number): number {
   return fallback;
 }
 
-function normalizeNumber(value: number | string | null, fallback: number | null = 0): number | null {
+function normalizeNumber(value: number | string | null, fallback: number | null = null): number | null {
   if (value === null) {
     return fallback;
   }
@@ -233,6 +234,46 @@ function buildRegionSummaryMetrics(
     openAlerts:
       alertCountsByRegion !== null ? (alertCountsByRegion[row.id] ?? 0) : null,
   };
+}
+
+function queryCentroidsByRegion(
+  db: SqliteDatabaseLike,
+): Record<string, { lat: number; lng: number }> {
+  try {
+    const rows = db
+      .prepare(
+        `SELECT region_id,
+                AVG(latitude) AS lat,
+                AVG(longitude) AS lng
+         FROM stations
+         WHERE region_id IS NOT NULL
+           AND latitude IS NOT NULL
+           AND longitude IS NOT NULL
+           AND latitude BETWEEN -90 AND 90
+           AND longitude BETWEEN -180 AND 180
+         GROUP BY region_id`,
+      )
+      .all() as Array<{ region_id: string; lat: number | string; lng: number | string }>;
+
+    const result: Record<string, { lat: number; lng: number }> = {};
+    for (const row of rows) {
+      const lat = Number(row.lat);
+      const lng = Number(row.lng);
+      if (
+        Number.isFinite(lat) &&
+        Number.isFinite(lng) &&
+        lat >= -90 &&
+        lat <= 90 &&
+        lng >= -180 &&
+        lng <= 180
+      ) {
+        result[row.region_id] = { lat, lng };
+      }
+    }
+    return result;
+  } catch {
+    return {};
+  }
 }
 
 function queryMapStats(db: SqliteDatabaseLike): MapStatAggregates | null {
@@ -448,6 +489,7 @@ export function listRegions(
     const mapLayers = queryMapLayers(db);
     const overlayEntities = queryOverlayEntities(db);
     const spatialOverlays = querySpatialOverlays(db, now());
+    const centroidsByRegion = queryCentroidsByRegion(db);
 
     return {
       source: "db",
@@ -464,6 +506,7 @@ export function listRegions(
           nearestBuoyLabel: row.nearest_buoy_label,
           thermalAnomalyLabel: row.thermal_anomaly_label,
           currentDirectionLabel: row.current_direction_label,
+          centroid: centroidsByRegion[row.id] ?? null,
         };
       }),
       mapStats,

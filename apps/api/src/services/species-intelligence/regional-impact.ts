@@ -32,8 +32,8 @@ export interface RegionalImpactResult {
   summary: string;
 }
 
-export function calculateRegionalImpact(regionId: string, environmentalRiskScore: number): RegionalImpactResult {
-  const speciesResult = listSpecies({ region: regionId });
+export async function calculateRegionalImpact(regionId: string, environmentalRiskScore: number): Promise<RegionalImpactResult> {
+  const speciesResult = await listSpecies({ region: regionId });
   const speciesList = speciesResult.source === "db" ? speciesResult.species : [];
 
   let totalSensitivity = 0;

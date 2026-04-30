@@ -137,7 +137,16 @@ function createInMemoryDb(): SqliteDatabaseLike {
     close() {
       return undefined;
     },
-  };
+    execute(sql: string, params: unknown[] = []) {
+      const stmt = raw.prepare(sql);
+      if (typeof stmt.run === "function" && (sql.trim().toUpperCase().startsWith("INSERT") || sql.trim().toUpperCase().startsWith("UPDATE") || sql.trim().toUpperCase().startsWith("DELETE") || sql.trim().toUpperCase().startsWith("CREATE"))) {
+        stmt.run(...params);
+        return Promise.resolve([]);
+      } else {
+        return Promise.resolve(stmt.all(...params));
+      }
+    },
+  } as any;
 }
 
 function runStatement(db: SqliteDatabaseLike, sql: string, ...params: unknown[]) {
@@ -222,7 +231,7 @@ function seedInvestigation(db: SqliteDatabaseLike, id: string) {
   runStatement(db, "INSERT INTO investigations (id) VALUES (?)", id);
 }
 
-test("species repository lists entities with filters", () => {
+test("species repository lists entities with filters", async () => {
   const db = createInMemoryDb();
 
   seedSpecies(db, {
@@ -240,12 +249,12 @@ test("species repository lists entities with filters", () => {
     updatedAt: NOW - 5_000,
   });
 
-  const result = listSpecies(
+  const result = await listSpecies(
     { conservationStatus: "endangered", region: "North Pacific" },
     {
       resolvePath: () => "test.sqlite",
       hasPath: () => true,
-      openReadOnly: () => db,
+      getAdapter: () => db as any,
       now: () => NOW,
     },
   );
@@ -257,7 +266,7 @@ test("species repository lists entities with filters", () => {
   }
 });
 
-test("species repository gets entity by id", () => {
+test("species repository gets entity by id", async () => {
   const db = createInMemoryDb();
   seedSpecies(db, {
     id: "SP-GREEN-TURTLE",
@@ -267,10 +276,10 @@ test("species repository gets entity by id", () => {
     updatedAt: NOW,
   });
 
-  const found = getSpeciesById("SP-GREEN-TURTLE", {
+  const found = await getSpeciesById("SP-GREEN-TURTLE", {
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openReadOnly: () => db,
+    getAdapter: () => db as any,
     now: () => NOW,
   });
 
@@ -279,10 +288,10 @@ test("species repository gets entity by id", () => {
     assert.equal(found.result, "found");
   }
 
-  const missing = getSpeciesById("SP-MISSING", {
+  const missing = await getSpeciesById("SP-MISSING", {
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openReadOnly: () => db,
+    getAdapter: () => db as any,
     now: () => NOW,
   });
 
@@ -292,7 +301,7 @@ test("species repository gets entity by id", () => {
   });
 });
 
-test("species sightings are ordered newest first", () => {
+test("species sightings are ordered newest first", async () => {
   const db = createInMemoryDb();
   seedSpecies(db, {
     id: "SP-BLUE-WHALE",
@@ -305,12 +314,12 @@ test("species sightings are ordered newest first", () => {
   seedSighting(db, { id: "SIGHT-NEW", speciesId: "SP-BLUE-WHALE", observedAt: NOW - 5_000 });
   seedSighting(db, { id: "SIGHT-MID", speciesId: "SP-BLUE-WHALE", observedAt: NOW - 10_000 });
 
-  const result = listSpeciesSightings(
+  const result = await listSpeciesSightings(
     { speciesId: "SP-BLUE-WHALE", limit: 10 },
     {
       resolvePath: () => "test.sqlite",
       hasPath: () => true,
-      openReadOnly: () => db,
+      getAdapter: () => db as any,
       now: () => NOW,
     },
   );
@@ -321,13 +330,13 @@ test("species sightings are ordered newest first", () => {
   }
 });
 
-test("getSpeciesSightingsBySpecies returns not_found for unknown species", () => {
+test("getSpeciesSightingsBySpecies returns not_found for unknown species", async () => {
   const db = createInMemoryDb();
 
-  const result = getSpeciesSightingsBySpecies("SP-MISSING", {
+  const result = await getSpeciesSightingsBySpecies("SP-MISSING", {
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openReadOnly: () => db,
+    getAdapter: () => db as any,
     now: () => NOW,
   });
 
@@ -337,7 +346,7 @@ test("getSpeciesSightingsBySpecies returns not_found for unknown species", () =>
   });
 });
 
-test("createSpeciesSighting inserts a new row", () => {
+test("createSpeciesSighting inserts a new row", async () => {
   const db = createInMemoryDb();
   seedSpecies(db, {
     id: "SP-BLUE-WHALE",
@@ -347,7 +356,7 @@ test("createSpeciesSighting inserts a new row", () => {
     updatedAt: NOW,
   });
 
-  const created = createSpeciesSighting(
+  const created = await createSpeciesSighting(
     {
       speciesId: "SP-BLUE-WHALE",
       stationId: "STA-NPC-01",
@@ -363,7 +372,7 @@ test("createSpeciesSighting inserts a new row", () => {
     {
       resolvePath: () => "test.sqlite",
       hasPath: () => true,
-      openWritable: () => db,
+      getAdapter: () => db as any,
       now: () => NOW,
     },
     "ops.admin",
@@ -381,7 +390,7 @@ test("createSpeciesSighting inserts a new row", () => {
   }
 });
 
-test("getSpeciesSightingsBySpecies supports verification filtering", () => {
+test("getSpeciesSightingsBySpecies supports verification filtering", async () => {
   const db = createInMemoryDb();
   seedSpecies(db, {
     id: "SP-BLUE-WHALE",
@@ -412,12 +421,12 @@ test("getSpeciesSightingsBySpecies supports verification filtering", () => {
     NOW - 1_000,
   );
 
-  const result = getSpeciesSightingsBySpecies(
+  const result = await getSpeciesSightingsBySpecies(
     "SP-BLUE-WHALE",
     {
       resolvePath: () => "test.sqlite",
       hasPath: () => true,
-      openReadOnly: () => db,
+      getAdapter: () => db as any,
       now: () => NOW,
     },
     { verificationStatus: "pending" },
@@ -430,7 +439,7 @@ test("getSpeciesSightingsBySpecies supports verification filtering", () => {
   }
 });
 
-test("movement signal listing returns species-linked movement intelligence", () => {
+test("movement signal listing returns species-linked movement intelligence", async () => {
   const db = createInMemoryDb();
   seedSpecies(db, {
     id: "SP-BLUE-WHALE",
@@ -453,10 +462,10 @@ test("movement signal listing returns species-linked movement intelligence", () 
     movementType: "aggregation_shift",
   });
 
-  const result = listSpeciesMovementSignals("SP-BLUE-WHALE", {
+  const result = await listSpeciesMovementSignals("SP-BLUE-WHALE", {
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openReadOnly: () => db,
+    getAdapter: () => db as any,
     now: () => NOW,
   });
 
@@ -469,7 +478,7 @@ test("movement signal listing returns species-linked movement intelligence", () 
   }
 });
 
-test("movement signal listing supports confidence filters", () => {
+test("movement signal listing supports confidence filters", async () => {
   const db = createInMemoryDb();
   seedSpecies(db, {
     id: "SP-BLUE-WHALE",
@@ -501,12 +510,12 @@ test("movement signal listing supports confidence filters", () => {
     NOW - 5_000,
   );
 
-  const result = listSpeciesMovementSignals(
+  const result = await listSpeciesMovementSignals(
     "SP-BLUE-WHALE",
     {
       resolvePath: () => "test.sqlite",
       hasPath: () => true,
-      openReadOnly: () => db,
+      getAdapter: () => db as any,
       now: () => NOW,
     },
     { minConfidence: 70 },
@@ -518,7 +527,7 @@ test("movement signal listing supports confidence filters", () => {
   }
 });
 
-test("investigation species summary aggregates linked movement and sightings", () => {
+test("investigation species summary aggregates linked movement and sightings", async () => {
   const db = createInMemoryDb();
   seedInvestigation(db, "TRK-201");
   seedSpecies(db, {
@@ -561,10 +570,10 @@ test("investigation species summary aggregates linked movement and sightings", (
     movementType: "route_deviation",
   });
 
-  const result = getInvestigationSpeciesSummary("TRK-201", {
+  const result = await getInvestigationSpeciesSummary("TRK-201", {
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openReadOnly: () => db,
+    getAdapter: () => db as any,
     now: () => NOW,
   });
 
@@ -579,40 +588,40 @@ test("investigation species summary aggregates linked movement and sightings", (
   }
 });
 
-test("species repository fallback behavior when DB path missing", () => {
-  const listResult = listSpecies({}, {
-    resolvePath: () => "missing.sqlite",
-    hasPath: () => false,
-  });
-
-  assert.deepEqual(listResult, {
-    source: "mock",
-    fallbackReason: "db_path_missing",
-  });
-
-  const createResult = createSpeciesSighting(
-    {
-      speciesId: "SP-BLUE-WHALE",
-      region: "North Pacific",
-      latitude: 34.71,
-      longitude: -143.11,
-      count: 1,
-      source: "Acoustic buoy mesh",
-      summary: "Single individual logged.",
+test("species repository fallback behavior when DB path missing", async () => {
+  await assert.rejects(
+    async () => {
+      await listSpecies({}, {
+        resolvePath: () => "missing.sqlite",
+        hasPath: () => false,
+      });
     },
-    {
-      resolvePath: () => "missing.sqlite",
-      hasPath: () => false,
-    },
+    (err: Error) => err.message.includes("Database missing at missing.sqlite")
   );
 
-  assert.deepEqual(createResult, {
-    source: "mock",
-    fallbackReason: "db_path_missing",
-  });
+  await assert.rejects(
+    async () => {
+      await createSpeciesSighting(
+        {
+          speciesId: "SP-BLUE-WHALE",
+          region: "North Pacific",
+          latitude: 34.71,
+          longitude: -143.11,
+          count: 1,
+          source: "Acoustic buoy mesh",
+          summary: "Single individual logged.",
+        },
+        {
+          resolvePath: () => "missing.sqlite",
+          hasPath: () => false,
+        },
+      );
+    },
+    (err: Error) => err.message.includes("Database missing at missing.sqlite")
+  );
 });
 
-test("movement signal listing filters by movement type", () => {
+test("movement signal listing filters by movement type", async () => {
   const db = createInMemoryDb();
   seedInvestigation(db, "TRK-201");
   seedSpecies(db, {
@@ -635,12 +644,12 @@ test("movement signal listing filters by movement type", () => {
     movementType: "habitat_exit",
   });
 
-  const result = listSpeciesMovementSignals(
+  const result = await listSpeciesMovementSignals(
     "SP-BLUE-WHALE",
     {
       resolvePath: () => "test.sqlite",
       hasPath: () => true,
-      openReadOnly: () => db,
+      getAdapter: () => db as any,
       now: () => NOW,
     },
     { movementType: "route_deviation" },
@@ -652,7 +661,7 @@ test("movement signal listing filters by movement type", () => {
   }
 });
 
-test("movement signal listing filters by date range", () => {
+test("movement signal listing filters by date range", async () => {
   const db = createInMemoryDb();
   seedInvestigation(db, "TRK-201");
   seedSpecies(db, {
@@ -677,12 +686,12 @@ test("movement signal listing filters by date range", () => {
 
   const startDate = new Date(NOW - 3_600_000).toISOString();
 
-  const result = listSpeciesMovementSignals(
+  const result = await listSpeciesMovementSignals(
     "SP-BLUE-WHALE",
     {
       resolvePath: () => "test.sqlite",
       hasPath: () => true,
-      openReadOnly: () => db,
+      getAdapter: () => db as any,
       now: () => NOW,
     },
     { startDate },
@@ -694,7 +703,7 @@ test("movement signal listing filters by date range", () => {
   }
 });
 
-test("movement signal listing filters by station via signal join", () => {
+test("movement signal listing filters by station via signal join", async () => {
   const db = createInMemoryDb();
   seedInvestigation(db, "TRK-201");
   seedSpecies(db, {
@@ -751,12 +760,12 @@ test("movement signal listing filters by station via signal join", () => {
     NOW - 2_000,
   );
 
-  const result = listSpeciesMovementSignals(
+  const result = await listSpeciesMovementSignals(
     "SP-BLUE-WHALE",
     {
       resolvePath: () => "test.sqlite",
       hasPath: () => true,
-      openReadOnly: () => db,
+      getAdapter: () => db as any,
       now: () => NOW,
     },
     { stationId: "STA-NPC-01" },
@@ -768,7 +777,7 @@ test("movement signal listing filters by station via signal join", () => {
   }
 });
 
-test("movement signal listing filters by region via signal join", () => {
+test("movement signal listing filters by region via signal join", async () => {
   const db = createInMemoryDb();
   seedInvestigation(db, "TRK-201");
   seedSpecies(db, {
@@ -816,12 +825,12 @@ test("movement signal listing filters by region via signal join", () => {
     NOW - 1_500,
   );
 
-  const result = listSpeciesMovementSignals(
+  const result = await listSpeciesMovementSignals(
     "SP-BLUE-WHALE",
     {
       resolvePath: () => "test.sqlite",
       hasPath: () => true,
-      openReadOnly: () => db,
+      getAdapter: () => db as any,
       now: () => NOW,
     },
     { region: "North Pacific" },
@@ -833,7 +842,7 @@ test("movement signal listing filters by region via signal join", () => {
   }
 });
 
-test("createSpeciesSighting records verifiedBy for pending status (null)", () => {
+test("createSpeciesSighting records verifiedBy for pending status (null)", async () => {
   const db = createInMemoryDb();
   seedSpecies(db, {
     id: "SP-BLUE-WHALE",
@@ -843,7 +852,7 @@ test("createSpeciesSighting records verifiedBy for pending status (null)", () =>
     updatedAt: NOW,
   });
 
-  const result = createSpeciesSighting(
+  const result = await createSpeciesSighting(
     {
       speciesId: "SP-BLUE-WHALE",
       region: "North Pacific",
@@ -857,7 +866,7 @@ test("createSpeciesSighting records verifiedBy for pending status (null)", () =>
     {
       resolvePath: () => "test.sqlite",
       hasPath: () => true,
-      openWritable: () => db,
+      getAdapter: () => db as any,
       now: () => NOW,
     },
     "observer.user",
@@ -871,7 +880,7 @@ test("createSpeciesSighting records verifiedBy for pending status (null)", () =>
   }
 });
 
-test("createSpeciesSighting records verifiedBy for verified status", () => {
+test("createSpeciesSighting records verifiedBy for verified status", async () => {
   const db = createInMemoryDb();
   seedSpecies(db, {
     id: "SP-BLUE-WHALE",
@@ -881,7 +890,7 @@ test("createSpeciesSighting records verifiedBy for verified status", () => {
     updatedAt: NOW,
   });
 
-  const result = createSpeciesSighting(
+  const result = await createSpeciesSighting(
     {
       speciesId: "SP-BLUE-WHALE",
       region: "North Pacific",
@@ -895,7 +904,7 @@ test("createSpeciesSighting records verifiedBy for verified status", () => {
     {
       resolvePath: () => "test.sqlite",
       hasPath: () => true,
-      openWritable: () => db,
+      getAdapter: () => db as any,
       now: () => NOW,
     },
     "researcher.user",
@@ -909,7 +918,7 @@ test("createSpeciesSighting records verifiedBy for verified status", () => {
   }
 });
 
-test("createSpeciesSighting records verifiedBy for rejected status", () => {
+test("createSpeciesSighting records verifiedBy for rejected status", async () => {
   const db = createInMemoryDb();
   seedSpecies(db, {
     id: "SP-BLUE-WHALE",
@@ -919,7 +928,7 @@ test("createSpeciesSighting records verifiedBy for rejected status", () => {
     updatedAt: NOW,
   });
 
-  const result = createSpeciesSighting(
+  const result = await createSpeciesSighting(
     {
       speciesId: "SP-BLUE-WHALE",
       region: "North Pacific",
@@ -933,7 +942,7 @@ test("createSpeciesSighting records verifiedBy for rejected status", () => {
     {
       resolvePath: () => "test.sqlite",
       hasPath: () => true,
-      openWritable: () => db,
+      getAdapter: () => db as any,
       now: () => NOW,
     },
     "researcher.user",
@@ -947,10 +956,10 @@ test("createSpeciesSighting records verifiedBy for rejected status", () => {
   }
 });
 
-test("createSpeciesSighting returns not_found when species does not exist", () => {
+test("createSpeciesSighting returns not_found when species does not exist", async () => {
   const db = createInMemoryDb();
 
-  const result = createSpeciesSighting(
+  const result = await createSpeciesSighting(
     {
       speciesId: "SP-NONEXISTENT",
       region: "North Pacific",
@@ -963,7 +972,7 @@ test("createSpeciesSighting returns not_found when species does not exist", () =
     {
       resolvePath: () => "test.sqlite",
       hasPath: () => true,
-      openWritable: () => db,
+      getAdapter: () => db as any,
       now: () => NOW,
     },
   );

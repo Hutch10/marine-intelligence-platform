@@ -31,15 +31,21 @@ interface V1RegionRiskTrendResponse {
   summary: string;
 }
 
-export function buildV1RegionRiskTrendRouteResponse(
+function normalizeV1RiskLevel(
+  level: "low" | "medium" | "high" | "critical" | "unknown" | "insufficient_data" | "conflicting_signals",
+): "low" | "medium" | "high" | "critical" | "unknown" {
+  return level === "insufficient_data" || level === "conflicting_signals" ? "unknown" : level;
+}
+
+export async function buildV1RegionRiskTrendRouteResponse(
   regionId: string,
   buildInternalResponse: typeof buildRegionRiskTrendRouteResponse = buildRegionRiskTrendRouteResponse,
-): {
+): Promise<{
   status: 200 | 404 | 503;
   json: V1RegionRiskTrendResponse | { message: string };
   headers: Record<string, string>;
-} {
-  const response = buildInternalResponse(regionId);
+}> {
+  const response = await buildInternalResponse(regionId);
 
   if (response.status !== 200) {
     return {
@@ -58,7 +64,7 @@ export function buildV1RegionRiskTrendRouteResponse(
       regionName: internal.region_name,
       evaluatedAt: internal.computed_at,
       currentRisk: {
-        riskLevel: internal.current.risk_level,
+        riskLevel: normalizeV1RiskLevel(internal.current.risk_level),
         confidenceScore: internal.current.confidence_score,
       },
       trend: {
@@ -69,11 +75,11 @@ export function buildV1RegionRiskTrendRouteResponse(
       },
       forecast: {
         next12h: {
-          riskLevel: internal.forecast.next_12h.risk_level,
+          riskLevel: normalizeV1RiskLevel(internal.forecast.next_12h.risk_level),
           confidence: internal.forecast.next_12h.confidence,
         },
         next24h: {
-          riskLevel: internal.forecast.next_24h.risk_level,
+          riskLevel: normalizeV1RiskLevel(internal.forecast.next_24h.risk_level),
           confidence: internal.forecast.next_24h.confidence,
         },
       },
@@ -92,7 +98,7 @@ export const getV1RegionRiskTrendRoute: RouteDefinition<
 > = {
   method: "GET",
   path: "/v1/regions/:regionId/risk/trend",
-  handler(request) {
+  async handler(request) {
     return buildV1RegionRiskTrendRouteResponse(request.body.regionId);
   },
 };

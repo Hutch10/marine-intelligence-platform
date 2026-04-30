@@ -2349,6 +2349,7 @@ export interface RegionsResponse {
     status: string;
     summary: string;
     metrics: OceanMapRegionMetric[];
+    centroid?: { lat: number; lng: number } | null;
   }>;
   map: OceanMapWorkspaceData;
   systemIntegrity: SystemIntegrityStatus;

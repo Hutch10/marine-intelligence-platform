@@ -19,6 +19,7 @@ import {
   resolveDatabasePath,
   type SqliteDatabaseLike,
 } from "../db/client";
+import { getAsyncAdapter, type AsyncDbAdapter } from "../db/async-client";
 import {
   listLatestLiveIngestionStatusBySource,
   type LiveIngestionLatestStatusReadResult,
@@ -50,7 +51,7 @@ interface InternalRegionCoverageResponse {
 
 interface InternalRegionTopStationResponse {
   station_id: string;
-  risk_level: "low" | "medium" | "high" | "critical" | "unknown";
+  risk_level: "low" | "medium" | "high" | "critical" | "unknown" | "insufficient_data" | "conflicting_signals";
   confidence_score: number;
   weight: number;
   weighted_contribution: number;
@@ -59,7 +60,7 @@ interface InternalRegionTopStationResponse {
 
 interface InternalRegionStationResponse {
   station_id: string;
-  risk_level: "low" | "medium" | "high" | "critical" | "unknown";
+  risk_level: "low" | "medium" | "high" | "critical" | "unknown" | "insufficient_data" | "conflicting_signals";
   confidence_score: number;
   observed_at: string;
   neighbor_influence: "none" | "supporting" | "isolated" | "mixed";
@@ -71,7 +72,7 @@ export interface InternalRegionRiskScoreResponse {
   region_id: string;
   region_name: string;
   computed_at: string;
-  risk_level: "low" | "medium" | "high" | "critical" | "unknown";
+  risk_level: "low" | "medium" | "high" | "critical" | "unknown" | "insufficient_data" | "conflicting_signals";
   confidence_score: number;
   weighted_score: number;
   coverage: InternalRegionCoverageResponse;
@@ -118,8 +119,130 @@ interface RegionRiskRouteDependencies {
   now?: () => number;
 }
 
+type QueryableDb = Pick<SqliteDatabaseLike, "prepare">;
+
+interface TruthSurfaceValidation {
+  regionExists: boolean;
+  truthBackedStationIds: string[];
+}
+
 function normalizeRegionId(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function shouldRequireDbBackedTruthEntities(): boolean {
+  if (process.env.NODE_ENV !== "production") {
+    return false;
+  }
+
+  return String(process.env.MARINE_ALLOW_CONFIG_ONLY_TRUTH_ENTITIES ?? "false").trim().toLowerCase() !== "true";
+}
+
+function hasAnyRows(db: QueryableDb, sql: string, params: unknown[]): boolean {
+  try {
+    const rows = db.prepare(sql).all(...params) as Array<Record<string, unknown>>;
+    return rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function hasFieldTruthLineageEvidence(db: QueryableDb, stationId: string): boolean {
+  return hasAnyRows(
+    db,
+    `SELECT 1
+     FROM observations
+     WHERE station_id = ?
+       AND truth_partition = 'FIELD_TRUTH'
+       AND source IS NOT NULL
+       AND TRIM(source) <> ''
+       AND source_reference IS NOT NULL
+       AND TRIM(source_reference) <> ''
+     LIMIT 1`,
+    [stationId],
+  ) || hasAnyRows(
+    db,
+    `SELECT 1
+     FROM station_metrics
+     WHERE station_id = ?
+       AND truth_partition = 'FIELD_TRUTH'
+       AND source IS NOT NULL
+       AND TRIM(source) <> ''
+       AND source_reference IS NOT NULL
+       AND TRIM(source_reference) <> ''
+     LIMIT 1`,
+    [stationId],
+  ) || hasAnyRows(
+    db,
+    `SELECT 1
+     FROM derived_signals
+     WHERE station_id = ?
+       AND truth_partition = 'FIELD_TRUTH'
+       AND source IS NOT NULL
+       AND TRIM(source) <> ''
+       AND source_reference IS NOT NULL
+       AND TRIM(source_reference) <> ''
+     LIMIT 1`,
+    [stationId],
+  ) || hasAnyRows(
+    db,
+    `SELECT 1
+     FROM signal_detections
+     WHERE station_id = ?
+       AND truth_partition = 'FIELD_TRUTH'
+       AND source_type IS NOT NULL
+       AND TRIM(source_type) <> ''
+       AND source_id IS NOT NULL
+       AND TRIM(source_id) <> ''
+     LIMIT 1`,
+    [stationId],
+  );
+}
+
+function validateRegionTruthSurface(
+  db: QueryableDb,
+  region: MarineRegionConfig,
+): TruthSurfaceValidation {
+  const regionExists = hasAnyRows(
+    db,
+    "SELECT 1 FROM regions WHERE LOWER(id) = LOWER(?) LIMIT 1",
+    [region.id],
+  );
+
+  if (!regionExists) {
+    return { regionExists: false, truthBackedStationIds: [] };
+  }
+
+  const truthBackedStationIds = region.stationIds.filter((stationId) => {
+    const stationExists = hasAnyRows(
+      db,
+      `SELECT 1
+       FROM stations
+       WHERE id = ?
+         AND LOWER(region_id) = LOWER(?)
+       LIMIT 1`,
+      [stationId, region.id],
+    );
+
+    if (!stationExists) {
+      return false;
+    }
+
+    return hasFieldTruthLineageEvidence(db, stationId);
+  });
+
+  return {
+    regionExists: true,
+    truthBackedStationIds,
+  };
+}
+
+function normalizeSnapshotRiskLevel(
+  riskLevel: InternalRegionRiskScoreResponse["risk_level"],
+): "low" | "medium" | "high" | "critical" | "unknown" {
+  return riskLevel === "insufficient_data" || riskLevel === "conflicting_signals"
+    ? "unknown"
+    : riskLevel;
 }
 
 function toStationHealthMap(
@@ -147,11 +270,11 @@ function toRegionalCrwContextItem(item: CrwRiskHistoryItem) {
   };
 }
 
-function readRegionalCrwContext(
+async function readRegionalCrwContext(
   region: MarineRegionConfig,
   dependencies: RegionRiskRouteDependencies,
   nowMs: number,
-): RegionalCrwContextInput | null {
+): Promise<RegionalCrwContextInput | null> {
   if (!region.crwRegionKey) {
     return null;
   }
@@ -167,39 +290,46 @@ function readRegionalCrwContext(
   }
 
   let db: SqliteDatabaseLike;
+  let adapter: AsyncDbAdapter;
 
   try {
     db = openDatabase(dbPath);
+    adapter = getAsyncAdapter(false);
   } catch {
     return null;
   }
 
   try {
     const sinceObservedAt = nowMs - (REGION_CONTEXT_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
-    const history = readCrwHistory(db, sinceObservedAt, MAX_REGION_HISTORY_POINTS)
-      .filter((item) => item.regionKey === region.crwRegionKey)
+    const history = await readCrwHistory(adapter, sinceObservedAt, MAX_REGION_HISTORY_POINTS);
+    const filteredHistory = history
+      .filter((item: CrwRiskHistoryItem) => item.regionKey === region.crwRegionKey)
       .map(toRegionalCrwContextItem);
 
     return {
       regionKey: region.crwRegionKey,
-      current: history[0] ?? null,
-      historyCount: history.length,
+      current: filteredHistory[0] ?? null,
+      historyCount: filteredHistory.length,
     };
   } catch {
     return null;
   } finally {
-    db.close();
+    if (db) db.close();
+    if (adapter) await adapter.close();
   }
 }
 
-export function readRegionRiskSnapshot(
+export async function readRegionRiskSnapshot(
   regionId: string,
   dependencies: RegionRiskRouteDependencies = {},
-): ReadRegionRiskSnapshotResult {
+): Promise<ReadRegionRiskSnapshotResult> {
   const nowMs = (dependencies.now ?? Date.now)();
   const getRegionConfig = dependencies.getRegionConfig ?? getMarineRegionConfig;
   const readStationHistory = dependencies.readStationHistory ?? readObservationHistory;
   const buildStationRiskAnalysis = dependencies.buildStationRiskAnalysis ?? buildRiskAnalysis;
+  const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
+  const hasPath = dependencies.hasPath ?? hasDatabasePath;
+  const openDatabase = dependencies.openDatabase ?? openReadOnlyDatabase;
   const region = getRegionConfig(normalizeRegionId(regionId));
 
   if (!region) {
@@ -210,25 +340,70 @@ export function readRegionRiskSnapshot(
     };
   }
 
+  const enforceTruthSurfaceChecks = shouldRequireDbBackedTruthEntities();
+  let allowedStationIds = region.stationIds;
+
+  if (enforceTruthSurfaceChecks) {
+    const dbPath = resolvePath();
+
+    if (!hasPath(dbPath)) {
+      return {
+        ok: false,
+        status: 404,
+        message: `Unknown region ${regionId}`,
+      };
+    }
+
+    let db: SqliteDatabaseLike;
+
+    try {
+      db = openDatabase(dbPath);
+    } catch {
+      return {
+        ok: false,
+        status: 404,
+        message: `Unknown region ${regionId}`,
+      };
+    }
+
+    try {
+      const validation = validateRegionTruthSurface(db, region);
+
+      if (!validation.regionExists || validation.truthBackedStationIds.length === 0) {
+        return {
+          ok: false,
+          status: 404,
+          message: `Unknown region ${regionId}`,
+        };
+      }
+
+      allowedStationIds = validation.truthBackedStationIds;
+    } finally {
+      db.close();
+    }
+  }
+
   const stationHealthMap = toStationHealthMap(
     (dependencies.listLatestStatusBySource ?? listLatestLiveIngestionStatusBySource)(),
   );
 
   const stationAnalyses: RegionalStationRiskInput[] = [];
 
-  for (const stationId of region.stationIds) {
-    const historyResult = readStationHistory(stationId, REGION_BASELINE_WINDOW_DAYS);
+  for (const stationId of allowedStationIds) {
+    const historyResult = await readStationHistory(stationId, REGION_BASELINE_WINDOW_DAYS);
 
     if (!historyResult.ok) {
       continue;
     }
 
-    const analysis = buildStationRiskAnalysis(
+    const analysis = await buildStationRiskAnalysis(
       historyResult.current,
       historyResult.history,
       REGION_BASELINE_WINDOW_DAYS,
       historyResult.crwContext,
       historyResult.neighborContext,
+      historyResult.erddapContext,
+      historyResult.sourceAgreement,
     );
 
     stationAnalyses.push({
@@ -259,7 +434,7 @@ export function readRegionRiskSnapshot(
     ok: true,
     region,
     stationAnalyses,
-    crwContext: readRegionalCrwContext(region, dependencies, nowMs),
+    crwContext: await readRegionalCrwContext(region, dependencies, nowMs),
   };
 }
 
@@ -319,12 +494,12 @@ function mapRegionAggregateToInternalResponse(
   };
 }
 
-export function buildRegionRiskScoreRouteResponse(
+export async function buildRegionRiskScoreRouteResponse(
   regionId: string,
   dependencies: RegionRiskRouteDependencies = {},
-): { status: 200 | 404 | 503; json: InternalRegionRiskScoreResponse | { message: string } } {
+): Promise<{ status: 200 | 404 | 503; json: InternalRegionRiskScoreResponse | { message: string } }> {
   const computedAt = new Date((dependencies.now ?? Date.now)()).toISOString();
-  const snapshot = readRegionRiskSnapshot(regionId, dependencies);
+  const snapshot = await readRegionRiskSnapshot(regionId, dependencies);
 
   if (!snapshot.ok) {
     return {
@@ -332,13 +507,14 @@ export function buildRegionRiskScoreRouteResponse(
       json: { message: snapshot.message },
     };
   }
-  const aggregate = aggregateRegionalRisk(snapshot.stationAnalyses, {
-    regionId,
-    regionName: snapshot.regionName,
+  const aggregate = aggregateRegionalRisk({
+    region: snapshot.region,
+    stationAnalyses: snapshot.stationAnalyses,
+    crwContext: snapshot.crwContext,
     computedAt,
   });
 
-  const impact = calculateRegionalImpact(regionId, aggregate.weightedRegionalScore);
+  const impact = await calculateRegionalImpact(regionId, aggregate.weightedRegionalScore);
   
   const finalAggregate = {
     ...aggregate,
@@ -360,7 +536,7 @@ export function buildRegionRiskScoreRouteResponse(
     regionId: aggregate.regionId,
     regionName: aggregate.regionName,
     computedAt,
-    regionalRiskLevel: aggregate.regionalRiskLevel,
+    regionalRiskLevel: normalizeSnapshotRiskLevel(aggregate.regionalRiskLevel),
     regionalConfidence: aggregate.regionalConfidence,
     weightedRegionalScore: aggregate.weightedRegionalScore,
     healthyStationCount: aggregate.coverage.healthyStationCount,
@@ -384,7 +560,7 @@ export const getRegionRiskScoreRoute: RouteDefinition<
 > = {
   method: "GET",
   path: "/regions/:regionId/risk/score",
-  handler(request) {
+  async handler(request) {
     return buildRegionRiskScoreRouteResponse(request.body.regionId);
   },
 };

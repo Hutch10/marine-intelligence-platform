@@ -189,6 +189,8 @@ export function listStationAdminSessions(
           ip: metadata?.ip ?? null,
           userAgent: metadata?.userAgent ?? null,
           source: metadata?.source ?? null,
+          amr: ["pwd"],
+          acr: null,
         } satisfies StationAdminSessionSummary;
       }),
     };

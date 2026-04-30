@@ -28,7 +28,7 @@ export class SpeciesIntelligenceService {
     ecosystems: any[];
     evidence: any[];
   }> {
-    const speciesResult = getSpeciesById(speciesId);
+    const speciesResult = await getSpeciesById(speciesId);
     if (speciesResult.source !== "db" || speciesResult.result !== "found") {
       return {
         profile: null,

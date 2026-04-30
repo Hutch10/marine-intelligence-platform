@@ -1,8 +1,7 @@
 import {
-  openWritableDatabase,
   resolveDatabasePath,
-  type SqliteDatabaseLike,
 } from "../../db/client";
+import { getAsyncAdapter, type AsyncDbAdapter } from "../../db/async-client";
 import {
   fetchErddapData,
   resolveDefaultErddapBaseUrl,
@@ -87,13 +86,13 @@ export interface RunErddapIngestionResult {
 
 interface RunErddapIngestionDependencies {
   resolvePath?: typeof resolveDatabasePath;
-  openWritable?: typeof openWritableDatabase;
   now?: () => number;
   staleAfterMs?: number;
   sources?: ErddapSourceConfig[];
   fetchData?: (request: { baseUrl?: string; datasetId?: string; startTime?: string; endTime?: string }) => Promise<ErddapFetchResult>;
   parseData?: (body: string) => ErddapParseResult;
   mapData?: (records: ErddapParsedRecord[], sourceReference: string, fallbackRegionKey?: string) => ErddapMappedBatch;
+  getAdapter?: (readOnly?: boolean) => AsyncDbAdapter;
 }
 
 function parseCsv(value: string | undefined): string[] {
@@ -166,13 +165,13 @@ function hasAtLeastOneMeasurement(record: ErddapParsedRecord): boolean {
   );
 }
 
-export function validateErddapRecord(
+export async function validateErddapRecord(
   record: ErddapParsedRecord,
   now: number,
   staleAfterMs: number,
-  db: SqliteDatabaseLike,
+  adapter: AsyncDbAdapter,
   regionKey: string,
-): ErddapRejectReason | null {
+): Promise<ErddapRejectReason | null> {
   if (!record.stationId || record.observedAt === null || !hasAtLeastOneMeasurement(record)) {
     return "schema_drift";
   }
@@ -185,13 +184,13 @@ export function validateErddapRecord(
     return "impossible_values";
   }
 
-  if (observationExists(db, record.stationId, record.observedAt, ERDDAP_SOURCE)) {
+  if (await observationExists(adapter, record.stationId, record.observedAt, ERDDAP_SOURCE)) {
     return "duplicate_record";
   }
 
   if (
     (record.salinityPsu !== null
-      && stationMetricExists(db, {
+      && await stationMetricExists(adapter, {
         source: ERDDAP_SOURCE,
         stationId: record.stationId,
         regionKey,
@@ -199,7 +198,7 @@ export function validateErddapRecord(
         observedAt: record.observedAt,
       }))
     || (record.dissolvedOxygenMgL !== null
-      && stationMetricExists(db, {
+      && await stationMetricExists(adapter, {
         source: ERDDAP_SOURCE,
         stationId: record.stationId,
         regionKey,
@@ -207,7 +206,7 @@ export function validateErddapRecord(
         observedAt: record.observedAt,
       }))
     || (record.chlorophyllMgM3 !== null
-      && stationMetricExists(db, {
+      && await stationMetricExists(adapter, {
         source: ERDDAP_SOURCE,
         stationId: record.stationId,
         regionKey,
@@ -225,7 +224,6 @@ export async function runErddapIngestion(
   dependencies: RunErddapIngestionDependencies = {},
 ): Promise<RunErddapIngestionResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
-  const openWritable = dependencies.openWritable ?? openWritableDatabase;
   const nowFn = dependencies.now ?? Date.now;
   const staleAfterMs = dependencies.staleAfterMs ?? DEFAULT_STALE_AFTER_MS;
   const sources = (dependencies.sources ?? loadConfiguredErddapSources()).filter(
@@ -237,14 +235,16 @@ export async function runErddapIngestion(
 
   const startedAt = nowFn();
   const dbPath = resolvePath();
-  const db = openWritable(dbPath);
+  
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
+  const adapter = getAdapter(false);
 
-  ensureIngestionRunsTable(db);
-  ensureObservationsTable(db);
-  ensureStationMetricsTable(db);
-  ensureProvenanceRecordsTable(db);
+  await ensureIngestionRunsTable(adapter);
+  await ensureObservationsTable(adapter);
+  await ensureStationMetricsTable(adapter);
+  await ensureProvenanceRecordsTable(adapter);
 
-  const runId = createIngestionRun(db, {
+  const runId = await createIngestionRun(adapter, {
     source: ERDDAP_SOURCE,
     startedAt,
     stationCount: sources.length,
@@ -291,7 +291,7 @@ export async function runErddapIngestion(
 
       for (const record of candidateRecords) {
         const now = nowFn();
-        const rejection = validateErddapRecord(record, now, staleAfterMs, db, regionKey);
+        const rejection = await validateErddapRecord(record, now, staleAfterMs, adapter, regionKey);
 
         if (rejection) {
           rejectedRows += 1;
@@ -311,7 +311,7 @@ export async function runErddapIngestion(
         const mapped = mapData([record], fetched.sourceUrl, regionKey);
 
         for (const observation of mapped.observations) {
-          const observationId = insertObservation(db, {
+          const observationId = await insertObservation(adapter, {
             stationId: observation.stationId,
             source: observation.source,
             observedAt: observation.observedAt,
@@ -326,7 +326,7 @@ export async function runErddapIngestion(
             createdAt: now,
           });
 
-          insertProvenanceRecord(db, {
+          await insertProvenanceRecord(adapter, {
             ingestionRunId: runId,
             source: ERDDAP_SOURCE,
             sourceStationId: observation.stationId,
@@ -347,7 +347,7 @@ export async function runErddapIngestion(
 
         for (const metric of mapped.metrics) {
           if (
-            stationMetricExists(db, {
+            await stationMetricExists(adapter, {
               source: ERDDAP_SOURCE,
               stationId: metric.stationId,
               regionKey: metric.regionKey,
@@ -360,7 +360,7 @@ export async function runErddapIngestion(
             continue;
           }
 
-          const metricId = insertStationMetricRecord(db, {
+          const metricId = await insertStationMetricRecord(adapter, {
             stationId: metric.stationId,
             regionKey: metric.regionKey,
             metricType: metric.metricType,
@@ -374,7 +374,7 @@ export async function runErddapIngestion(
             createdAt: now,
           });
 
-          insertProvenanceRecord(db, {
+          await insertProvenanceRecord(adapter, {
             ingestionRunId: runId,
             source: ERDDAP_SOURCE,
             sourceStationId: metric.stationId,
@@ -398,7 +398,7 @@ export async function runErddapIngestion(
 
     const finishedAt = nowFn();
 
-    finalizeIngestionRun(db, {
+    await finalizeIngestionRun(adapter, {
       runId,
       status: "completed",
       finishedAt,
@@ -418,7 +418,7 @@ export async function runErddapIngestion(
   } catch (caught) {
     const failedAt = nowFn();
 
-    finalizeIngestionRun(db, {
+    await finalizeIngestionRun(adapter, {
       runId,
       status: "failed",
       finishedAt: failedAt,
@@ -437,6 +437,6 @@ export async function runErddapIngestion(
       error: caught instanceof Error ? caught.message : String(caught),
     };
   } finally {
-    db.close();
+    await adapter.close();
   }
 }

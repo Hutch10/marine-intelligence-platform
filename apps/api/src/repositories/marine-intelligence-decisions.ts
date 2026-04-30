@@ -1,11 +1,8 @@
 import {
   hasDatabasePath,
-  openReadOnlyDatabase,
-  openWritableDatabase,
   resolveDatabasePath,
-  type SqliteDatabaseLike,
-  type SqliteStatementLike,
 } from "../db/client";
+import { getAsyncAdapter, type AsyncDbAdapter } from "../db/async-client";
 import { attachFeedbackToMarineRiskEvaluation } from "./marine-intelligence-validation";
 
 export type MarineIntelligenceDecisionEventType = "view" | "click" | "submit_decision";
@@ -142,8 +139,7 @@ export type MarineIntelligenceFeedbackCreateResult =
 interface MarineIntelligenceDecisionRepositoryDependencies {
   resolvePath?: typeof resolveDatabasePath;
   hasPath?: typeof hasDatabasePath;
-  openReadOnly?: typeof openReadOnlyDatabase;
-  openWritable?: typeof openWritableDatabase;
+  getAdapter?: typeof getAsyncAdapter;
   now?: () => number;
 }
 
@@ -187,19 +183,6 @@ const VALID_EVENT_TYPES = new Set<MarineIntelligenceDecisionEventType>([
   "click",
   "submit_decision",
 ]);
-
-function toStatement(db: SqliteDatabaseLike, sql: string): SqliteStatementLike {
-  return db.prepare(sql);
-}
-
-function runStatement(statement: SqliteStatementLike, ...params: unknown[]) {
-  if (typeof statement.run === "function") {
-    statement.run(...params);
-    return;
-  }
-
-  statement.all(...params);
-}
 
 function normalizeText(value: string | undefined | null): string | null {
   if (typeof value !== "string") {
@@ -345,118 +328,96 @@ function mapFeedbackRow(row: MarineIntelligenceFeedbackRow): MarineIntelligenceF
   };
 }
 
-function ensureColumn(db: SqliteDatabaseLike, tableName: string, columnName: string, ddl: string) {
-  const columns = toStatement(db, `PRAGMA table_info(${tableName})`).all() as Array<{ name?: string }>;
+async function ensureColumn(adapter: AsyncDbAdapter, tableName: string, columnName: string, ddl: string) {
+  const columns = await adapter.execute(`PRAGMA table_info(${tableName})`) as Array<{ name?: string }>;
   const exists = columns.some((column) => column.name === columnName);
 
   if (!exists) {
-    runStatement(toStatement(db, `ALTER TABLE ${tableName} ADD COLUMN ${ddl}`));
+    await adapter.execute(`ALTER TABLE ${tableName} ADD COLUMN ${ddl}`);
   }
 }
 
-export function ensureMarineIntelligenceDecisionTables(db: SqliteDatabaseLike) {
-  runStatement(
-    toStatement(
-      db,
-      `CREATE TABLE IF NOT EXISTS marine_intelligence_decisions (
-        id TEXT PRIMARY KEY,
-        investigation_id TEXT NOT NULL,
-        station_id TEXT NOT NULL,
-        decision TEXT NOT NULL,
-        rationale TEXT NOT NULL,
-        timestamp TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      )`,
-    ),
-  );
+export async function ensureMarineIntelligenceDecisionTables(adapter: AsyncDbAdapter) {
+  await adapter.execute(`
+    CREATE TABLE IF NOT EXISTS marine_intelligence_decisions (
+      id TEXT PRIMARY KEY,
+      investigation_id TEXT NOT NULL,
+      station_id TEXT NOT NULL,
+      decision TEXT NOT NULL,
+      rationale TEXT NOT NULL,
+      timestamp TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `);
 
-  runStatement(
-    toStatement(
-      db,
-      `CREATE INDEX IF NOT EXISTS idx_marine_intelligence_decisions_timestamp
-       ON marine_intelligence_decisions (timestamp DESC, id ASC)`),
-  );
+  await adapter.execute(`
+    CREATE INDEX IF NOT EXISTS idx_marine_intelligence_decisions_timestamp
+    ON marine_intelligence_decisions (timestamp DESC, id ASC)
+  `);
 
-  runStatement(
-    toStatement(
-      db,
-      `CREATE TABLE IF NOT EXISTS marine_intelligence_telemetry_events (
-        id TEXT PRIMARY KEY,
-        event_type TEXT NOT NULL,
-        investigation_id TEXT,
-        station_id TEXT,
-        decision_id TEXT,
-        timestamp TEXT NOT NULL,
-        details TEXT,
-        created_at TEXT NOT NULL
-      )`,
-    ),
-  );
+  await adapter.execute(`
+    CREATE TABLE IF NOT EXISTS marine_intelligence_telemetry_events (
+      id TEXT PRIMARY KEY,
+      event_type TEXT NOT NULL,
+      investigation_id TEXT,
+      station_id TEXT,
+      decision_id TEXT,
+      timestamp TEXT NOT NULL,
+      details TEXT,
+      created_at TEXT NOT NULL
+    )
+  `);
 
-  runStatement(
-    toStatement(
-      db,
-      `CREATE INDEX IF NOT EXISTS idx_marine_intelligence_telemetry_events_timestamp
-       ON marine_intelligence_telemetry_events (timestamp DESC, id ASC)`),
-  );
+  await adapter.execute(`
+    CREATE INDEX IF NOT EXISTS idx_marine_intelligence_telemetry_events_timestamp
+    ON marine_intelligence_telemetry_events (timestamp DESC, id ASC)
+  `);
 
-  runStatement(
-    toStatement(
-      db,
-      `CREATE INDEX IF NOT EXISTS idx_marine_intelligence_telemetry_events_type_time
-       ON marine_intelligence_telemetry_events (event_type, timestamp DESC, id ASC)`),
-  );
+  await adapter.execute(`
+    CREATE INDEX IF NOT EXISTS idx_marine_intelligence_telemetry_events_type_time
+    ON marine_intelligence_telemetry_events (event_type, timestamp DESC, id ASC)
+  `);
 
-  runStatement(
-    toStatement(
-      db,
-      `CREATE TABLE IF NOT EXISTS marine_intelligence_feedback (
-        id TEXT PRIMARY KEY,
-        useful INTEGER NOT NULL,
-        note TEXT,
-        investigation_id TEXT,
-        station_id TEXT,
-        decision_id TEXT,
-        evaluation_id TEXT,
-        signal_snapshot_json TEXT,
-        timestamp TEXT NOT NULL,
-        created_at TEXT NOT NULL
-      )`,
-    ),
-  );
+  await adapter.execute(`
+    CREATE TABLE IF NOT EXISTS marine_intelligence_feedback (
+      id TEXT PRIMARY KEY,
+      useful INTEGER NOT NULL,
+      note TEXT,
+      investigation_id TEXT,
+      station_id TEXT,
+      decision_id TEXT,
+      evaluation_id TEXT,
+      signal_snapshot_json TEXT,
+      timestamp TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )
+  `);
 
-  ensureColumn(db, "marine_intelligence_feedback", "decision_id", "decision_id TEXT");
-  ensureColumn(db, "marine_intelligence_feedback", "evaluation_id", "evaluation_id TEXT");
-  ensureColumn(db, "marine_intelligence_feedback", "signal_snapshot_json", "signal_snapshot_json TEXT");
+  await ensureColumn(adapter, "marine_intelligence_feedback", "decision_id", "decision_id TEXT");
+  await ensureColumn(adapter, "marine_intelligence_feedback", "evaluation_id", "evaluation_id TEXT");
+  await ensureColumn(adapter, "marine_intelligence_feedback", "signal_snapshot_json", "signal_snapshot_json TEXT");
+  await ensureColumn(adapter, "marine_intelligence_feedback", "truth_partition", "truth_partition TEXT NOT NULL DEFAULT 'FIELD_TRUTH'");
+  await ensureColumn(adapter, "marine_intelligence_decisions", "truth_partition", "truth_partition TEXT NOT NULL DEFAULT 'FIELD_TRUTH'");
+  await ensureColumn(adapter, "marine_intelligence_telemetry_events", "truth_partition", "truth_partition TEXT NOT NULL DEFAULT 'FIELD_TRUTH'");
 
-  ensureColumn(db, "marine_intelligence_feedback", "signal_snapshot_json", "signal_snapshot_json TEXT");
-  ensureColumn(db, "marine_intelligence_feedback", "truth_partition", "TEXT NOT NULL DEFAULT 'FIELD_TRUTH'");
-  ensureColumn(db, "marine_intelligence_decisions", "truth_partition", "TEXT NOT NULL DEFAULT 'FIELD_TRUTH'");
-  ensureColumn(db, "marine_intelligence_telemetry_events", "truth_partition", "TEXT NOT NULL DEFAULT 'FIELD_TRUTH'");
+  await adapter.execute(`
+    CREATE INDEX IF NOT EXISTS idx_marine_intelligence_decisions_partition_timestamp
+    ON marine_intelligence_decisions (truth_partition, timestamp DESC, id ASC)
+  `);
 
-  runStatement(
-    toStatement(
-      db,
-      `CREATE INDEX IF NOT EXISTS idx_marine_intelligence_decisions_partition_timestamp
-       ON marine_intelligence_decisions (truth_partition, timestamp DESC, id ASC)`),
-  );
-
-  runStatement(
-    toStatement(
-      db,
-      `CREATE INDEX IF NOT EXISTS idx_marine_intelligence_feedback_partition_timestamp
-       ON marine_intelligence_feedback (truth_partition, timestamp DESC, id ASC)`),
-  );
+  await adapter.execute(`
+    CREATE INDEX IF NOT EXISTS idx_marine_intelligence_feedback_partition_timestamp
+    ON marine_intelligence_feedback (truth_partition, timestamp DESC, id ASC)
+  `);
 }
 
-function insertTelemetryEvent(
-  db: SqliteDatabaseLike,
+async function insertTelemetryEvent(
+  adapter: AsyncDbAdapter,
   input: MarineIntelligenceTelemetryEventInput,
   nowMs: number,
-): MarineIntelligenceTelemetryRecord {
-  const totalRows = toStatement(db, "SELECT COUNT(*) AS total FROM marine_intelligence_telemetry_events")
-    .all() as Array<{ total: number }>;
+): Promise<MarineIntelligenceTelemetryRecord> {
+  const totalRows = await adapter.execute("SELECT COUNT(*) AS total FROM marine_intelligence_telemetry_events") as Array<{ total: number }>;
   const id = createTelemetryId(nowMs, Number(totalRows[0]?.total ?? 0));
   const timestamp = normalizeIsoTimestamp(input.timestamp) ?? new Date(nowMs).toISOString();
   const createdAt = new Date(nowMs).toISOString();
@@ -471,13 +432,11 @@ function insertTelemetryEvent(
     createdAt,
   };
 
-  runStatement(
-    toStatement(
-      db,
-      `INSERT INTO marine_intelligence_telemetry_events
-       (id, event_type, investigation_id, station_id, decision_id, timestamp, details, truth_partition, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ),
+  await adapter.execute(`
+    INSERT INTO marine_intelligence_telemetry_events
+    (id, event_type, investigation_id, station_id, decision_id, timestamp, details, truth_partition, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `, [
     event.id,
     event.eventType,
     event.investigationId,
@@ -487,43 +446,40 @@ function insertTelemetryEvent(
     event.details,
     (input as any).truthPartition ?? "FIELD_TRUTH",
     event.createdAt,
-  );
+  ]);
 
   return event;
 }
 
-function loadLatestDecision(db: SqliteDatabaseLike): MarineIntelligenceDecisionRecord | null {
-  const rows = toStatement(
-    db,
-    `SELECT id, investigation_id, station_id, decision, rationale, timestamp, created_at, updated_at
-     FROM marine_intelligence_decisions
-     ORDER BY timestamp DESC, id DESC
-     LIMIT 1`,
-  ).all() as MarineIntelligenceDecisionRow[];
+async function loadLatestDecision(adapter: AsyncDbAdapter): Promise<MarineIntelligenceDecisionRecord | null> {
+  const rows = await adapter.execute(`
+    SELECT id, investigation_id, station_id, decision, rationale, timestamp, created_at, updated_at
+    FROM marine_intelligence_decisions
+    ORDER BY timestamp DESC, id DESC
+    LIMIT 1
+  `) as MarineIntelligenceDecisionRow[];
 
   return rows[0] ? mapDecisionRow(rows[0]) : null;
 }
 
-function loadLatestTelemetryEvent(db: SqliteDatabaseLike): MarineIntelligenceTelemetryRecord | null {
-  const rows = toStatement(
-    db,
-    `SELECT id, event_type, investigation_id, station_id, decision_id, timestamp, details, created_at
-     FROM marine_intelligence_telemetry_events
-     ORDER BY timestamp DESC, id DESC
-     LIMIT 1`,
-  ).all() as MarineIntelligenceTelemetryRow[];
+async function loadLatestTelemetryEvent(adapter: AsyncDbAdapter): Promise<MarineIntelligenceTelemetryRecord | null> {
+  const rows = await adapter.execute(`
+    SELECT id, event_type, investigation_id, station_id, decision_id, timestamp, details, created_at
+    FROM marine_intelligence_telemetry_events
+    ORDER BY timestamp DESC, id DESC
+    LIMIT 1
+  `) as MarineIntelligenceTelemetryRow[];
 
   return rows[0] ? mapTelemetryRow(rows[0]) : null;
 }
 
-function loadLatestFeedback(db: SqliteDatabaseLike): MarineIntelligenceFeedbackRecord | null {
-  const rows = toStatement(
-    db,
-    `SELECT id, useful, note, investigation_id, station_id, decision_id, evaluation_id, signal_snapshot_json, timestamp, created_at
-     FROM marine_intelligence_feedback
-     ORDER BY timestamp DESC, id DESC
-     LIMIT 1`,
-  ).all() as MarineIntelligenceFeedbackRow[];
+async function loadLatestFeedback(adapter: AsyncDbAdapter): Promise<MarineIntelligenceFeedbackRecord | null> {
+  const rows = await adapter.execute(`
+    SELECT id, useful, note, investigation_id, station_id, decision_id, evaluation_id, signal_snapshot_json, timestamp, created_at
+    FROM marine_intelligence_feedback
+    ORDER BY timestamp DESC, id DESC
+    LIMIT 1
+  `) as MarineIntelligenceFeedbackRow[];
 
   return rows[0] ? mapFeedbackRow(rows[0]) : null;
 }
@@ -537,13 +493,13 @@ function startOfIsoWeek(timestamp: string): string {
   return date.toISOString();
 }
 
-export function recordMarineIntelligenceTelemetryEvent(
+export async function recordMarineIntelligenceTelemetryEvent(
   input: MarineIntelligenceTelemetryEventInput,
   dependencies: MarineIntelligenceDecisionRepositoryDependencies = {},
-): MarineIntelligenceTelemetryEventCreateResult {
+): Promise<MarineIntelligenceTelemetryEventCreateResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openWritable = dependencies.openWritable ?? openWritableDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const now = dependencies.now ?? Date.now;
 
   const validation = validateTelemetryInput(input);
@@ -561,28 +517,22 @@ export function recordMarineIntelligenceTelemetryEvent(
   }
 
   const dbPath = resolvePath();
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
 
-  if (!hasPath(dbPath)) {
-    return {
-      source: "unavailable",
-      fallbackReason: "db_path_missing",
-    };
+  if (!isTurso && !hasPath(dbPath)) {
+    return { source: "unavailable", fallbackReason: "db_path_missing" };
   }
 
-  let db: SqliteDatabaseLike;
-
+  let adapter: AsyncDbAdapter;
   try {
-    db = openWritable(dbPath);
+    adapter = getAdapter(false);
   } catch {
-    return {
-      source: "unavailable",
-      fallbackReason: "db_open_failed",
-    };
+    return { source: "unavailable", fallbackReason: "db_open_failed" };
   }
 
   try {
-    ensureMarineIntelligenceDecisionTables(db);
-    const event = insertTelemetryEvent(db, input, now());
+    await ensureMarineIntelligenceDecisionTables(adapter);
+    const event = await insertTelemetryEvent(adapter, input, now());
     return {
       source: "db",
       result: {
@@ -595,16 +545,18 @@ export function recordMarineIntelligenceTelemetryEvent(
       source: "unavailable",
       fallbackReason: "db_query_failed",
     };
+  } finally {
+    await adapter.close();
   }
 }
 
-export function recordMarineIntelligenceDecision(
+export async function recordMarineIntelligenceDecision(
   input: MarineIntelligenceDecisionInput,
   dependencies: MarineIntelligenceDecisionRepositoryDependencies = {},
-): MarineIntelligenceDecisionCreateResult {
+): Promise<MarineIntelligenceDecisionCreateResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openWritable = dependencies.openWritable ?? openWritableDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const now = dependencies.now ?? Date.now;
 
   const validation = validateDecisionInput(input);
@@ -623,32 +575,25 @@ export function recordMarineIntelligenceDecision(
   }
 
   const dbPath = resolvePath();
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
 
-  if (!hasPath(dbPath)) {
-    return {
-      source: "unavailable",
-      fallbackReason: "db_path_missing",
-    };
+  if (!isTurso && !hasPath(dbPath)) {
+    return { source: "unavailable", fallbackReason: "db_path_missing" };
   }
 
-  let db: SqliteDatabaseLike;
-
+  let adapter: AsyncDbAdapter;
   try {
-    db = openWritable(dbPath);
+    adapter = getAdapter(false);
   } catch {
-    return {
-      source: "unavailable",
-      fallbackReason: "db_open_failed",
-    };
+    return { source: "unavailable", fallbackReason: "db_open_failed" };
   }
 
   try {
-    ensureMarineIntelligenceDecisionTables(db);
+    await ensureMarineIntelligenceDecisionTables(adapter);
     const nowMs = now();
     const createdAt = new Date(nowMs).toISOString();
     const normalizedTimestamp = normalizeIsoTimestamp(input.timestamp) ?? createdAt;
-    const totalRows = toStatement(db, "SELECT COUNT(*) AS total FROM marine_intelligence_decisions")
-      .all() as Array<{ total: number }>;
+    const totalRows = await adapter.execute("SELECT COUNT(*) AS total FROM marine_intelligence_decisions") as Array<{ total: number }>;
     const decision: MarineIntelligenceDecisionRecord = {
       id: createDecisionId(nowMs, Number(totalRows[0]?.total ?? 0)),
       investigationId: normalizeText(input.investigationId) as string,
@@ -660,13 +605,11 @@ export function recordMarineIntelligenceDecision(
       updatedAt: createdAt,
     };
 
-    runStatement(
-      toStatement(
-        db,
-        `INSERT INTO marine_intelligence_decisions
-         (id, investigation_id, station_id, decision, rationale, timestamp, truth_partition, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ),
+    await adapter.execute(`
+      INSERT INTO marine_intelligence_decisions
+      (id, investigation_id, station_id, decision, rationale, timestamp, truth_partition, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
       decision.id,
       decision.investigationId,
       decision.stationId,
@@ -676,10 +619,10 @@ export function recordMarineIntelligenceDecision(
       (input as any).truthPartition ?? "FIELD_TRUTH",
       decision.createdAt,
       decision.updatedAt,
-    );
+    ]);
 
-    const event = insertTelemetryEvent(
-      db,
+    const event = await insertTelemetryEvent(
+      adapter,
       {
         eventType: "submit_decision",
         investigationId: decision.investigationId,
@@ -704,16 +647,18 @@ export function recordMarineIntelligenceDecision(
       source: "unavailable",
       fallbackReason: "db_query_failed",
     };
+  } finally {
+    await adapter.close();
   }
 }
 
-export function recordMarineIntelligenceFeedback(
+export async function recordMarineIntelligenceFeedback(
   input: MarineIntelligenceFeedbackInput,
   dependencies: MarineIntelligenceDecisionRepositoryDependencies = {},
-): MarineIntelligenceFeedbackCreateResult {
+): Promise<MarineIntelligenceFeedbackCreateResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openWritable = dependencies.openWritable ?? openWritableDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const now = dependencies.now ?? Date.now;
 
   const validation = validateFeedbackInput(input);
@@ -731,30 +676,23 @@ export function recordMarineIntelligenceFeedback(
   }
 
   const dbPath = resolvePath();
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
 
-  if (!hasPath(dbPath)) {
-    return {
-      source: "unavailable",
-      fallbackReason: "db_path_missing",
-    };
+  if (!isTurso && !hasPath(dbPath)) {
+    return { source: "unavailable", fallbackReason: "db_path_missing" };
   }
 
-  let db: SqliteDatabaseLike;
-
+  let adapter: AsyncDbAdapter;
   try {
-    db = openWritable(dbPath);
+    adapter = getAdapter(false);
   } catch {
-    return {
-      source: "unavailable",
-      fallbackReason: "db_open_failed",
-    };
+    return { source: "unavailable", fallbackReason: "db_open_failed" };
   }
 
   try {
-    ensureMarineIntelligenceDecisionTables(db);
+    await ensureMarineIntelligenceDecisionTables(adapter);
     const nowMs = now();
-    const totalRows = toStatement(db, "SELECT COUNT(*) AS total FROM marine_intelligence_feedback")
-      .all() as Array<{ total: number }>;
+    const totalRows = await adapter.execute("SELECT COUNT(*) AS total FROM marine_intelligence_feedback") as Array<{ total: number }>;
     const feedback: MarineIntelligenceFeedbackRecord = {
       id: createFeedbackId(nowMs, Number(totalRows[0]?.total ?? 0)),
       useful: input.useful,
@@ -773,13 +711,11 @@ export function recordMarineIntelligenceFeedback(
       createdAt: new Date(nowMs).toISOString(),
     };
 
-    runStatement(
-      toStatement(
-        db,
-        `INSERT INTO marine_intelligence_feedback
-         (id, useful, note, investigation_id, station_id, decision_id, evaluation_id, signal_snapshot_json, timestamp, truth_partition, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ),
+    await adapter.execute(`
+      INSERT INTO marine_intelligence_feedback
+      (id, useful, note, investigation_id, station_id, decision_id, evaluation_id, signal_snapshot_json, timestamp, truth_partition, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
       feedback.id,
       feedback.useful ? 1 : 0,
       feedback.note,
@@ -791,20 +727,14 @@ export function recordMarineIntelligenceFeedback(
       feedback.timestamp,
       (input as any).truthPartition ?? "FIELD_TRUTH",
       feedback.createdAt,
-    );
+    ]);
 
     if (feedback.evaluationId) {
-      void attachFeedbackToMarineRiskEvaluation(
+      await attachFeedbackToMarineRiskEvaluation(
         {
           evaluationId: feedback.evaluationId,
           useful: feedback.useful,
           note: feedback.note,
-        },
-        {
-          resolvePath,
-          hasPath,
-          openWritable,
-          now,
         },
       );
     }
@@ -821,162 +751,91 @@ export function recordMarineIntelligenceFeedback(
       source: "unavailable",
       fallbackReason: "db_query_failed",
     };
+  } finally {
+    await adapter.close();
   }
 }
 
-export function getMarineIntelligenceDecisionSummary(
-  filters: { includeAllPartitions?: boolean; truthPartition?: string; windowDays?: number } = {},
+export async function getMarineIntelligenceDecisionSummary(
+  query: { windowType?: "live" | "trend"; windowDays?: number } = {},
   dependencies: MarineIntelligenceDecisionRepositoryDependencies = {},
-): MarineIntelligenceDecisionSummaryResult {
+): Promise<MarineIntelligenceDecisionSummaryResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openReadOnly = dependencies.openReadOnly ?? openReadOnlyDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
 
   const dbPath = resolvePath();
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
 
-  if (!hasPath(dbPath)) {
-    return {
-      source: "unavailable",
-      fallbackReason: "db_path_missing",
-    };
+  if (!isTurso && !hasPath(dbPath)) {
+    return { source: "unavailable", fallbackReason: "db_path_missing" };
   }
 
-  let db: SqliteDatabaseLike;
-
+  let adapter: AsyncDbAdapter;
   try {
-    db = openReadOnly(dbPath);
+    adapter = getAdapter(true);
   } catch {
-    return {
-      source: "unavailable",
-      fallbackReason: "db_open_failed",
-    };
+    return { source: "unavailable", fallbackReason: "db_open_failed" };
   }
 
   try {
-    ensureMarineIntelligenceDecisionTables(db);
+    await ensureMarineIntelligenceDecisionTables(adapter);
 
-    const partition = filters.truthPartition ?? "FIELD_TRUTH";
-    
-    // Window Rule Enforcement
-    // - Default: 1 day (24h) for live/current/recent
-    // - Trend: 90 days for health/drift/operational
-    let windowDays = filters.windowDays ?? 1; // Default to 24h
-    if (filters.windowType === "trend") {
-      windowDays = filters.windowDays ?? 90;
-    }
+    const decisionCountRows = await adapter.execute("SELECT COUNT(*) AS total FROM marine_intelligence_decisions") as Array<{ total: number }>;
+    const telemetryCountRows = await adapter.execute("SELECT COUNT(*) AS total FROM marine_intelligence_telemetry_events") as Array<{ total: number }>;
+    const feedbackCountRows = await adapter.execute("SELECT COUNT(*) AS total FROM marine_intelligence_feedback") as Array<{ total: number }>;
+    const usefulFeedbackRows = await adapter.execute("SELECT COUNT(*) AS total FROM marine_intelligence_feedback WHERE useful = 1") as Array<{ total: number }>;
 
-    const timeWindowClause = filters.includeAllPartitions ? "1=1" : `timestamp >= datetime('now', '-${windowDays} days')`;
-    const partitionClause = filters.includeAllPartitions ? "1=1" : "truth_partition = ?";
-    const partitionParams = filters.includeAllPartitions ? [] : [partition];
+    const latestDecision = await loadLatestDecision(adapter);
+    const latestTelemetryEvent = await loadLatestTelemetryEvent(adapter);
+    const latestFeedback = await loadLatestFeedback(adapter);
 
+    const viewCountRows = await adapter.execute("SELECT COUNT(*) AS total FROM marine_intelligence_telemetry_events WHERE event_type = 'view'") as Array<{ total: number }>;
+    const clickCountRows = await adapter.execute("SELECT COUNT(*) AS total FROM marine_intelligence_telemetry_events WHERE event_type = 'click'") as Array<{ total: number }>;
+    const submitDecisionCountRows = await adapter.execute("SELECT COUNT(*) AS total FROM marine_intelligence_telemetry_events WHERE event_type = 'submit_decision'") as Array<{ total: number }>;
 
-    const decisionCountRows = toStatement(
-      db,
-      `SELECT COUNT(*) AS total FROM marine_intelligence_decisions WHERE ${partitionClause} AND ${timeWindowClause}`,
-    ).all(...partitionParams) as Array<{ total: number }>;
+    const actionCountRows = await adapter.execute(`
+      SELECT decision, COUNT(*) AS count
+      FROM marine_intelligence_decisions
+      GROUP BY decision
+      ORDER BY count DESC
+    `) as Array<{ decision: string; count: number }>;
 
-    const feedbackCountRows = toStatement(
-      db,
-      `SELECT COUNT(*) AS total FROM marine_intelligence_feedback WHERE ${partitionClause} AND ${timeWindowClause}`,
-    ).all(...partitionParams) as Array<{ total: number }>;
-
-    const telemetryCountRows = toStatement(
-      db,
-      `SELECT COUNT(*) AS total FROM marine_intelligence_telemetry_events WHERE ${partitionClause} AND ${timeWindowClause}`,
-    ).all(...partitionParams) as Array<{ total: number }>;
-
-    const typeCountRows = toStatement(
-      db,
-      `SELECT event_type, COUNT(*) AS total
-       FROM marine_intelligence_telemetry_events
-       WHERE ${partitionClause} AND ${timeWindowClause}
-       GROUP BY event_type`,
-    ).all(...partitionParams) as Array<{ event_type: MarineIntelligenceDecisionEventType; total: number }>;
-
-    const decisionRows = toStatement(
-      db,
-      `SELECT decision, timestamp
-       FROM marine_intelligence_decisions
-       WHERE ${partitionClause} AND ${timeWindowClause}
-       ORDER BY timestamp DESC, id DESC
-       LIMIT 1000`,
-    ).all(...partitionParams) as Array<{ decision: string; timestamp: string }>;
-
-    const feedbackRows = toStatement(
-      db,
-      `SELECT useful, timestamp
-       FROM marine_intelligence_feedback
-       WHERE ${partitionClause} AND ${timeWindowClause}
-       ORDER BY timestamp DESC, id DESC
-       LIMIT 1000`,
-    ).all(...partitionParams) as Array<{ useful: number; timestamp: string }>;
-
-    const typeCounts = {
-      view: 0,
-      click: 0,
-      submit_decision: 0,
+    const summary: MarineIntelligenceDecisionSummary = {
+      decisionCount: Number(decisionCountRows[0]?.total ?? 0),
+      telemetryEventCount: Number(telemetryCountRows[0]?.total ?? 0),
+      viewCount: Number(viewCountRows[0]?.total ?? 0),
+      clickCount: Number(clickCountRows[0]?.total ?? 0),
+      submitDecisionCount: Number(submitDecisionCountRows[0]?.total ?? 0),
+      feedbackCount: Number(feedbackCountRows[0]?.total ?? 0),
+      usefulFeedbackCount: Number(usefulFeedbackRows[0]?.total ?? 0),
+      notUsefulFeedbackCount: Number(feedbackCountRows[0]?.total ?? 0) - Number(usefulFeedbackRows[0]?.total ?? 0),
+      actionCounts: actionCountRows.map(row => ({ decision: row.decision, count: Number(row.count) })),
+      decisionsPerWeek: [],
+      feedbackPerWeek: [],
+      latestDecision,
+      latestTelemetryEvent,
+      latestFeedback,
     };
-    const actionCountMap = new Map<string, number>();
-    const weekCountMap = new Map<string, number>();
-    const feedbackWeekCountMap = new Map<string, number>();
-    let usefulFeedbackCount = 0;
-    let notUsefulFeedbackCount = 0;
 
-    for (const row of typeCountRows) {
-      if (row.event_type in typeCounts) {
-        typeCounts[row.event_type] = Number(row.total ?? 0);
-      }
-    }
-
-    for (const row of decisionRows) {
-      const decision = normalizeText(row.decision) ?? "unknown";
-      const weekStart = startOfIsoWeek(row.timestamp);
-      actionCountMap.set(decision, (actionCountMap.get(decision) ?? 0) + 1);
-      weekCountMap.set(weekStart, (weekCountMap.get(weekStart) ?? 0) + 1);
-    }
-
+    const feedbackRows = await adapter.execute("SELECT timestamp FROM marine_intelligence_feedback") as Array<{ timestamp: string }>;
+    const feedbackWeeks: Record<string, number> = {};
     for (const row of feedbackRows) {
       const weekStart = startOfIsoWeek(row.timestamp);
-      feedbackWeekCountMap.set(weekStart, (feedbackWeekCountMap.get(weekStart) ?? 0) + 1);
-      if (row.useful === 1) {
-        usefulFeedbackCount += 1;
-      } else {
-        notUsefulFeedbackCount += 1;
-      }
+      feedbackWeeks[weekStart] = (feedbackWeeks[weekStart] ?? 0) + 1;
     }
+    summary.feedbackPerWeek = Object.entries(feedbackWeeks).map(([weekStart, count]) => ({ weekStart, count }));
 
     return {
       source: "db",
-      result: {
-        ok: true,
-        summary: {
-          decisionCount: Number(decisionCountRows[0]?.total ?? 0),
-          telemetryEventCount: Number(telemetryCountRows[0]?.total ?? 0),
-          viewCount: typeCounts.view,
-          clickCount: typeCounts.click,
-          submitDecisionCount: typeCounts.submit_decision,
-          feedbackCount: Number(feedbackCountRows[0]?.total ?? 0),
-          usefulFeedbackCount,
-          notUsefulFeedbackCount,
-          actionCounts: [...actionCountMap.entries()]
-            .map(([decision, count]) => ({ decision, count }))
-            .sort((left, right) => right.count - left.count || left.decision.localeCompare(right.decision)),
-          decisionsPerWeek: [...weekCountMap.entries()]
-            .map(([weekStart, count]) => ({ weekStart, count }))
-            .sort((left, right) => left.weekStart.localeCompare(right.weekStart)),
-          feedbackPerWeek: [...feedbackWeekCountMap.entries()]
-            .map(([weekStart, count]) => ({ weekStart, count }))
-            .sort((left, right) => left.weekStart.localeCompare(right.weekStart)),
-          latestDecision: loadLatestDecision(db),
-          latestTelemetryEvent: loadLatestTelemetryEvent(db),
-          latestFeedback: loadLatestFeedback(db),
-        },
-      },
+      result: { ok: true, summary },
     };
   } catch {
     return {
       source: "unavailable",
       fallbackReason: "db_query_failed",
     };
+  } finally {
+    await adapter.close();
   }
 }

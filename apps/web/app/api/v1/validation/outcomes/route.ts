@@ -1,13 +1,9 @@
-import { NextResponse } from "next/server";
+import type { RiskEvaluationOutcomeRequest } from "@marine/shared";
+import { requireApiKeyAuth, logApiUsageSafely } from "../../_auth";
+import { jsonPublicApiError, jsonPublicApiResponse } from "../../_responses";
+import { postValidationOutcomeRoute } from "../../../../../../api/src/routes/validation";
 
-export async function POST(_request: Request) {
-  return NextResponse.json(
-    { error: { code: "validation_outcome_unavailable", message: "Validation outcomes is disabled in this deployment." } },
-    { status: 503 }
-  );
-}
-
-async function _unused_POST(request: Request) {
+export async function POST(request: Request) {
   const startedAt = Date.now();
   const authResult = await requireApiKeyAuth(request);
 
@@ -26,7 +22,7 @@ async function _unused_POST(request: Request) {
     });
   }
 
-  const routeResponse = postValidationOutcomeRoute.handler({
+  const routeResponse = await postValidationOutcomeRoute.handler({
     auth: authResult.auth,
     body,
   });

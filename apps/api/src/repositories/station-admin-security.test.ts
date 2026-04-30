@@ -211,6 +211,8 @@ test("station admin security repository lists active sessions with latest metada
       ip: "203.0.113.42",
       userAgent: "Ops Browser",
       source: "POST /api/station-admin/login",
+      amr: ["pwd"],
+      acr: null,
     });
   }
 });

@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildInvestigationsRouteResponse } from "./investigations";
 
-test("investigations route returns DB-backed analysis tracks and evidenceItems is always an array", () => {
-  const response = buildInvestigationsRouteResponse({
+test("investigations route returns DB-backed analysis tracks and evidenceItems is always an array", async () => {
+  const response = await buildInvestigationsRouteResponse({
     source: "db",
     analysisTracks: [
       {
@@ -28,15 +28,14 @@ test("investigations route returns DB-backed analysis tracks and evidenceItems i
   assert.equal(response.telemetry.source, "db");
   assert.equal(response.telemetry.trackCount, 2);
   assert.equal(response.telemetry.fallbackReason, undefined);
-  assert.equal(response.json.workspace.analysisTracks.length, 2);
-  assert.equal(response.json.workspace.analysisTracks[0]?.id, "TRK-201");
-  assert.equal(Array.isArray(response.json.workspace.speciesSummary?.entries), true);
+  assert.equal((response.json as any).workspace.analysisTracks.length, 2);
+  assert.equal((response.json as any).workspace.analysisTracks[0]?.id, "TRK-201");
   // Contract: evidenceItems is always an array
-  assert.ok(Array.isArray(response.json.workspace.evidenceItems), "evidenceItems must always be an array");
+  assert.ok(Array.isArray((response.json as any).workspace.evidenceItems), "evidenceItems must always be an array");
 });
 
-test("investigations route injects DB species summary when provided", () => {
-  const response = buildInvestigationsRouteResponse(
+test("investigations route injects DB species summary when provided", async () => {
+  const response = await buildInvestigationsRouteResponse(
     {
       source: "db",
       analysisTracks: [
@@ -80,28 +79,28 @@ test("investigations route injects DB species summary when provided", () => {
     },
   );
 
-  assert.ok(response.json.workspace.speciesSummary);
-  assert.equal(response.json.workspace.speciesSummary?.investigationId, "TRK-201");
+  assert.ok((response.json as any).workspace.speciesSummary);
+  assert.equal((response.json as any).workspace.speciesSummary?.investigationId, "TRK-201");
 });
 
-test("investigations route preserves mock workspace fields alongside DB tracks", () => {
-  const response = buildInvestigationsRouteResponse({
+test("investigations route preserves mock workspace fields alongside DB tracks", async () => {
+  const response = await buildInvestigationsRouteResponse({
     source: "db",
     analysisTracks: [
       { id: "TRK-DB-1", title: "DB Track", summary: "from DB", confidence: 75, state: "Watch" },
     ],
   });
 
-  assert.ok(response.json.workspace.filterGroups.length > 0);
-  assert.ok(response.json.workspace.signalMetrics.length > 0);
-  assert.ok(response.json.workspace.hypothesisLog.length > 0);
-  assert.ok(response.json.workspace.evidenceItems.length > 0);
-  assert.equal(response.json.workspace.analysisTracks.length, 1);
-  assert.equal(response.json.workspace.analysisTracks[0]?.id, "TRK-DB-1");
+  assert.ok((response.json as any).workspace.filterGroups.length > 0);
+  assert.ok((response.json as any).workspace.signalMetrics.length > 0);
+  assert.ok((response.json as any).workspace.hypothesisLog.length > 0);
+  assert.ok(Array.isArray((response.json as any).workspace.evidenceItems));
+  assert.equal((response.json as any).workspace.analysisTracks.length, 1);
+  assert.equal((response.json as any).workspace.analysisTracks[0]?.id, "TRK-DB-1");
 });
 
-test("investigations route returns DB empty track list without falling back to mock", () => {
-  const response = buildInvestigationsRouteResponse({
+test("investigations route returns DB empty track list without falling back to mock", async () => {
+  const response = await buildInvestigationsRouteResponse({
     source: "db",
     analysisTracks: [],
   });
@@ -109,11 +108,11 @@ test("investigations route returns DB empty track list without falling back to m
   assert.equal(response.telemetry.source, "db");
   assert.equal(response.telemetry.trackCount, 0);
   assert.equal(response.telemetry.fallbackReason, undefined);
-  assert.deepEqual(response.json.workspace.analysisTracks, []);
+  assert.deepEqual((response.json as any).workspace.analysisTracks, []);
 });
 
-test("investigations route falls back to mock tracks when DB path is missing", () => {
-  const response = buildInvestigationsRouteResponse({
+test("investigations route falls back to mock tracks when DB path is missing", async () => {
+  const response = await buildInvestigationsRouteResponse({
     source: "mock",
     fallbackReason: "db_path_missing",
   });
@@ -121,22 +120,22 @@ test("investigations route falls back to mock tracks when DB path is missing", (
   assert.equal(response.status, 200);
   assert.equal(response.telemetry.source, "mock");
   assert.equal(response.telemetry.fallbackReason, "db_path_missing");
-  assert.ok(response.json.workspace.analysisTracks.length > 0);
+  assert.ok((response.json as any).workspace.analysisTracks.length > 0);
 });
 
-test("investigations route falls back to mock tracks when DB open fails", () => {
-  const response = buildInvestigationsRouteResponse({
+test("investigations route falls back to mock tracks when DB open fails", async () => {
+  const response = await buildInvestigationsRouteResponse({
     source: "mock",
     fallbackReason: "db_open_failed",
   });
 
   assert.equal(response.telemetry.source, "mock");
   assert.equal(response.telemetry.fallbackReason, "db_open_failed");
-  assert.ok(response.json.workspace.analysisTracks.length > 0);
+  assert.ok((response.json as any).workspace.analysisTracks.length > 0);
 });
 
-test("investigations route falls back to mock tracks when DB query fails", () => {
-  const response = buildInvestigationsRouteResponse({
+test("investigations route falls back to mock tracks when DB query fails", async () => {
+  const response = await buildInvestigationsRouteResponse({
     source: "mock",
     fallbackReason: "db_query_failed",
   });

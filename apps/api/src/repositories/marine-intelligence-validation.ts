@@ -8,18 +8,14 @@ import type {
 } from "@marine/shared";
 import {
   hasDatabasePath,
-  openReadOnlyDatabase,
-  openWritableDatabase,
   resolveDatabasePath,
-  type SqliteDatabaseLike,
-  type SqliteStatementLike,
 } from "../db/client";
+import { getAsyncAdapter, type AsyncDbAdapter } from "../db/async-client";
 
 interface MarineValidationRepositoryDependencies {
   resolvePath?: typeof resolveDatabasePath;
   hasPath?: typeof hasDatabasePath;
-  openReadOnly?: typeof openReadOnlyDatabase;
-  openWritable?: typeof openWritableDatabase;
+  getAdapter?: typeof getAsyncAdapter;
   now?: () => number;
 }
 
@@ -67,19 +63,6 @@ export type MarineRiskEvaluationOutcomeAttachResult =
 export type MarineRiskEvaluationListResult =
   | { source: "db"; result: { ok: true; evaluations: RiskEvaluationRecord[] } }
   | { source: "unavailable"; fallbackReason: "db_path_missing" | "db_open_failed" | "db_query_failed" };
-
-function toStatement(db: SqliteDatabaseLike, sql: string): SqliteStatementLike {
-  return db.prepare(sql);
-}
-
-function runStatement(statement: SqliteStatementLike, ...params: unknown[]) {
-  if (typeof statement.run === "function") {
-    statement.run(...params);
-    return;
-  }
-
-  statement.all(...params);
-}
 
 function normalizeText(value: string | null | undefined): string | null {
   if (typeof value !== "string") {
@@ -172,8 +155,8 @@ function validatePredictionInput(
     return { ok: false, error: "predictedAt must be a valid ISO timestamp" };
   }
 
-  if (!normalizeConfidence(input.confidenceScore)) {
-    return { ok: false, error: "confidenceScore must be a number between 0 and 1" };
+  if (typeof input.confidenceScore !== "number" || !Number.isFinite(input.confidenceScore)) {
+    return { ok: false, error: "confidenceScore must be a number" };
   }
 
   if (!normalizeText(input.operatorSummary)) {
@@ -209,103 +192,91 @@ function validateOutcomeInput(
   return { ok: true };
 }
 
-function ensureColumn(db: SqliteDatabaseLike, tableName: string, columnName: string, ddl: string) {
-  const columns = toStatement(db, `PRAGMA table_info(${tableName})`).all() as Array<{ name?: string }>;
+async function ensureColumn(adapter: AsyncDbAdapter, tableName: string, columnName: string, ddl: string) {
+  const columns = await adapter.execute(`PRAGMA table_info(${tableName})`) as Array<{ name?: string }>;
   const exists = columns.some((column) => column.name === columnName);
 
   if (!exists) {
-    runStatement(toStatement(db, `ALTER TABLE ${tableName} ADD COLUMN ${ddl}`));
+    await adapter.execute(`ALTER TABLE ${tableName} ADD COLUMN ${ddl}`);
   }
 }
 
-export function ensureMarineValidationTables(db: SqliteDatabaseLike) {
-  runStatement(
-    toStatement(
-      db,
-      `CREATE TABLE IF NOT EXISTS marine_intelligence_risk_evaluations (
-        id TEXT PRIMARY KEY,
-        station_id TEXT NOT NULL,
-        route TEXT NOT NULL,
-        api_key_id TEXT,
-        predicted_at TEXT NOT NULL,
-        predicted_risk_level TEXT NOT NULL,
-        recommendation_action TEXT,
-        recommendation_urgency TEXT,
-        confidence_score REAL NOT NULL,
-        calibration_adjusted_confidence_score REAL,
-        operator_summary TEXT NOT NULL,
-        warning_messages_json TEXT NOT NULL,
-        contributing_signals_json TEXT NOT NULL,
-        triggered_rules_json TEXT NOT NULL,
-        feedback_useful INTEGER,
-        feedback_note TEXT,
-        feedback_count INTEGER NOT NULL DEFAULT 0,
-        actual_outcome_observed_at TEXT,
-        actual_outcome_risk_level TEXT,
-        actual_outcome_classification TEXT,
-        actual_outcome_summary TEXT,
-        actual_outcome_source TEXT,
-        actual_outcome_notes TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      )`,
-    ),
-  );
+export async function ensureMarineValidationTables(adapter: AsyncDbAdapter) {
+  await adapter.execute(`
+    CREATE TABLE IF NOT EXISTS marine_intelligence_risk_evaluations (
+      id TEXT PRIMARY KEY,
+      station_id TEXT NOT NULL,
+      route TEXT NOT NULL,
+      api_key_id TEXT,
+      predicted_at TEXT NOT NULL,
+      predicted_risk_level TEXT NOT NULL,
+      recommendation_action TEXT,
+      recommendation_urgency TEXT,
+      confidence_score REAL NOT NULL,
+      calibration_adjusted_confidence_score REAL,
+      operator_summary TEXT NOT NULL,
+      warning_messages_json TEXT NOT NULL,
+      contributing_signals_json TEXT NOT NULL,
+      triggered_rules_json TEXT NOT NULL,
+      feedback_useful INTEGER,
+      feedback_note TEXT,
+      feedback_count INTEGER NOT NULL DEFAULT 0,
+      actual_outcome_observed_at TEXT,
+      actual_outcome_risk_level TEXT,
+      actual_outcome_classification TEXT,
+      actual_outcome_summary TEXT,
+      actual_outcome_source TEXT,
+      actual_outcome_notes TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `);
 
-  ensureColumn(db, "marine_intelligence_risk_evaluations", "api_key_id", "api_key_id TEXT");
-  ensureColumn(
-    db,
+  await ensureColumn(adapter, "marine_intelligence_risk_evaluations", "api_key_id", "api_key_id TEXT");
+  await ensureColumn(
+    adapter,
     "marine_intelligence_risk_evaluations",
     "calibration_adjusted_confidence_score",
     "calibration_adjusted_confidence_score REAL",
   );
-  ensureColumn(db, "marine_intelligence_risk_evaluations", "warning_messages_json", "warning_messages_json TEXT NOT NULL DEFAULT '[]'");
-  ensureColumn(db, "marine_intelligence_risk_evaluations", "feedback_useful", "feedback_useful INTEGER");
-  ensureColumn(db, "marine_intelligence_risk_evaluations", "feedback_note", "feedback_note TEXT");
-  ensureColumn(db, "marine_intelligence_risk_evaluations", "feedback_count", "feedback_count INTEGER NOT NULL DEFAULT 0");
-  ensureColumn(db, "marine_intelligence_risk_evaluations", "actual_outcome_observed_at", "actual_outcome_observed_at TEXT");
-  ensureColumn(db, "marine_intelligence_risk_evaluations", "actual_outcome_risk_level", "actual_outcome_risk_level TEXT");
-  ensureColumn(db, "marine_intelligence_risk_evaluations", "actual_outcome_classification", "actual_outcome_classification TEXT");
-  ensureColumn(db, "marine_intelligence_risk_evaluations", "actual_outcome_summary", "actual_outcome_summary TEXT");
-  ensureColumn(db, "marine_intelligence_risk_evaluations", "actual_outcome_source", "actual_outcome_source TEXT");
-  ensureColumn(db, "marine_intelligence_risk_evaluations", "actual_outcome_notes", "actual_outcome_notes TEXT");
+  await ensureColumn(adapter, "marine_intelligence_risk_evaluations", "warning_messages_json", "warning_messages_json TEXT NOT NULL DEFAULT '[]'");
+  await ensureColumn(adapter, "marine_intelligence_risk_evaluations", "feedback_useful", "feedback_useful INTEGER");
+  await ensureColumn(adapter, "marine_intelligence_risk_evaluations", "feedback_note", "feedback_note TEXT");
+  await ensureColumn(adapter, "marine_intelligence_risk_evaluations", "feedback_count", "feedback_count INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn(adapter, "marine_intelligence_risk_evaluations", "actual_outcome_observed_at", "actual_outcome_observed_at TEXT");
+  await ensureColumn(adapter, "marine_intelligence_risk_evaluations", "actual_outcome_risk_level", "actual_outcome_risk_level TEXT");
+  await ensureColumn(adapter, "marine_intelligence_risk_evaluations", "actual_outcome_classification", "actual_outcome_classification TEXT");
+  await ensureColumn(adapter, "marine_intelligence_risk_evaluations", "actual_outcome_summary", "actual_outcome_summary TEXT");
+  await ensureColumn(adapter, "marine_intelligence_risk_evaluations", "actual_outcome_source", "actual_outcome_source TEXT");
+  await ensureColumn(adapter, "marine_intelligence_risk_evaluations", "actual_outcome_notes", "actual_outcome_notes TEXT");
 
-  runStatement(
-    toStatement(
-      db,
-      `CREATE INDEX IF NOT EXISTS idx_marine_validation_predicted_at
-       ON marine_intelligence_risk_evaluations (predicted_at DESC, id DESC)`,
-    ),
-  );
-  runStatement(
-    toStatement(
-      db,
-      `CREATE INDEX IF NOT EXISTS idx_marine_validation_station_predicted_at
-       ON marine_intelligence_risk_evaluations (station_id, predicted_at DESC, id DESC)`,
-    ),
-  );
-  runStatement(
-    toStatement(
-      db,
-      `CREATE INDEX IF NOT EXISTS idx_marine_validation_outcome_classification
-       ON marine_intelligence_risk_evaluations (actual_outcome_classification, predicted_at DESC, id DESC)`,
-    ),
-  );
+  await adapter.execute(`
+    CREATE INDEX IF NOT EXISTS idx_marine_validation_predicted_at
+    ON marine_intelligence_risk_evaluations (predicted_at DESC, id DESC)
+  `);
+  await adapter.execute(`
+    CREATE INDEX IF NOT EXISTS idx_marine_validation_station_predicted_at
+    ON marine_intelligence_risk_evaluations (station_id, predicted_at DESC, id DESC)
+  `);
+  await adapter.execute(`
+    CREATE INDEX IF NOT EXISTS idx_marine_validation_outcome_classification
+    ON marine_intelligence_risk_evaluations (actual_outcome_classification, predicted_at DESC, id DESC)
+  `);
 }
 
-function getEvaluationById(db: SqliteDatabaseLike, evaluationId: string): RiskEvaluationRecord | null {
-  const rows = toStatement(
-    db,
+async function getEvaluationById(adapter: AsyncDbAdapter, evaluationId: string): Promise<RiskEvaluationRecord | null> {
+  const rows = await adapter.execute(
     `SELECT * FROM marine_intelligence_risk_evaluations WHERE id = ? LIMIT 1`,
-  ).all(evaluationId) as MarineRiskEvaluationRow[];
+    [evaluationId]
+  ) as MarineRiskEvaluationRow[];
 
   return rows[0] ? mapRow(rows[0]) : null;
 }
 
-export function recordMarineRiskEvaluationPrediction(
+export async function recordMarineRiskEvaluationPrediction(
   input: RiskEvaluationPredictionRequest,
   dependencies: MarineValidationRepositoryDependencies = {},
-): MarineRiskEvaluationPredictionCreateResult {
+): Promise<MarineRiskEvaluationPredictionCreateResult> {
   const validation = validatePredictionInput(input);
 
   if (!validation.ok) {
@@ -317,24 +288,24 @@ export function recordMarineRiskEvaluationPrediction(
 
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openWritable = dependencies.openWritable ?? openWritableDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const now = dependencies.now ?? Date.now;
   const dbPath = resolvePath();
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
 
-  if (!hasPath(dbPath)) {
+  if (!isTurso && !hasPath(dbPath)) {
     return { source: "unavailable", fallbackReason: "db_path_missing" };
   }
 
-  let db: SqliteDatabaseLike;
-
+  let adapter: AsyncDbAdapter;
   try {
-    db = openWritable(dbPath);
+    adapter = getAdapter(false);
   } catch {
     return { source: "unavailable", fallbackReason: "db_open_failed" };
   }
 
   try {
-    ensureMarineValidationTables(db);
+    await ensureMarineValidationTables(adapter);
     const nowMs = now();
     const createdAt = new Date(nowMs).toISOString();
     const evaluation: RiskEvaluationRecord = {
@@ -363,17 +334,15 @@ export function recordMarineRiskEvaluationPrediction(
       updatedAt: createdAt,
     };
 
-    runStatement(
-      toStatement(
-        db,
-        `INSERT INTO marine_intelligence_risk_evaluations (
-          id, station_id, route, api_key_id, predicted_at, predicted_risk_level, recommendation_action,
-          recommendation_urgency, confidence_score, calibration_adjusted_confidence_score, operator_summary,
-          warning_messages_json, contributing_signals_json, triggered_rules_json, feedback_useful, feedback_note,
-          feedback_count, actual_outcome_observed_at, actual_outcome_risk_level, actual_outcome_classification,
-          actual_outcome_summary, actual_outcome_source, actual_outcome_notes, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ),
+    await adapter.execute(`
+      INSERT INTO marine_intelligence_risk_evaluations (
+        id, station_id, route, api_key_id, predicted_at, predicted_risk_level, recommendation_action,
+        recommendation_urgency, confidence_score, calibration_adjusted_confidence_score, operator_summary,
+        warning_messages_json, contributing_signals_json, triggered_rules_json, feedback_useful, feedback_note,
+        feedback_count, actual_outcome_observed_at, actual_outcome_risk_level, actual_outcome_classification,
+        actual_outcome_summary, actual_outcome_source, actual_outcome_notes, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
       evaluation.id,
       evaluation.stationId,
       evaluation.route,
@@ -399,20 +368,20 @@ export function recordMarineRiskEvaluationPrediction(
       null,
       evaluation.createdAt,
       evaluation.updatedAt,
-    );
+    ]);
 
     return { source: "db", result: { ok: true, evaluation } };
   } catch {
     return { source: "unavailable", fallbackReason: "db_query_failed" };
   } finally {
-    db.close();
+    await adapter.close();
   }
 }
 
-export function attachMarineRiskEvaluationOutcome(
+export async function attachMarineRiskEvaluationOutcome(
   input: RiskEvaluationOutcomeRequest & { apiKeyId?: string | null },
   dependencies: MarineValidationRepositoryDependencies = {},
-): MarineRiskEvaluationOutcomeAttachResult {
+): Promise<MarineRiskEvaluationOutcomeAttachResult> {
   const validation = validateOutcomeInput(input);
 
   if (!validation.ok) {
@@ -424,25 +393,25 @@ export function attachMarineRiskEvaluationOutcome(
 
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openWritable = dependencies.openWritable ?? openWritableDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const now = dependencies.now ?? Date.now;
   const dbPath = resolvePath();
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
 
-  if (!hasPath(dbPath)) {
+  if (!isTurso && !hasPath(dbPath)) {
     return { source: "unavailable", fallbackReason: "db_path_missing" };
   }
 
-  let db: SqliteDatabaseLike;
-
+  let adapter: AsyncDbAdapter;
   try {
-    db = openWritable(dbPath);
+    adapter = getAdapter(false);
   } catch {
     return { source: "unavailable", fallbackReason: "db_open_failed" };
   }
 
   try {
-    ensureMarineValidationTables(db);
-    const existing = getEvaluationById(db, input.evaluationId);
+    await ensureMarineValidationTables(adapter);
+    const existing = await getEvaluationById(adapter, input.evaluationId);
 
     if (!existing) {
       return {
@@ -460,19 +429,17 @@ export function attachMarineRiskEvaluationOutcome(
 
     const updatedAt = new Date(now()).toISOString();
 
-    runStatement(
-      toStatement(
-        db,
-        `UPDATE marine_intelligence_risk_evaluations
-         SET actual_outcome_observed_at = ?,
-             actual_outcome_risk_level = ?,
-             actual_outcome_classification = ?,
-             actual_outcome_summary = ?,
-             actual_outcome_source = ?,
-             actual_outcome_notes = ?,
-             updated_at = ?
-         WHERE id = ?`,
-      ),
+    await adapter.execute(`
+      UPDATE marine_intelligence_risk_evaluations
+      SET actual_outcome_observed_at = ?,
+          actual_outcome_risk_level = ?,
+          actual_outcome_classification = ?,
+          actual_outcome_summary = ?,
+          actual_outcome_source = ?,
+          actual_outcome_notes = ?,
+          updated_at = ?
+      WHERE id = ?
+    `, [
       normalizeIsoTimestamp(input.observedAt),
       input.actualRiskLevel,
       input.classification,
@@ -481,9 +448,9 @@ export function attachMarineRiskEvaluationOutcome(
       normalizeText(input.notes ?? null),
       updatedAt,
       input.evaluationId,
-    );
+    ]);
 
-    const evaluation = getEvaluationById(db, input.evaluationId);
+    const evaluation = await getEvaluationById(adapter, input.evaluationId);
 
     if (!evaluation) {
       return {
@@ -496,11 +463,11 @@ export function attachMarineRiskEvaluationOutcome(
   } catch {
     return { source: "unavailable", fallbackReason: "db_query_failed" };
   } finally {
-    db.close();
+    await adapter.close();
   }
 }
 
-export function attachFeedbackToMarineRiskEvaluation(
+export async function attachFeedbackToMarineRiskEvaluation(
   input: {
     evaluationId: string;
     useful: boolean;
@@ -508,7 +475,7 @@ export function attachFeedbackToMarineRiskEvaluation(
     apiKeyId?: string | null;
   },
   dependencies: MarineValidationRepositoryDependencies = {},
-): MarineRiskEvaluationOutcomeAttachResult {
+): Promise<MarineRiskEvaluationOutcomeAttachResult> {
   const evaluationId = normalizeText(input.evaluationId);
 
   if (!evaluationId) {
@@ -520,25 +487,25 @@ export function attachFeedbackToMarineRiskEvaluation(
 
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openWritable = dependencies.openWritable ?? openWritableDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const now = dependencies.now ?? Date.now;
   const dbPath = resolvePath();
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
 
-  if (!hasPath(dbPath)) {
+  if (!isTurso && !hasPath(dbPath)) {
     return { source: "unavailable", fallbackReason: "db_path_missing" };
   }
 
-  let db: SqliteDatabaseLike;
-
+  let adapter: AsyncDbAdapter;
   try {
-    db = openWritable(dbPath);
+    adapter = getAdapter(false);
   } catch {
     return { source: "unavailable", fallbackReason: "db_open_failed" };
   }
 
   try {
-    ensureMarineValidationTables(db);
-    const existing = getEvaluationById(db, evaluationId);
+    await ensureMarineValidationTables(adapter);
+    const existing = await getEvaluationById(adapter, evaluationId);
 
     if (!existing) {
       return {
@@ -554,23 +521,21 @@ export function attachFeedbackToMarineRiskEvaluation(
       };
     }
 
-    runStatement(
-      toStatement(
-        db,
-        `UPDATE marine_intelligence_risk_evaluations
-         SET feedback_useful = ?,
-             feedback_note = ?,
-             feedback_count = COALESCE(feedback_count, 0) + 1,
-             updated_at = ?
-         WHERE id = ?`,
-      ),
+    await adapter.execute(`
+      UPDATE marine_intelligence_risk_evaluations
+      SET feedback_useful = ?,
+          feedback_note = ?,
+          feedback_count = COALESCE(feedback_count, 0) + 1,
+          updated_at = ?
+      WHERE id = ?
+    `, [
       input.useful ? 1 : 0,
       normalizeText(input.note ?? null),
       new Date(now()).toISOString(),
       evaluationId,
-    );
+    ]);
 
-    const evaluation = getEvaluationById(db, evaluationId);
+    const evaluation = await getEvaluationById(adapter, evaluationId);
 
     if (!evaluation) {
       return {
@@ -583,11 +548,11 @@ export function attachFeedbackToMarineRiskEvaluation(
   } catch {
     return { source: "unavailable", fallbackReason: "db_query_failed" };
   } finally {
-    db.close();
+    await adapter.close();
   }
 }
 
-export function listMarineRiskEvaluations(
+export async function listMarineRiskEvaluations(
   filters: {
     stationId?: string | null;
     since?: string | null;
@@ -595,27 +560,27 @@ export function listMarineRiskEvaluations(
     limit?: number | null;
   } = {},
   dependencies: MarineValidationRepositoryDependencies = {},
-): MarineRiskEvaluationListResult {
+): Promise<MarineRiskEvaluationListResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
-  const openReadOnly = dependencies.openReadOnly ?? openReadOnlyDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const now = dependencies.now ?? Date.now;
   const dbPath = resolvePath();
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
 
-  if (!hasPath(dbPath)) {
+  if (!isTurso && !hasPath(dbPath)) {
     return { source: "unavailable", fallbackReason: "db_path_missing" };
   }
 
-  let db: SqliteDatabaseLike;
-
+  let adapter: AsyncDbAdapter;
   try {
-    db = openReadOnly(dbPath);
+    adapter = getAdapter(true);
   } catch {
     return { source: "unavailable", fallbackReason: "db_open_failed" };
   }
 
   try {
-    ensureMarineValidationTables(db);
+    await ensureMarineValidationTables(adapter);
     const clauses: string[] = [];
     const params: unknown[] = [];
     const stationId = normalizeText(filters.stationId ?? null);
@@ -637,13 +602,12 @@ export function listMarineRiskEvaluations(
 
     const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
     const limitClause = filters.limit && filters.limit > 0 ? `LIMIT ${Math.floor(filters.limit)}` : "";
-    const rows = toStatement(
-      db,
-      `SELECT * FROM marine_intelligence_risk_evaluations
-       ${whereClause}
-       ORDER BY predicted_at DESC, id DESC
-       ${limitClause}`,
-    ).all(...params) as MarineRiskEvaluationRow[];
+    const rows = await adapter.execute(`
+      SELECT * FROM marine_intelligence_risk_evaluations
+      ${whereClause}
+      ORDER BY predicted_at DESC, id DESC
+      ${limitClause}
+    `, params) as MarineRiskEvaluationRow[];
 
     return {
       source: "db",
@@ -655,6 +619,6 @@ export function listMarineRiskEvaluations(
   } catch {
     return { source: "unavailable", fallbackReason: "db_query_failed" };
   } finally {
-    db.close();
+    await adapter.close();
   }
 }

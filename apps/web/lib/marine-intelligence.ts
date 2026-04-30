@@ -8,11 +8,17 @@ import {
   getMarineRegionConfig,
   listMarineRegionConfigs,
 } from "@marine/shared";
+import type { PlatformHealthOverview } from "@marine/shared";
+import { SystemIntegrityStatus } from "@/lib/integrity-constants";
 
 // ─── API base URL ─────────────────────────────────────────────────────────────
 
 function getApiBase(): string {
-  return (process.env.MARINE_API_BASE_URL ?? "http://localhost:4000").replace(/\/$/, "");
+  return (
+    process.env.NEXT_PUBLIC_MARINE_API_URL
+    ?? process.env.MARINE_API_BASE_URL
+    ?? "http://localhost:4000"
+  ).replace(/\/$/, "");
 }
 
 const FETCH_TIMEOUT_MS = 5000;
@@ -107,6 +113,12 @@ export interface V1RiskAssessment {
     quality: "high" | "medium" | "low";
     historicalDataPoints: number;
     coverageNote: string;
+  };
+  sovereignVerification?: {
+    status: IntegrityStatus;
+    claimId: string;
+    contradictions: string[];
+    verifiedAt: string;
   };
 }
 
@@ -281,6 +293,12 @@ export interface StationRiskPageData extends V1RiskAssessment {
     missingMetrics: string[];
     warning: string | null;
     actionability: string;
+  };
+  sovereignVerification?: {
+    status: IntegrityStatus;
+    claimId: string;
+    contradictions: string[];
+    verifiedAt: string;
   };
 }
 
@@ -697,8 +715,20 @@ function buildStationActionability(assessment: V1RiskAssessment): string {
 
 // ─── Region config helpers (static — no HTTP required) ───────────────────────
 
+function shouldSuppressConfigOnlyRegionsInTruthMode(): boolean {
+  if (process.env.NODE_ENV !== "production") {
+    return false;
+  }
+
+  return String(process.env.MARINE_ALLOW_CONFIG_ONLY_TRUTH_ENTITIES ?? "false").trim().toLowerCase() !== "true";
+}
+
 export function getMarineRegionForStation(stationId: string | null | undefined): MarineRegionLink | null {
   if (!stationId) {
+    return null;
+  }
+
+  if (shouldSuppressConfigOnlyRegionsInTruthMode()) {
     return null;
   }
 
@@ -709,6 +739,10 @@ export function getMarineRegionForStation(stationId: string | null | undefined):
 
 export function getMarineRegionByName(regionName: string | null | undefined): MarineRegionLink | null {
   if (!regionName) {
+    return null;
+  }
+
+  if (shouldSuppressConfigOnlyRegionsInTruthMode()) {
     return null;
   }
 
@@ -728,6 +762,23 @@ export function getSignalDetailHref(signal: SignalDetection): string | null {
 }
 
 // ─── Public data functions ────────────────────────────────────────────────────
+
+export async function getSystemHealth(): Promise<PlatformHealthOverview> {
+  const result = await fetchMarineApi<{ status?: string }>("/health");
+  const systemIntegrity = result.ok
+    ? SystemIntegrityStatus.NORMAL
+    : SystemIntegrityStatus.DEGRADED;
+
+  return {
+    overallStatus: systemIntegrity === SystemIntegrityStatus.NORMAL ? "healthy" : "degraded",
+    sources: [],
+    activeAlerts: 0,
+    updatedAt: new Date().toISOString(),
+    systemIntegrity,
+    partitionPurity: systemIntegrity === SystemIntegrityStatus.NORMAL ? "100.0%" : "0.0%",
+    partitionPurityRatio: systemIntegrity === SystemIntegrityStatus.NORMAL ? 1 : 0,
+  };
+}
 
 export async function getDashboardMarineSurfaceData(): Promise<DashboardMarineSurfaceData> {
   // CONTRACT-LEVEL FIX: Only emit investigation links if canonical investigation exists
@@ -808,12 +859,6 @@ export async function getDashboardMarineSurfaceData(): Promise<DashboardMarineSu
       tone: "warning",
     });
   }
-
-  notices.push({
-    title: "Removed from this dashboard",
-    detail: "Mission status, activity feeds, species summaries, and system-wide health badges are hidden until they are backed by the same live APIs as the risk surfaces.",
-    tone: "info",
-  });
 
   // Find a canonical investigation ID if available
   const canonicalInvestigation = Array.isArray(investigations) && investigations.length > 0 ? investigations[0] : null;
@@ -1006,6 +1051,7 @@ export async function getStationRiskAssessment(stationId: string): Promise<DataR
             : null,
         actionability: buildStationActionability(assessment),
       },
+      sovereignVerification: assessment.sovereignVerification,
     },
     message: null,
   };

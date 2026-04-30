@@ -175,9 +175,8 @@ test("dashboard page renders only live-backed marine surfaces and trust notices"
   const page = await DashboardPage();
   render(page);
 
-  expect(screen.getByText("This dashboard now shows only live-backed marine risk surfaces.")).toBeInTheDocument();
+  expect(screen.getByText("Live ocean conditions, signal detection, and reef stress monitoring.")).toBeInTheDocument();
   expect(screen.getByText("Station conditions are in fallback mode")).toBeInTheDocument();
-  expect(screen.queryByText("Intentionally Hidden Until Live-Backed")).not.toBeInTheDocument();
   expect(screen.queryByText("Species Activity")).not.toBeInTheDocument();
   expect(screen.queryByText("Active Missions")).not.toBeInTheDocument();
   expect(screen.queryByText("Recent Activity")).not.toBeInTheDocument();
@@ -214,7 +213,7 @@ test("dashboard page renders live conditions and reef stress panels", async () =
   const page = await DashboardPage();
   render(page);
 
-  expect(screen.getByText("Live Marine Conditions")).toBeInTheDocument();
+  expect(screen.getByText("Live Ocean Conditions")).toBeInTheDocument();
   expect(screen.getByText("46042")).toBeInTheDocument();
   expect(screen.getByText("Reef Stress Watch")).toBeInTheDocument();
   expect(screen.getByText("Alert Level 1")).toBeInTheDocument();

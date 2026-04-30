@@ -210,95 +210,95 @@ function appendMockAuditEntry(
   mockStationAdminAudits[stationId] = stationAuditLog.slice(0, 25);
 }
 
-function readDatabaseStations(): StationListReadResult {
+async function readDatabaseStations(): Promise<StationListReadResult> {
   try {
     const runtimeRequire = eval("require") as NodeRequire;
     const repository = runtimeRequire("../repositories/stations") as {
-      listStations: () => StationListReadResult;
+      listStations: () => Promise<StationListReadResult>;
     };
 
-    return repository.listStations();
+    return await repository.listStations();
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   }
 }
 
-function readDatabaseStationById(stationId: string): StationDetailReadResult {
+async function readDatabaseStationById(stationId: string): Promise<StationDetailReadResult> {
   try {
     const runtimeRequire = eval("require") as NodeRequire;
     const repository = runtimeRequire("../repositories/stations") as {
-      getStationById: (stationId: string) => StationDetailReadResult;
+      getStationById: (stationId: string) => Promise<StationDetailReadResult>;
     };
 
-    return repository.getStationById(stationId);
+    return await repository.getStationById(stationId);
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   }
 }
 
-function readDatabaseStationAnalytics(stationId: string): StationAnalyticsReadResult {
+async function readDatabaseStationAnalytics(stationId: string): Promise<StationAnalyticsReadResult> {
   try {
     const runtimeRequire = eval("require") as NodeRequire;
     const repository = runtimeRequire("../repositories/stations") as {
-      getStationAnalytics: (stationId: string) => StationAnalyticsReadResult;
+      getStationAnalytics: (stationId: string) => Promise<StationAnalyticsReadResult>;
     };
 
-    return repository.getStationAnalytics(stationId);
+    return await repository.getStationAnalytics(stationId);
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   }
 }
 
-function writeDatabaseStationView(
+async function writeDatabaseStationView(
   stationId: string,
   viewType: StationViewTrackResponse["viewType"],
-): StationViewTrackResult {
+): Promise<StationViewTrackResult> {
   try {
     const runtimeRequire = eval("require") as NodeRequire;
     const repository = runtimeRequire("../repositories/stations") as {
       recordStationPageView: (
         stationId: string,
         viewType: StationViewTrackResponse["viewType"],
-      ) => StationViewTrackResult;
+      ) => Promise<StationViewTrackResult>;
     };
 
-    return repository.recordStationPageView(stationId, viewType);
+    return await repository.recordStationPageView(stationId, viewType);
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   }
 }
 
-function readDatabaseStationAdmin(stationId: string): StationAdminReadResult {
+async function readDatabaseStationAdmin(stationId: string): Promise<StationAdminReadResult> {
   try {
     const runtimeRequire = eval("require") as NodeRequire;
     const repository = runtimeRequire("../repositories/stations") as {
-      getStationAdminById: (stationId: string) => StationAdminReadResult;
+      getStationAdminById: (stationId: string) => Promise<StationAdminReadResult>;
     };
 
-    return repository.getStationAdminById(stationId);
+    return await repository.getStationAdminById(stationId);
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   }
 }
 
-function readDatabaseStationAdminAudit(stationId: string): StationAdminAuditReadResult {
+async function readDatabaseStationAdminAudit(stationId: string): Promise<StationAdminAuditReadResult> {
   try {
     const runtimeRequire = eval("require") as NodeRequire;
     const repository = runtimeRequire("../repositories/stations") as {
-      getStationAdminAuditById: (stationId: string) => StationAdminAuditReadResult;
+      getStationAdminAuditById: (stationId: string) => Promise<StationAdminAuditReadResult>;
     };
 
-    return repository.getStationAdminAuditById(stationId);
+    return await repository.getStationAdminAuditById(stationId);
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   }
 }
 
-function writeDatabaseStationPatch(
+async function writeDatabaseStationPatch(
   stationId: string,
   patch: OceanStationAdminPatch,
   auth: StationAdminAuth | undefined,
-): StationAdminUpdateResult {
+): Promise<StationAdminUpdateResult> {
   try {
     const runtimeRequire = eval("require") as NodeRequire;
     const repository = runtimeRequire("../repositories/stations") as {
@@ -307,20 +307,20 @@ function writeDatabaseStationPatch(
         patch: OceanStationAdminPatch,
         dependencies?: unknown,
         auth?: StationAdminAuth,
-      ) => StationAdminUpdateResult;
+      ) => Promise<StationAdminUpdateResult>;
     };
 
-    return repository.updateStationAdmin(stationId, patch, undefined, auth);
+    return await repository.updateStationAdmin(stationId, patch, undefined, auth);
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   }
 }
 
-function writeDatabaseStationBrandingPatch(
+async function writeDatabaseStationBrandingPatch(
   stationId: string,
   patch: OceanStationAdminBrandingPatch,
   auth: StationAdminAuth | undefined,
-): StationAdminUpdateResult {
+): Promise<StationAdminUpdateResult> {
   try {
     const runtimeRequire = eval("require") as NodeRequire;
     const repository = runtimeRequire("../repositories/stations") as {
@@ -329,20 +329,20 @@ function writeDatabaseStationBrandingPatch(
         patch: OceanStationAdminBrandingPatch,
         dependencies?: unknown,
         auth?: StationAdminAuth,
-      ) => StationAdminUpdateResult;
+      ) => Promise<StationAdminUpdateResult>;
     };
 
-    return repository.updateStationBranding(stationId, patch, undefined, auth);
+    return await repository.updateStationBranding(stationId, patch, undefined, auth);
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   }
 }
 
-function writeDatabaseStationContentPatch(
+async function writeDatabaseStationContentPatch(
   stationId: string,
   patch: OceanStationAdminContentPatch,
   auth: StationAdminAuth | undefined,
-): StationAdminUpdateResult {
+): Promise<StationAdminUpdateResult> {
   try {
     const runtimeRequire = eval("require") as NodeRequire;
     const repository = runtimeRequire("../repositories/stations") as {
@@ -351,10 +351,10 @@ function writeDatabaseStationContentPatch(
         patch: OceanStationAdminContentPatch,
         dependencies?: unknown,
         auth?: StationAdminAuth,
-      ) => StationAdminUpdateResult;
+      ) => Promise<StationAdminUpdateResult>;
     };
 
-    return repository.updateStationContent(stationId, patch, undefined, auth);
+    return await repository.updateStationContent(stationId, patch, undefined, auth);
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   }
@@ -489,9 +489,10 @@ function findMockStationAnalyticsById(stationId: string): OceanStationAnalyticsR
   return apiMockData.oceanStationAnalytics[station.id] ?? null;
 }
 
-export function buildStationsRouteResponse(
-  readResult = readDatabaseStations(),
-): { status: 200; json: OceanStationsResponse; telemetry: OceanStationsTelemetry } {
+export async function buildStationsRouteResponse(
+  readResultPromise = readDatabaseStations(),
+): Promise<{ status: 200; json: OceanStationsResponse; telemetry: OceanStationsTelemetry }> {
+  const readResult = await readResultPromise;
   const stations =
     readResult.source === "db" ? readResult.stations : apiMockData.oceanStationsData;
 
@@ -508,14 +509,15 @@ export function buildStationsRouteResponse(
   };
 }
 
-export function buildStationDetailRouteResponse(
+export async function buildStationDetailRouteResponse(
   stationId: string,
-  readResult = readDatabaseStationById(stationId),
-): {
+  readResultPromise = readDatabaseStationById(stationId),
+): Promise<{
   status: 200 | 404;
   json: StationDetailResponse | { message: string };
   telemetry: OceanStationDetailTelemetry;
-} {
+}> {
+  const readResult = await readResultPromise;
   if (readResult.source === "db") {
     if (readResult.result === "found") {
       return {
@@ -571,15 +573,15 @@ export function buildStationDetailRouteResponse(
   };
 }
 
-export function buildStationAdminRouteResponse(
+export async function buildStationAdminRouteResponse(
   stationId: string,
   auth: StationAdminAuth | undefined,
-  readResult = readDatabaseStationAdmin(stationId),
-): {
+  readResultPromise = readDatabaseStationAdmin(stationId),
+): Promise<{
   status: 200 | 403 | 404;
   json: OceanStationAdminResponse | { message: string };
   telemetry: OceanStationAdminTelemetry;
-} {
+}> {
   if (!hasPermission(auth, "station.view_admin")) {
     return {
       status: 403,
@@ -593,6 +595,7 @@ export function buildStationAdminRouteResponse(
     };
   }
 
+  const readResult = await readResultPromise;
   if (readResult.source === "db") {
     if (readResult.result === "found") {
       return {
@@ -648,15 +651,15 @@ export function buildStationAdminRouteResponse(
   };
 }
 
-export function buildStationAdminAuditRouteResponse(
+export async function buildStationAdminAuditRouteResponse(
   stationId: string,
   auth: StationAdminAuth | undefined,
-  readResult = readDatabaseStationAdminAudit(stationId),
-): {
+  readResultPromise = readDatabaseStationAdminAudit(stationId),
+): Promise<{
   status: 200 | 403 | 404;
   json: OceanStationAdminAuditResponse | { message: string };
   telemetry: OceanStationAdminAuditTelemetry;
-} {
+}> {
   if (!hasPermission(auth, "station.view_audit")) {
     return {
       status: 403,
@@ -670,6 +673,7 @@ export function buildStationAdminAuditRouteResponse(
     };
   }
 
+  const readResult = await readResultPromise;
   if (readResult.source === "db") {
     if (readResult.result === "found") {
       return {
@@ -729,17 +733,17 @@ export function buildStationAdminAuditRouteResponse(
   };
 }
 
-export function buildStationPatchRouteResponse(
+export async function buildStationPatchRouteResponse(
   stationId: string,
   patch: OceanStationAdminPatch,
   auth: StationAdminAuth | undefined,
-  updateResult = writeDatabaseStationPatch(stationId, patch, auth),
+  updateResultPromise = writeDatabaseStationPatch(stationId, patch, auth),
   submittedCsrfToken = auth?.csrfToken,
-): {
+): Promise<{
   status: 200 | 400 | 403 | 404;
   json: StationPatchResponse | { message: string };
   telemetry: StationPatchTelemetry;
-} {
+}> {
   if (!hasValidCsrfToken(auth, submittedCsrfToken)) {
     return {
       status: 403,
@@ -798,6 +802,7 @@ export function buildStationPatchRouteResponse(
     };
   }
 
+  const updateResult = await updateResultPromise;
   if (updateResult.source === "db") {
     if (updateResult.result === "updated") {
       return {
@@ -874,17 +879,17 @@ export function buildStationPatchRouteResponse(
   };
 }
 
-export function buildStationBrandingPatchRouteResponse(
+export async function buildStationBrandingPatchRouteResponse(
   stationId: string,
   patch: OceanStationAdminBrandingPatch,
   auth: StationAdminAuth | undefined,
-  updateResult = writeDatabaseStationBrandingPatch(stationId, patch, auth),
+  updateResultPromise = writeDatabaseStationBrandingPatch(stationId, patch, auth),
   submittedCsrfToken = auth?.csrfToken,
-): {
+): Promise<{
   status: 200 | 400 | 403 | 404;
   json: StationPatchResponse | { message: string };
   telemetry: StationPatchTelemetry;
-} {
+}> {
   if (!hasPermission(auth, "station.edit_branding")) {
     return {
       status: 403,
@@ -898,11 +903,11 @@ export function buildStationBrandingPatchRouteResponse(
     };
   }
 
-  const response = buildStationPatchRouteResponse(
+  const response = await buildStationPatchRouteResponse(
     stationId,
     patch,
     auth,
-    updateResult,
+    updateResultPromise,
     submittedCsrfToken,
   );
 
@@ -915,17 +920,17 @@ export function buildStationBrandingPatchRouteResponse(
   };
 }
 
-export function buildStationContentPatchRouteResponse(
+export async function buildStationContentPatchRouteResponse(
   stationId: string,
   patch: OceanStationAdminContentPatch,
   auth: StationAdminAuth | undefined,
-  updateResult = writeDatabaseStationContentPatch(stationId, patch, auth),
+  updateResultPromise = writeDatabaseStationContentPatch(stationId, patch, auth),
   submittedCsrfToken = auth?.csrfToken,
-): {
+): Promise<{
   status: 200 | 400 | 403 | 404;
   json: StationPatchResponse | { message: string };
   telemetry: StationPatchTelemetry;
-} {
+}> {
   if (!hasPermission(auth, "station.edit_content")) {
     return {
       status: 403,
@@ -939,11 +944,11 @@ export function buildStationContentPatchRouteResponse(
     };
   }
 
-  const response = buildStationPatchRouteResponse(
+  const response = await buildStationPatchRouteResponse(
     stationId,
     patch,
     auth,
-    updateResult,
+    updateResultPromise,
     submittedCsrfToken,
   );
 
@@ -956,14 +961,15 @@ export function buildStationContentPatchRouteResponse(
   };
 }
 
-export function buildStationAnalyticsRouteResponse(
+export async function buildStationAnalyticsRouteResponse(
   stationId: string,
-  readResult = readDatabaseStationAnalytics(stationId),
-): {
+  readResultPromise = readDatabaseStationAnalytics(stationId),
+): Promise<{
   status: 200 | 404;
   json: OceanStationAnalyticsResponse | { message: string };
   telemetry: OceanStationAnalyticsTelemetry;
-} {
+}> {
+  const readResult = await readResultPromise;
   if (readResult.source === "db") {
     if (readResult.result === "found") {
       return {
@@ -1019,15 +1025,15 @@ export function buildStationAnalyticsRouteResponse(
   };
 }
 
-export function buildStationViewTrackRouteResponse(
+export async function buildStationViewTrackRouteResponse(
   stationId: string,
   viewType: StationViewTrackRequest["viewType"],
-  trackResult = writeDatabaseStationView(stationId, viewType),
-): {
+  trackResultPromise = writeDatabaseStationView(stationId, viewType),
+): Promise<{
   status: 200 | 400 | 404;
   json: StationViewTrackResponse | { message: string };
   telemetry: StationViewTrackTelemetry;
-} {
+}> {
   if (viewType !== "detail" && viewType !== "exhibit" && viewType !== "public") {
     return {
       status: 400,
@@ -1043,6 +1049,7 @@ export function buildStationViewTrackRouteResponse(
     };
   }
 
+  const trackResult = await trackResultPromise;
   if (trackResult.source === "db") {
     if (trackResult.result === "recorded") {
       return {
@@ -1098,8 +1105,8 @@ export function buildStationViewTrackRouteResponse(
 export const getStationsRoute: RouteDefinition<OceanStationsResponse> = {
   method: "GET",
   path: "/stations",
-  handler() {
-    return buildStationsRouteResponse();
+  async handler() {
+    return await buildStationsRouteResponse();
   },
 };
 
@@ -1109,9 +1116,9 @@ export const getStationByIdRoute: RouteDefinition<
 > = {
   method: "GET",
   path: "/stations/:id",
-  handler(request) {
+  async handler(request) {
     const stationId = request.body.id;
-    return buildStationDetailRouteResponse(stationId);
+    return await buildStationDetailRouteResponse(stationId);
   },
 };
 
@@ -1121,8 +1128,8 @@ export const getStationAdminRoute: RouteDefinition<
 > = {
   method: "GET",
   path: "/stations/:id/admin",
-  handler(request) {
-    return buildStationAdminRouteResponse(request.body.id, request.auth);
+  async handler(request) {
+    return await buildStationAdminRouteResponse(request.body.id, request.auth);
   },
 };
 
@@ -1132,8 +1139,8 @@ export const getStationAdminAuditRoute: RouteDefinition<
 > = {
   method: "GET",
   path: "/stations/:id/admin/audit",
-  handler(request) {
-    return buildStationAdminAuditRouteResponse(request.body.id, request.auth);
+  async handler(request) {
+    return await buildStationAdminAuditRouteResponse(request.body.id, request.auth);
   },
 };
 
@@ -1143,8 +1150,8 @@ export const patchStationRoute: RouteDefinition<
 > = {
   method: "PATCH",
   path: "/stations/:id",
-  handler(request) {
-    return buildStationPatchRouteResponse(
+  async handler(request) {
+    return await buildStationPatchRouteResponse(
       request.body.id,
       request.body.patch,
       request.auth,
@@ -1160,8 +1167,8 @@ export const patchStationBrandingRoute: RouteDefinition<
 > = {
   method: "PATCH",
   path: "/stations/:id/branding",
-  handler(request) {
-    return buildStationBrandingPatchRouteResponse(
+  async handler(request) {
+    return await buildStationBrandingPatchRouteResponse(
       request.body.id,
       request.body.patch,
       request.auth,
@@ -1177,8 +1184,8 @@ export const patchStationContentRoute: RouteDefinition<
 > = {
   method: "PATCH",
   path: "/stations/:id/content",
-  handler(request) {
-    return buildStationContentPatchRouteResponse(
+  async handler(request) {
+    return await buildStationContentPatchRouteResponse(
       request.body.id,
       request.body.patch,
       request.auth,
@@ -1194,8 +1201,8 @@ export const getStationAnalyticsRoute: RouteDefinition<
 > = {
   method: "GET",
   path: "/stations/:id/analytics",
-  handler(request) {
-    return buildStationAnalyticsRouteResponse(request.body.id);
+  async handler(request) {
+    return await buildStationAnalyticsRouteResponse(request.body.id);
   },
 };
 
@@ -1205,8 +1212,8 @@ export const postStationViewRoute: RouteDefinition<
 > = {
   method: "POST",
   path: "/stations/:id/views",
-  handler(request) {
-    return buildStationViewTrackRouteResponse(request.body.id, request.body.viewType);
+  async handler(request) {
+    return await buildStationViewTrackRouteResponse(request.body.id, request.body.viewType);
   },
 };
 
@@ -1221,11 +1228,11 @@ type StationAlertAcknowledgeReadResult =
   | { source: "db"; result: "not_found" }
   | { source: "mock"; fallbackReason: OceanStationsFallbackReason };
 
-function writeAcknowledgeAlert(
+async function writeAcknowledgeAlert(
   stationId: string,
   alertId: string,
   actorId: string,
-): StationAlertAcknowledgeReadResult {
+): Promise<StationAlertAcknowledgeReadResult> {
   try {
     const runtimeRequire = eval("require") as NodeRequire;
     const repository = runtimeRequire("../repositories/stations") as {
@@ -1233,25 +1240,26 @@ function writeAcknowledgeAlert(
         stationIdOrSlug: string,
         alertId: string,
         actorId: string,
-      ) => StationAlertAcknowledgeReadResult;
+      ) => Promise<StationAlertAcknowledgeReadResult>;
     };
 
-    return repository.acknowledgeStationAlert(stationId, alertId, actorId);
+    return await repository.acknowledgeStationAlert(stationId, alertId, actorId);
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   }
 }
 
-export function buildStationAlertAcknowledgeResponse(
+export async function buildStationAlertAcknowledgeResponse(
   stationId: string,
   alertId: string,
   actorId: string,
-  ackResult = writeAcknowledgeAlert(stationId, alertId, actorId),
-): {
+  ackResultPromise = writeAcknowledgeAlert(stationId, alertId, actorId),
+): Promise<{
   status: 200 | 400 | 404 | 409;
   json: StationAlertAcknowledgeResponse | { message: string };
   telemetry: StationAlertAcknowledgeTelemetry;
-} {
+}> {
+  const ackResult = await ackResultPromise;
   if (ackResult.source === "db") {
     if (ackResult.result === "acknowledged") {
       return {
@@ -1382,8 +1390,8 @@ export const postStationAlertAcknowledgeRoute: RouteDefinition<
 > = {
   method: "POST",
   path: "/stations/:id/alerts/:alertId/acknowledge",
-  handler(request) {
-    return buildStationAlertAcknowledgeResponse(
+  async handler(request) {
+    return await buildStationAlertAcknowledgeResponse(
       request.body.id,
       request.body.alertId,
       request.body.actorId,

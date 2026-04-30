@@ -154,8 +154,8 @@ const PATCHED_STATION: OceanStationDetail = {
   ],
 };
 
-test("stations route returns DB-backed station list", () => {
-  const response = buildStationsRouteResponse({
+test("stations route returns DB-backed station list", async () => {
+  const response = await buildStationsRouteResponse({
     source: "db",
     stations: [
       {
@@ -187,22 +187,22 @@ test("stations route returns DB-backed station list", () => {
   assert.equal(response.telemetry.source, "db");
   assert.equal(response.telemetry.stationCount, 1);
   assert.equal(response.telemetry.fallbackReason, undefined);
-  assert.equal(response.json.stations[0]?.id, "STA-NPC-01");
+  assert.equal((response.json as any).stations[0]?.id, "STA-NPC-01");
 });
 
-test("stations route returns DB empty list without mock fallback", () => {
-  const response = buildStationsRouteResponse({
+test("stations route returns DB empty list without mock fallback", async () => {
+  const response = await buildStationsRouteResponse({
     source: "db",
     stations: [],
   });
 
   assert.equal(response.telemetry.source, "db");
   assert.equal(response.telemetry.stationCount, 0);
-  assert.deepEqual(response.json.stations, []);
+  assert.deepEqual((response.json as any).stations, []);
 });
 
-test("stations route falls back to mock list when DB path is missing", () => {
-  const response = buildStationsRouteResponse({
+test("stations route falls back to mock list when DB path is missing", async () => {
+  const response = await buildStationsRouteResponse({
     source: "mock",
     fallbackReason: "db_path_missing",
   });
@@ -210,11 +210,11 @@ test("stations route falls back to mock list when DB path is missing", () => {
   assert.equal(response.status, 200);
   assert.equal(response.telemetry.source, "mock");
   assert.equal(response.telemetry.fallbackReason, "db_path_missing");
-  assert.ok(response.json.stations.length > 0);
+  assert.ok((response.json as any).stations.length > 0);
 });
 
-test("stations route falls back to mock list when DB open fails", () => {
-  const response = buildStationsRouteResponse({
+test("stations route falls back to mock list when DB open fails", async () => {
+  const response = await buildStationsRouteResponse({
     source: "mock",
     fallbackReason: "db_open_failed",
   });
@@ -223,8 +223,8 @@ test("stations route falls back to mock list when DB open fails", () => {
   assert.equal(response.telemetry.fallbackReason, "db_open_failed");
 });
 
-test("stations route falls back to mock list when DB query fails", () => {
-  const response = buildStationsRouteResponse({
+test("stations route falls back to mock list when DB query fails", async () => {
+  const response = await buildStationsRouteResponse({
     source: "mock",
     fallbackReason: "db_query_failed",
   });
@@ -233,8 +233,8 @@ test("stations route falls back to mock list when DB query fails", () => {
   assert.equal(response.telemetry.fallbackReason, "db_query_failed");
 });
 
-test("station detail route returns DB-backed detail when found", () => {
-  const response = buildStationDetailRouteResponse("STA-NPC-01", {
+test("station detail route returns DB-backed detail when found", async () => {
+  const response = await buildStationDetailRouteResponse("STA-NPC-01", {
     source: "db",
     result: "found",
     station: STATION,
@@ -247,8 +247,8 @@ test("station detail route returns DB-backed detail when found", () => {
   assert.equal((response.json as typeof STATION).id, "STA-NPC-01");
 });
 
-test("station detail route returns DB-backed 404 when no row exists", () => {
-  const response = buildStationDetailRouteResponse("STA-MISSING", {
+test("station detail route returns DB-backed 404 when no row exists", async () => {
+  const response = await buildStationDetailRouteResponse("STA-MISSING", {
     source: "db",
     result: "not_found",
   });
@@ -258,8 +258,8 @@ test("station detail route returns DB-backed 404 when no row exists", () => {
   assert.equal(response.telemetry.result, "not_found");
 });
 
-test("station detail route falls back to mock detail when DB path is missing", () => {
-  const response = buildStationDetailRouteResponse("STA-NPC-01", {
+test("station detail route falls back to mock detail when DB path is missing", async () => {
+  const response = await buildStationDetailRouteResponse("STA-NPC-01", {
     source: "mock",
     fallbackReason: "db_path_missing",
   });
@@ -270,8 +270,8 @@ test("station detail route falls back to mock detail when DB path is missing", (
   assert.equal(response.telemetry.fallbackReason, "db_path_missing");
 });
 
-test("station detail route resolves mock detail by slug on fallback", () => {
-  const response = buildStationDetailRouteResponse("north-pacific-corridor", {
+test("station detail route resolves mock detail by slug on fallback", async () => {
+  const response = await buildStationDetailRouteResponse("north-pacific-corridor", {
     source: "mock",
     fallbackReason: "db_query_failed",
   });
@@ -281,8 +281,8 @@ test("station detail route resolves mock detail by slug on fallback", () => {
   assert.equal(response.telemetry.result, "found");
 });
 
-test("station detail route returns fallback 404 when no mock detail exists", () => {
-  const response = buildStationDetailRouteResponse("STA-MISSING", {
+test("station detail route returns fallback 404 when no mock detail exists", async () => {
+  const response = await buildStationDetailRouteResponse("STA-MISSING", {
     source: "mock",
     fallbackReason: "db_query_failed",
   });
@@ -293,8 +293,8 @@ test("station detail route returns fallback 404 when no mock detail exists", () 
   assert.equal(response.telemetry.fallbackReason, "db_query_failed");
 });
 
-test("station analytics route returns DB-backed analytics", () => {
-  const response = buildStationAnalyticsRouteResponse("STA-NPC-01", {
+test("station analytics route returns DB-backed analytics", async () => {
+  const response = await buildStationAnalyticsRouteResponse("STA-NPC-01", {
     source: "db",
     result: "found",
     analytics: ANALYTICS,
@@ -305,12 +305,12 @@ test("station analytics route returns DB-backed analytics", () => {
   assert.equal(response.telemetry.source, "db");
   assert.equal(response.telemetry.result, "found");
   if ("analytics" in response.json) {
-    assert.equal(response.json.analytics.views.total, 6);
+    assert.equal((response.json as any).analytics.views.total, 6);
   }
 });
 
-test("station analytics route returns fallback 404 when station missing", () => {
-  const response = buildStationAnalyticsRouteResponse("STA-MISSING", {
+test("station analytics route returns fallback 404 when station missing", async () => {
+  const response = await buildStationAnalyticsRouteResponse("STA-MISSING", {
     source: "mock",
     fallbackReason: "db_query_failed",
   });
@@ -320,8 +320,8 @@ test("station analytics route returns fallback 404 when station missing", () => 
   assert.equal(response.telemetry.result, "not_found");
 });
 
-test("station admin route returns DB-backed admin payload", () => {
-  const response = buildStationAdminRouteResponse("STA-NPC-01", ADMIN_AUTH, {
+test("station admin route returns DB-backed admin payload", async () => {
+  const response = await buildStationAdminRouteResponse("STA-NPC-01", ADMIN_AUTH, {
     source: "db",
     result: "found",
     station: STATION,
@@ -331,12 +331,12 @@ test("station admin route returns DB-backed admin payload", () => {
   assert.equal(response.telemetry.route, "GET /stations/:id/admin");
   assert.equal(response.telemetry.source, "db");
   if ("station" in response.json) {
-    assert.equal(response.json.station.id, "STA-NPC-01");
+    assert.equal((response.json as any).station.id, "STA-NPC-01");
   }
 });
 
-test("station admin route rejects unauthenticated access", () => {
-  const response = buildStationAdminRouteResponse("STA-NPC-01", undefined, {
+test("station admin route rejects unauthenticated access", async () => {
+  const response = await buildStationAdminRouteResponse("STA-NPC-01", undefined, {
     source: "db",
     result: "found",
     station: STATION,
@@ -346,8 +346,8 @@ test("station admin route rejects unauthenticated access", () => {
   assert.equal(response.telemetry.result, "forbidden");
 });
 
-test("station admin route allows view_admin permission even for non-admin role", () => {
-  const response = buildStationAdminRouteResponse("STA-NPC-01", VIEWER_AUTH, {
+test("station admin route allows view_admin permission even for non-admin role", async () => {
+  const response = await buildStationAdminRouteResponse("STA-NPC-01", VIEWER_AUTH, {
     source: "db",
     result: "found",
     station: STATION,
@@ -357,8 +357,8 @@ test("station admin route allows view_admin permission even for non-admin role",
   assert.equal(response.telemetry.result, "found");
 });
 
-test("station admin audit route returns DB-backed history for admins", () => {
-  const response = buildStationAdminAuditRouteResponse("STA-NPC-01", ADMIN_AUTH, {
+test("station admin audit route returns DB-backed history for admins", async () => {
+  const response = await buildStationAdminAuditRouteResponse("STA-NPC-01", ADMIN_AUTH, {
     source: "db",
     result: "found",
     entries: [
@@ -379,8 +379,8 @@ test("station admin audit route returns DB-backed history for admins", () => {
   assert.equal(response.telemetry.result, "found");
 });
 
-test("station admin audit route rejects sessions without station.view_audit", () => {
-  const response = buildStationAdminAuditRouteResponse("STA-NPC-01", NO_AUDIT_AUTH, {
+test("station admin audit route rejects sessions without station.view_audit", async () => {
+  const response = await buildStationAdminAuditRouteResponse("STA-NPC-01", NO_AUDIT_AUTH, {
     source: "db",
     result: "found",
     entries: [],
@@ -390,8 +390,8 @@ test("station admin audit route rejects sessions without station.view_audit", ()
   assert.equal(response.telemetry.result, "forbidden");
 });
 
-test("station admin audit route rejects unauthenticated access", () => {
-  const response = buildStationAdminAuditRouteResponse("STA-NPC-01", undefined, {
+test("station admin audit route rejects unauthenticated access", async () => {
+  const response = await buildStationAdminAuditRouteResponse("STA-NPC-01", undefined, {
     source: "db",
     result: "found",
     entries: [],
@@ -401,8 +401,8 @@ test("station admin audit route rejects unauthenticated access", () => {
   assert.equal(response.telemetry.result, "forbidden");
 });
 
-test("station patch route returns DB-updated station", () => {
-  const response = buildStationPatchRouteResponse("STA-NPC-01", {
+test("station patch route returns DB-updated station", async () => {
+  const response = await buildStationPatchRouteResponse("STA-NPC-01", {
     exhibitTitle: "North Pacific Admin Exhibit",
     publicDescription: "Updated public description",
   }, ADMIN_AUTH, {
@@ -415,12 +415,12 @@ test("station patch route returns DB-updated station", () => {
   assert.equal(response.telemetry.route, "PATCH /stations/:id");
   assert.equal(response.telemetry.result, "updated");
   if ("station" in response.json) {
-    assert.equal(response.json.station.branding.exhibitTitle, "North Pacific Admin Exhibit");
+    assert.equal((response.json as any).station.branding.exhibitTitle, "North Pacific Admin Exhibit");
   }
 });
 
-test("station patch route rejects non-admin access", () => {
-  const response = buildStationPatchRouteResponse("STA-NPC-01", {
+test("station patch route rejects non-admin access", async () => {
+  const response = await buildStationPatchRouteResponse("STA-NPC-01", {
     exhibitTitle: "North Pacific Admin Exhibit",
   }, VIEWER_AUTH, {
     source: "db",
@@ -432,8 +432,8 @@ test("station patch route rejects non-admin access", () => {
   assert.equal(response.telemetry.result, "forbidden");
 });
 
-test("station patch route rejects mutation when csrf token is missing", () => {
-  const response = buildStationPatchRouteResponse("STA-NPC-01", {
+test("station patch route rejects mutation when csrf token is missing", async () => {
+  const response = await buildStationPatchRouteResponse("STA-NPC-01", {
     exhibitTitle: "North Pacific Admin Exhibit",
   }, ADMIN_AUTH, {
     source: "db",
@@ -445,8 +445,8 @@ test("station patch route rejects mutation when csrf token is missing", () => {
   assert.equal(response.telemetry.result, "forbidden");
 });
 
-test("station branding patch route allows station.edit_branding without station.edit_content", () => {
-  const response = buildStationBrandingPatchRouteResponse("STA-NPC-01", {
+test("station branding patch route allows station.edit_branding without station.edit_content", async () => {
+  const response = await buildStationBrandingPatchRouteResponse("STA-NPC-01", {
     sponsorName: "Updated Sponsor",
   }, BRANDING_EDITOR_AUTH, {
     source: "db",
@@ -458,8 +458,8 @@ test("station branding patch route allows station.edit_branding without station.
   assert.equal(response.telemetry.route, "PATCH /stations/:id/branding");
 });
 
-test("station content patch route rejects when station.edit_content is missing", () => {
-  const response = buildStationContentPatchRouteResponse("STA-NPC-01", {
+test("station content patch route rejects when station.edit_content is missing", async () => {
+  const response = await buildStationContentPatchRouteResponse("STA-NPC-01", {
     species: [
       {
         name: "Admin species",
@@ -478,8 +478,8 @@ test("station content patch route rejects when station.edit_content is missing",
   assert.equal(response.telemetry.result, "forbidden");
 });
 
-test("station patch route rejects unauthenticated access", () => {
-  const response = buildStationPatchRouteResponse("STA-NPC-01", {
+test("station patch route rejects unauthenticated access", async () => {
+  const response = await buildStationPatchRouteResponse("STA-NPC-01", {
     exhibitTitle: "North Pacific Admin Exhibit",
   }, undefined, {
     source: "db",
@@ -491,8 +491,8 @@ test("station patch route rejects unauthenticated access", () => {
   assert.equal(response.telemetry.result, "forbidden");
 });
 
-test("station patch route returns validation errors", () => {
-  const response = buildStationPatchRouteResponse("STA-NPC-01", {}, ADMIN_AUTH, {
+test("station patch route returns validation errors", async () => {
+  const response = await buildStationPatchRouteResponse("STA-NPC-01", {}, ADMIN_AUTH, {
     source: "db",
     result: "invalid",
     message: "Accent color is invalid.",
@@ -503,8 +503,8 @@ test("station patch route returns validation errors", () => {
   assert.equal(response.telemetry.result, "invalid");
 });
 
-test("station branding patch route rewrites telemetry route", () => {
-  const response = buildStationBrandingPatchRouteResponse("STA-NPC-01", {
+test("station branding patch route rewrites telemetry route", async () => {
+  const response = await buildStationBrandingPatchRouteResponse("STA-NPC-01", {
     sponsorName: "Updated Sponsor",
   }, ADMIN_AUTH, {
     source: "db",
@@ -516,8 +516,8 @@ test("station branding patch route rewrites telemetry route", () => {
   assert.equal(response.telemetry.route, "PATCH /stations/:id/branding");
 });
 
-test("station content patch route rewrites telemetry route", () => {
-  const response = buildStationContentPatchRouteResponse("STA-NPC-01", {
+test("station content patch route rewrites telemetry route", async () => {
+  const response = await buildStationContentPatchRouteResponse("STA-NPC-01", {
     species: [
       {
         name: "Admin species",
@@ -536,8 +536,8 @@ test("station content patch route rewrites telemetry route", () => {
   assert.equal(response.telemetry.route, "PATCH /stations/:id/content");
 });
 
-test("station view track route returns DB recorded response", () => {
-  const response = buildStationViewTrackRouteResponse("STA-NPC-01", "detail", {
+test("station view track route returns DB recorded response", async () => {
+  const response = await buildStationViewTrackRouteResponse("STA-NPC-01", "detail", {
     source: "db",
     result: "recorded",
     stationId: "STA-NPC-01",
@@ -554,8 +554,8 @@ test("station view track route returns DB recorded response", () => {
   }
 });
 
-test("station view track route validates view type", () => {
-  const response = buildStationViewTrackRouteResponse(
+test("station view track route validates view type", async () => {
+  const response = await buildStationViewTrackRouteResponse(
     "STA-NPC-01",
     "invalid" as "detail",
     { source: "mock", fallbackReason: "db_query_failed" },
@@ -569,7 +569,7 @@ test("station view track route validates view type", () => {
 // Alert acknowledge route
 // ---------------------------------------------------------------------------
 
-test("alert acknowledge route returns 200 with alert on db acknowledged result", () => {
+test("alert acknowledge route returns 200 with alert on db acknowledged result", async () => {
   const acknowledgedAlert = {
     id: "ALT-001",
     title: "Thermal anomaly detected",
@@ -588,7 +588,7 @@ test("alert acknowledge route returns 200 with alert on db acknowledged result",
     happenedAt: "2026-03-16T12:00:00.000Z",
   };
 
-  const response = buildStationAlertAcknowledgeResponse(
+  const response = await buildStationAlertAcknowledgeResponse(
     "STA-NPC-01",
     "ALT-001",
     "researcher@marine.local",
@@ -599,13 +599,13 @@ test("alert acknowledge route returns 200 with alert on db acknowledged result",
   assert.equal(response.telemetry.route, "POST /stations/:id/alerts/:alertId/acknowledge");
   assert.equal(response.telemetry.result, "acknowledged");
   assert.equal(response.telemetry.source, "db");
-  assert.ok("ok" in response.json && response.json.ok === true);
-  assert.ok("alert" in response.json && response.json.alert.id === "ALT-001");
-  assert.ok("timelineEvent" in response.json && response.json.timelineEvent?.label === "Alert acknowledged");
+  assert.ok("ok" in response.json && (response.json as any).ok === true);
+  assert.ok("alert" in response.json && (response.json as any).alert.id === "ALT-001");
+  assert.ok("timelineEvent" in response.json && (response.json as any).timelineEvent?.label === "Alert acknowledged");
 });
 
-test("alert acknowledge route returns 409 on db already_acknowledged result", () => {
-  const response = buildStationAlertAcknowledgeResponse(
+test("alert acknowledge route returns 409 on db already_acknowledged result", async () => {
+  const response = await buildStationAlertAcknowledgeResponse(
     "STA-NPC-01",
     "ALT-001",
     "researcher@marine.local",
@@ -625,8 +625,8 @@ test("alert acknowledge route returns 409 on db already_acknowledged result", ()
   assert.ok("message" in response.json);
 });
 
-test("alert acknowledge route returns 404 on db not_found result", () => {
-  const response = buildStationAlertAcknowledgeResponse(
+test("alert acknowledge route returns 404 on db not_found result", async () => {
+  const response = await buildStationAlertAcknowledgeResponse(
     "STA-NPC-01",
     "MISSING-ALT",
     "researcher@marine.local",
@@ -638,8 +638,8 @@ test("alert acknowledge route returns 404 on db not_found result", () => {
   assert.ok("message" in response.json);
 });
 
-test("alert acknowledge route uses mock fallback for unknown station", () => {
-  const response = buildStationAlertAcknowledgeResponse(
+test("alert acknowledge route uses mock fallback for unknown station", async () => {
+  const response = await buildStationAlertAcknowledgeResponse(
     "STA-UNKNOWN-99",
     "ALT-001",
     "researcher@marine.local",
@@ -651,19 +651,14 @@ test("alert acknowledge route uses mock fallback for unknown station", () => {
   assert.ok("message" in response.json);
 });
 
-test("alert acknowledge route mock path updates in-memory alert and returns 200", () => {
-  // Use the real mock station from apiMockData — STA-NPC-01 has alerts
-  // but we need to call via mock fallback to exercise that code path.
-  // We provide the mock station id and a real alert id from that station
-  // by triggering the mock path with fallbackReason.
-  const response = buildStationAlertAcknowledgeResponse(
+test("alert acknowledge route mock path updates in-memory alert and returns 200", async () => {
+  const response = await buildStationAlertAcknowledgeResponse(
     "STA-NPC-01",
     "ALT-STA-NPC-01-001",
     "researcher@marine.local",
     { source: "mock", fallbackReason: "db_path_missing" },
   );
 
-  // Either the mock station has that alertId and returns 200, or not_found 404.
   assert.ok(response.status === 200 || response.status === 404);
   assert.equal(response.telemetry.source, "mock");
 });

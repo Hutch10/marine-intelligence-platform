@@ -19,6 +19,7 @@ interface Region {
   status: string;
   summary: string;
   metrics: Array<{ label: string; value: string | number }>;
+  centroid?: { lat: number; lng: number } | null;
   integrity?: {
     exclusionCount: number;
     purity: string;
@@ -42,14 +43,7 @@ export default function OceanMapPage() {
         
         const data: RegionsResponse = await regionsRes.json();
         if (data.regions) {
-          const enriched = data.regions.map((r: any) => ({
-            ...r,
-            integrity: {
-              exclusionCount: Math.floor(Math.random() * 5),
-              purity: "99.2%" // Example, should ideally come from API
-            }
-          }));
-          setRegions(enriched);
+          setRegions(data.regions);
         }
         setHealth({
           overallStatus: data.systemIntegrity === SystemIntegrityStatus.NORMAL ? "healthy" : "degraded",
@@ -87,7 +81,7 @@ export default function OceanMapPage() {
           {regions.map((region) => (
             <AdvancedMarker
               key={region.id}
-              position={{ lat: 18.0 + (parseFloat(region.id.slice(-1)) || 0), lng: -75.0 - (parseFloat(region.id.slice(-2)) || 0) }} 
+              position={region.centroid ?? mapCenter}
               onClick={() => setSelectedRegionId(region.id)}
             >
               <Pin 
@@ -100,7 +94,7 @@ export default function OceanMapPage() {
 
           {selectedRegionId && selectedRegion && (
             <InfoWindow
-              position={{ lat: 18.0 + (parseFloat(selectedRegion.id.slice(-1)) || 0), lng: -75.0 - (parseFloat(selectedRegion.id.slice(-2)) || 0) }}
+              position={selectedRegion.centroid ?? mapCenter}
               onCloseClick={() => setSelectedRegionId(null)}
               headerDisabled={true}
             >

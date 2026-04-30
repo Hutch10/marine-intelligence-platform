@@ -67,6 +67,8 @@ export interface MarineEventRecord {
   detectedAt: string;
   resolvedAt: string | null;
   truthPartition: TruthPartition;
+  integrityHash?: string | null;
+  integrityChainHash?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -113,6 +115,15 @@ export interface MarineEventCreateResult extends MarineEventMutationResult {
 export interface MarineEventListResult {
   ok: boolean;
   events: MarineEventRecord[];
+}
+
+export type MarineEventCorrelationResult =
+  | { source: "db"; matched: true; existingEventId: string }
+  | { source: "db"; matched: false; newEvent: MarineEventRecord }
+  | { source: "unavailable"; fallbackReason: "db_path_missing" | "db_open_failed" | "db_query_failed" };
+
+export interface MarineEventCorrelationInput extends MarineEventCreateInput {
+  correlationWindowMs?: number;
 }
 
 // --- Step 21: Detection input types ---
@@ -180,12 +191,13 @@ export interface MarineInvestigationRecord {
   resolvedAt: string | null;
   dismissedAt: string | null;
   truthPartition: TruthPartition;
+  integrityHash?: string | null;
+  integrityChainHash?: string | null;
 }
 
 
 export interface MarineInvestigationCreateInput {
   eventId: string;
-  title: string;
   title: string;
   ownerId?: string | null;
   truthPartition?: TruthPartition;
@@ -245,6 +257,8 @@ export interface MarineAlertRecord {
   acknowledgedAt: string | null;
   resolvedAt: string | null;
   truthPartition: TruthPartition;
+  integrityHash?: string | null;
+  integrityChainHash?: string | null;
   createdAt: string;
   updatedAt: string;
 }

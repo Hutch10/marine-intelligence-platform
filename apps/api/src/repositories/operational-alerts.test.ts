@@ -1,76 +1,3 @@
-
-// Provide a minimal implementation for seedSampleAlerts for test use
-function ensureStation(db: SqliteDatabaseLike, stationId: string) {
-  if (!stationId) return;
-  try {
-    runStatement(
-      db,
-      `INSERT OR IGNORE INTO stations (id, name, slug, region_id, status, summary, location_label, created_at, updated_at)
-       VALUES (?, ?, ?, NULL, 'active', '', '', ?, ?)`,
-      stationId,
-      stationId,
-      stationId,
-      new Date().toISOString(),
-      new Date().toISOString()
-    );
-  } catch {}
-}
-
-function seedSampleAlerts(db: SqliteDatabaseLike, idPrefix = "") {
-  ensureOperationalAlertsTable(db);
-  runStatement(
-    db,
-    `CREATE TABLE IF NOT EXISTS investigations (
-      id TEXT PRIMARY KEY,
-      title TEXT,
-      summary TEXT,
-      state TEXT,
-      confidence INTEGER
-    )`
-  );
-  // Always insert required stations
-  ensureStation(db, "station-1");
-  ensureStation(db, "station-parity");
-  seedAlert(db, {
-    id: `${idPrefix}alert-active-ioos`,
-    source: "ioos_regional",
-    ruleType: "source_stale",
-    severity: "warning",
-    status: "active",
-    detectedAt: 170,
-    // stationId: "station-1" // add if needed
-  });
-  seedAlert(db, {
-    id: `${idPrefix}alert-active-ndbc`,
-    source: "noaa_ndbc",
-    ruleType: "source_failed",
-    severity: "critical",
-    status: "active",
-    detectedAt: 150,
-    // stationId: "station-1"
-  });
-  seedAlert(db, {
-    id: `${idPrefix}alert-resolved-ioos`,
-    source: "ioos_regional",
-    ruleType: "source_stale",
-    severity: "warning",
-    status: "resolved",
-    detectedAt: 160,
-    resolvedAt: 190,
-    // stationId: "station-1"
-  });
-  seedAlert(db, {
-    id: `${idPrefix}alert-resolved-ndbc`,
-    source: "noaa_ndbc",
-    ruleType: "source_failed",
-    severity: "critical",
-    status: "resolved",
-    detectedAt: 140,
-    resolvedAt: 180,
-    // stationId: "station-1"
-  });
-}
-
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -79,44 +6,48 @@ import {
   getOperationalAlertsWithSummary,
 } from "./operational-alerts";
 import type { OperationalAlertRuleType, OperationalAlertStatus } from "./operational-alerts";
-import type { SqliteDatabaseLike } from "../db/client";
+import { AsyncDbAdapter } from "../db/async-client";
 
-function createInMemoryDb(): SqliteDatabaseLike {
-  const runtimeRequire = eval("require") as NodeRequire;
-  const { DatabaseSync } = runtimeRequire("node:sqlite") as {
-    DatabaseSync: new (path: string, options?: { open?: boolean; readOnly?: boolean }) => {
-      exec: (sql: string) => void;
-      prepare: (sql: string) => {
-        all: (...params: unknown[]) => unknown[];
-        run: (...params: unknown[]) => unknown;
-      };
-    };
-  };
+// ---------------------------------------------------------------------------
+// Mock DB factory
+// ---------------------------------------------------------------------------
 
-  const raw = new DatabaseSync(":memory:");
+class MockDatabase {
+  private runtimeRequire = eval("require") as NodeRequire;
+  private db: any;
 
-  return {
-    prepare(sql: string) {
-      return raw.prepare(sql);
-    },
-    close() {
-      return undefined;
-    },
-  };
-}
-
-function runStatement(db: SqliteDatabaseLike, sql: string, ...params: unknown[]) {
-  const statement = db.prepare(sql);
-
-  if (typeof statement.run === "function") {
-    statement.run(...params);
+  constructor() {
+    const { DatabaseSync } = this.runtimeRequire("node:sqlite") as any;
+    this.db = new DatabaseSync(":memory:");
   }
 
-  statement.all(...params);
+  get adapter(): AsyncDbAdapter {
+    return {
+      resourceId: "mock-alerts",
+      execute: async (sql: string, params: unknown[] = []) => {
+        const stmt = this.db.prepare(sql);
+        if (sql.trim().toUpperCase().startsWith("SELECT")) {
+          return stmt.all(...params);
+        } else {
+          return stmt.run(...params);
+        }
+      },
+      close: async () => {},
+    };
+  }
+
+  async execute(sql: string, params: unknown[] = []) {
+    const stmt = this.db.prepare(sql);
+    if (sql.trim().toUpperCase().startsWith("SELECT")) {
+      return stmt.all(...params);
+    } else {
+      return stmt.run(...params);
+    }
+  }
 }
 
-function seedAlert(
-  db: SqliteDatabaseLike,
+async function seedAlert(
+  db: MockDatabase,
   input: {
     id: string;
     source: string;
@@ -131,90 +62,84 @@ function seedAlert(
   const createdAt = new Date(input.detectedAt).toISOString();
   const updatedAtSeed = new Date((input.resolvedAt ?? input.detectedAt) + 1000).toISOString();
 
-  runStatement(
-    db,
+  await db.execute(
     `INSERT INTO operational_alerts (id, source, rule_type, severity, status, title, detail, metadata_json, detected_at, resolved_at, created_at, updated_at, investigation_id)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    input.id,
-    input.source,
-    input.ruleType,
-    input.severity,
-    input.status,
-    `Alert ${input.id}`,
-    null,
-    null,
-    input.detectedAt,
-    input.resolvedAt ?? null,
-    createdAt,
-    updatedAtSeed,
-    input.investigationId ?? null,
+    [
+      input.id,
+      input.source,
+      input.ruleType,
+      input.severity,
+      input.status,
+      `Alert ${input.id}`,
+      null,
+      null,
+      input.detectedAt,
+      input.resolvedAt ?? null,
+      createdAt,
+      updatedAtSeed,
+      input.investigationId ?? null,
+    ]
   );
-    // Removed stray duplicated SQL fragment
-  const updatedAt2 = new Date((input.resolvedAt ?? input.detectedAt) + 1000).toISOString();
-  runStatement(
-    db,
-    `INSERT INTO operational_alerts
-      (id, source, rule_type, severity, status, title, detail, metadata_json, detected_at, resolved_at, created_at, updated_at, investigation_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    input.id,
-    input.source,
-    input.ruleType,
-    input.severity,
-    input.status,
-    `Alert ${input.id}`,
-    null,
-    null,
-    input.detectedAt,
-    input.resolvedAt ?? null,
-    createdAt,
-    updatedAt2,
-    input.investigationId ?? null,
-  // Provide a minimal implementation for seedSampleAlerts for test use
-  function seedSampleAlerts(db: SqliteDatabaseLike) {
-    seedAlert(db, {
-      id: "alert-active-ioos",
-      source: "ioos_regional",
-      ruleType: "source_stale",
-      severity: "warning",
-      status: "active",
-      detectedAt: 170,
-    });
-    seedAlert(db, {
-      id: "alert-active-ndbc",
-      source: "noaa_ndbc",
-      ruleType: "source_failed",
-      severity: "critical",
-      status: "active",
-      detectedAt: 150,
-    });
-    seedAlert(db, {
-      id: "alert-resolved-ioos",
-      source: "ioos_regional",
-      ruleType: "source_stale",
-      severity: "warning",
-      status: "resolved",
-      detectedAt: 160,
-      resolvedAt: 190,
-    });
-    seedAlert(db, {
-      id: "alert-resolved-ndbc",
-      source: "noaa_ndbc",
-      ruleType: "source_failed",
-      severity: "critical",
-      status: "resolved",
-      detectedAt: 140,
-      resolvedAt: 180,
-    });
-  }
-  );
-  // ...existing code...
 }
 
-test("operational alerts repository supports active-only filtering", () => {
-  const db1 = createInMemoryDb();
-  seedSampleAlerts(db1, "one-");
+async function seedSampleAlerts(db: MockDatabase, idPrefix = "") {
+  await ensureOperationalAlertsTable(db.adapter);
+  await db.execute(
+    `CREATE TABLE IF NOT EXISTS investigations (
+      id TEXT PRIMARY KEY,
+      title TEXT,
+      summary TEXT,
+      state TEXT,
+      confidence INTEGER
+    )`
+  );
 
-  const result = getOperationalAlertsWithSummary(db1, { status: "active" });
+  await seedAlert(db, {
+    id: `${idPrefix}alert-active-ioos`,
+    source: "ioos_regional",
+    ruleType: "source_stale",
+    severity: "warning",
+    status: "active",
+    detectedAt: 170,
+  });
+  await seedAlert(db, {
+    id: `${idPrefix}alert-active-ndbc`,
+    source: "noaa_ndbc",
+    ruleType: "source_failed",
+    severity: "critical",
+    status: "active",
+    detectedAt: 150,
+  });
+  await seedAlert(db, {
+    id: `${idPrefix}alert-resolved-ioos`,
+    source: "ioos_regional",
+    ruleType: "source_stale",
+    severity: "warning",
+    status: "resolved",
+    detectedAt: 160,
+    resolvedAt: 190,
+  });
+  await seedAlert(db, {
+    id: `${idPrefix}alert-resolved-ndbc`,
+    source: "noaa_ndbc",
+    ruleType: "source_failed",
+    severity: "critical",
+    status: "resolved",
+    detectedAt: 140,
+    resolvedAt: 180,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+test("operational alerts repository supports active-only filtering", async () => {
+  const db1 = new MockDatabase();
+  await seedSampleAlerts(db1, "one-");
+
+  const result = await getOperationalAlertsWithSummary(db1.adapter, { status: "active" });
 
   assert.equal(result.activeAlerts.length, 2);
   assert.ok(result.activeAlerts.every((alert) => alert.status === "active"));
@@ -224,10 +149,9 @@ test("operational alerts repository supports active-only filtering", () => {
     "one-alert-active-ndbc",
   ]);
 
-  const db2 = createInMemoryDb();
-  ensureOperationalAlertsTable(db2);
-  runStatement(
-    db2,
+  const db2 = new MockDatabase();
+  await ensureOperationalAlertsTable(db2.adapter);
+  await db2.execute(
     `CREATE TABLE IF NOT EXISTS investigations (
       id TEXT PRIMARY KEY,
       title TEXT,
@@ -236,12 +160,11 @@ test("operational alerts repository supports active-only filtering", () => {
       confidence INTEGER
     )`
   );
-  runStatement(
-    db2,
+  await db2.execute(
     `INSERT INTO investigations (id, title, summary, state, confidence) VALUES (?, ?, ?, ?, ?)`,
-    "INV-1", "Test Investigation", "Summary", "Watch", 80
+    ["INV-1", "Test Investigation", "Summary", "Watch", 80]
   );
-  seedAlert(db2, {
+  await seedAlert(db2, {
     id: "alert-link-1",
     source: "ioos_regional",
     ruleType: "source_stale",
@@ -250,17 +173,17 @@ test("operational alerts repository supports active-only filtering", () => {
     detectedAt: 200,
     investigationId: "INV-1",
   });
-  const alerts = getOperationalAlertsWithSummary(db2, { status: "active" });
+  const alerts = await getOperationalAlertsWithSummary(db2.adapter, { status: "active" });
   const alert = alerts.activeAlerts.find(a => a.id === "alert-link-1");
   assert.ok(alert);
   assert.equal(alert.investigationId, "INV-1");
 });
 
-test("operational alerts repository supports resolved-only filtering with resolved timestamp ordering", () => {
-  const db = createInMemoryDb();
-  seedSampleAlerts(db, "resolved-");
+test("operational alerts repository supports resolved-only filtering with resolved timestamp ordering", async () => {
+  const db = new MockDatabase();
+  await seedSampleAlerts(db, "resolved-");
 
-  const result = getOperationalAlertsWithSummary(db, { status: "resolved" });
+  const result = await getOperationalAlertsWithSummary(db.adapter, { status: "resolved" });
 
   assert.equal(result.activeAlerts.length, 2);
   assert.equal(result.recentHistory.length, 2);
@@ -271,11 +194,11 @@ test("operational alerts repository supports resolved-only filtering with resolv
   ]);
 });
 
-test("operational alerts repository supports source filtering", () => {
-  const db = createInMemoryDb();
-  seedSampleAlerts(db, "src-");
+test("operational alerts repository supports source filtering", async () => {
+  const db = new MockDatabase();
+  await seedSampleAlerts(db, "src-");
 
-  const result = getOperationalAlertsWithSummary(db, { source: "ioos_regional" });
+  const result = await getOperationalAlertsWithSummary(db.adapter, { source: "ioos_regional" });
 
   assert.ok(result.activeAlerts.every((alert) => alert.source === "ioos_regional"));
   assert.ok(result.recentHistory.every((alert) => alert.source === "ioos_regional"));
@@ -285,11 +208,11 @@ test("operational alerts repository supports source filtering", () => {
   ]);
 });
 
-test("operational alerts repository supports ruleType filtering", () => {
-  const db = createInMemoryDb();
-  seedSampleAlerts(db, "rt-");
+test("operational alerts repository supports ruleType filtering", async () => {
+  const db = new MockDatabase();
+  await seedSampleAlerts(db, "rt-");
 
-  const result = getOperationalAlertsWithSummary(db, { ruleType: "source_failed" });
+  const result = await getOperationalAlertsWithSummary(db.adapter, { ruleType: "source_failed" });
 
   assert.ok(result.activeAlerts.every((alert) => alert.ruleType === "source_failed"));
   assert.ok(result.recentHistory.every((alert) => alert.ruleType === "source_failed"));
@@ -299,11 +222,11 @@ test("operational alerts repository supports ruleType filtering", () => {
   ]);
 });
 
-test("operational alerts repository supports combined status, source, ruleType, and limit filters", () => {
-  const db = createInMemoryDb();
-  seedSampleAlerts(db, "combo-");
+test("operational alerts repository supports combined status, source, ruleType, and limit filters", async () => {
+  const db = new MockDatabase();
+  await seedSampleAlerts(db, "combo-");
 
-  const result = getOperationalAlertsWithSummary(db, {
+  const result = await getOperationalAlertsWithSummary(db.adapter, {
     status: "resolved",
     source: "ioos_regional",
     ruleType: "source_stale",
@@ -316,12 +239,21 @@ test("operational alerts repository supports combined status, source, ruleType, 
   assert.deepEqual(result.recentHistory.map((alert) => alert.id), ["combo-alert-resolved-ioos"]);
 });
 
-test("operational alerts repository enforces bounded limit", () => {
-  const db = createInMemoryDb();
-  ensureOperationalAlertsTable(db);
+test("operational alerts repository enforces bounded limit", async () => {
+  const db = new MockDatabase();
+  await ensureOperationalAlertsTable(db.adapter);
+  await db.execute(
+    `CREATE TABLE IF NOT EXISTS investigations (
+      id TEXT PRIMARY KEY,
+      title TEXT,
+      summary TEXT,
+      state TEXT,
+      confidence INTEGER
+    )`
+  );
 
   for (let index = 0; index < 620; index += 1) {
-    seedAlert(db, {
+    await seedAlert(db, {
       id: `bulk-${index}`,
       source: `bulk_source_${index}`,
       ruleType: "source_stale",
@@ -331,26 +263,26 @@ test("operational alerts repository enforces bounded limit", () => {
     });
   }
 
-  const capped = getOperationalAlertsWithSummary(db, { status: "active", limit: 9999 });
+  const capped = await getOperationalAlertsWithSummary(db.adapter, { status: "active", limit: 9999 });
   assert.equal(capped.activeAlerts.length, 500);
   assert.equal(capped.recentHistory.length, 500);
 
-  const floored = getOperationalAlertsWithSummary(db, { status: "active", limit: 0 });
+  const floored = await getOperationalAlertsWithSummary(db.adapter, { status: "active", limit: 0 });
   assert.equal(floored.activeAlerts.length, 1);
   assert.equal(floored.recentHistory.length, 1);
 });
 
-test("operational alerts repository returns safe empty state", () => {
-  const db = createInMemoryDb();
-  ensureOperationalAlertsTable(db);
+test("operational alerts repository returns safe empty state", async () => {
+  const db = new MockDatabase();
+  await ensureOperationalAlertsTable(db.adapter);
 
-  const result = getOperationalAlertsWithSummary(db, {});
+  const result = await getOperationalAlertsWithSummary(db.adapter, {});
   assert.equal(result.activeAlerts.length, 0);
   assert.equal(result.recentHistory.length, 0);
 });
 
-test("operational alerts repository returns unavailable fallback when db path is missing", () => {
-  const result = getOperationalAlerts({
+test("operational alerts repository returns unavailable fallback when db path is missing", async () => {
+  const result = await getOperationalAlerts({
     hasPath: () => false,
     resolvePath: () => "missing.sqlite",
   });
@@ -361,20 +293,19 @@ test("operational alerts repository returns unavailable fallback when db path is
   });
 });
 
-test("operational alerts repository returns unavailable fallback when query fails", () => {
-  const failingDb: SqliteDatabaseLike = {
-    prepare() {
+test("operational alerts repository returns unavailable fallback when query fails", async () => {
+  const mockAdapter: AsyncDbAdapter = {
+    resourceId: "failing-mock",
+    execute: async () => {
       throw new Error("query failed");
     },
-    close() {
-      return undefined;
-    },
+    close: async () => {},
   };
 
-  const result = getOperationalAlerts({
+  const result = await getOperationalAlerts({
     hasPath: () => true,
     resolvePath: () => "marine.sqlite",
-    openReadOnly: () => failingDb,
+    getAdapter: () => mockAdapter,
   });
 
   assert.deepEqual(result, {

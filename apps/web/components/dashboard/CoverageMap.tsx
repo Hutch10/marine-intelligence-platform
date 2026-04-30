@@ -13,6 +13,7 @@ interface CoverageRegion {
   openAlerts: number | null;
   nearestBuoy: string | null;
   thermalAnomaly: string | null;
+  centroid: { lat: number; lng: number } | null;
 }
 
 type Density = "High" | "Moderate" | "Sparse" | "None";
@@ -29,20 +30,37 @@ function getMetric(metrics: { label: string; value: string }[], label: string): 
   return metrics.find((m) => m.label === label)?.value ?? null;
 }
 
-const MARKER_POSITIONS = [
-  "top-[25%] left-[22%]",
-  "top-[45%] left-[12%]",
-  "top-[28%] left-[58%]",
-  "top-[58%] left-[72%]",
-  "top-[15%] left-[42%]",
-];
-
 const DENSITY_STYLES: Record<Density, { dot: string; border: string; pin: string }> = {
   High:     { dot: "bg-emerald-500", border: "border-emerald-500 bg-emerald-500/20 shadow-[0_0_14px_rgba(16,185,129,0.35)]", pin: "text-emerald-400" },
   Moderate: { dot: "bg-cyan-500",    border: "border-cyan-500    bg-cyan-500/20",    pin: "text-cyan-400"    },
   Sparse:   { dot: "bg-amber-500",   border: "border-amber-500   bg-amber-500/20",   pin: "text-amber-400"   },
   None:     { dot: "bg-slate-600",   border: "border-slate-600   bg-slate-700/20",   pin: "text-slate-400"   },
 };
+
+export function hasFiniteCentroid(
+  centroid: CoverageRegion["centroid"],
+): centroid is { lat: number; lng: number } {
+  return !!centroid
+    && Number.isFinite(centroid.lat)
+    && Number.isFinite(centroid.lng)
+    && centroid.lat >= -90
+    && centroid.lat <= 90
+    && centroid.lng >= -180
+    && centroid.lng <= 180
+    && !(centroid.lat === 0 && centroid.lng === 0);
+}
+
+export function toMarkerPercent(centroid: { lat: number; lng: number }): { left: string; top: string } {
+  // Equirectangular projection into map container percentages.
+  // Clamping removed to prevent visual masking of invalid coordinates.
+  const left = ((centroid.lng + 180) / 360) * 100;
+  const top = ((90 - centroid.lat) / 180) * 100;
+
+  return {
+    left: `${left.toFixed(3)}%`,
+    top: `${top.toFixed(3)}%`,
+  };
+}
 
 export function DataCoverageMap() {
   const [regions, setRegions] = useState<CoverageRegion[]>([]);
@@ -66,6 +84,7 @@ export function DataCoverageMap() {
             })(),
             nearestBuoy: getMetric(r.metrics, "Nearest buoy"),
             thermalAnomaly: getMetric(r.metrics, "Thermal anomaly"),
+            centroid: hasFiniteCentroid(r.centroid) ? r.centroid : null,
           })),
         );
       })
@@ -76,6 +95,8 @@ export function DataCoverageMap() {
   }, []);
 
   const selectedRegion = regions.find((r) => r.id === selected);
+  const regionsWithCentroid = regions.filter((region) => hasFiniteCentroid(region.centroid));
+  const regionsMissingCentroid = regions.filter((region) => !hasFiniteCentroid(region.centroid));
 
   return (
     <div className="bg-slate-900 rounded-xl border border-slate-800 p-6 overflow-hidden">
@@ -119,19 +140,19 @@ export function DataCoverageMap() {
             </div>
           )}
 
-          {!loading && regions.map((r, i) => {
+          {!loading && regionsWithCentroid.map((r) => {
             const density = toDensity(r.status);
             const styles = DENSITY_STYLES[density];
-            const pos = MARKER_POSITIONS[i % MARKER_POSITIONS.length];
+            const marker = toMarkerPercent(r.centroid);
             return (
               <button
                 key={r.id}
                 type="button"
                 onClick={() => setSelected(r.id === selected ? null : r.id)}
                 className={clsx(
-                  "absolute flex flex-col items-center transition-all duration-200 hover:scale-110",
-                  pos,
+                  "absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center transition-all duration-200 hover:scale-110",
                 )}
+                style={{ left: marker.left, top: marker.top }}
               >
                 <div className={clsx("p-1.5 rounded-full border-2", styles.border)}>
                   <MapPin className={clsx("w-4 h-4", styles.pin)} />
@@ -142,6 +163,14 @@ export function DataCoverageMap() {
               </button>
             );
           })}
+
+          {!loading && regions.length > 0 && regionsWithCentroid.length === 0 && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center">
+              <AlertTriangle className="h-8 w-8 text-amber-500" />
+              <p className="text-sm text-amber-200">Missing centroid data for all regions</p>
+              <p className="text-[11px] text-slate-500">No map markers are rendered until centroid coordinates are available.</p>
+            </div>
+          )}
         </div>
 
         {/* Sidebar */}
@@ -196,6 +225,20 @@ export function DataCoverageMap() {
               {regions.length > 0 && ` ${regions.length} region${regions.length !== 1 ? "s" : ""} active.`}
             </p>
           </div>
+
+          {regionsMissingCentroid.length > 0 && (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-amber-300">Missing centroid data</p>
+              <p className="text-[11px] text-amber-100">
+                Markers are withheld for {regionsMissingCentroid.length} region{regionsMissingCentroid.length !== 1 ? "s" : ""} with missing centroid coordinates.
+              </p>
+              <ul className="mt-2 space-y-1 text-[11px] text-amber-50">
+                {regionsMissingCentroid.map((region) => (
+                  <li key={region.id}>{region.id} - {region.name}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       </div>
     </div>

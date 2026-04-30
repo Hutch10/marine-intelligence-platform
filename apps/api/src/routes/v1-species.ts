@@ -5,7 +5,7 @@ export const getV1SpeciesIntelligenceRoute: RouteDefinition<any> = {
   method: "GET",
   path: "/v1/species/:id/intelligence",
   handler: async (req) => {
-    const speciesId = req.params.id;
+    const speciesId = req.params?.id;
     if (!speciesId) {
       return {
         status: 400,

@@ -1,12 +1,7 @@
 import { beforeEach, expect, test, vi } from "vitest";
 
-const { mockRequireSession, mockGenerateKey } = vi.hoisted(() => ({
+const { mockRequireSession } = vi.hoisted(() => ({
   mockRequireSession: vi.fn(),
-  mockGenerateKey: vi.fn(),
-}));
-
-vi.mock("@/lib/server/public-api-store", () => ({
-  generatePublicApiKey: mockGenerateKey,
 }));
 
 vi.mock("../../marine-intelligence/_utils", () => ({
@@ -17,7 +12,6 @@ import { POST } from "./route";
 
 beforeEach(() => {
   mockRequireSession.mockReset();
-  mockGenerateKey.mockReset();
 
   mockRequireSession.mockResolvedValue({
     ok: true,
@@ -30,7 +24,13 @@ beforeEach(() => {
   });
 });
 
-test("admin keys route returns standardized validation errors", async () => {
+const DISABLED_BODY = {
+  code: "api_key_admin_disabled",
+  message: "Admin API key provisioning is disabled in this deployment.",
+  retryable: false,
+};
+
+test("admin keys route returns 503 — provisioning disabled (missing name)", async () => {
   const response = await POST(
     new Request("http://localhost/api/admin/keys", {
       method: "POST",
@@ -39,15 +39,11 @@ test("admin keys route returns standardized validation errors", async () => {
     }),
   );
 
-  expect(response.status).toBe(400);
-  await expect(response.json()).resolves.toEqual({
-    code: "api_key_name_required",
-    message: "name is required",
-    retryable: false,
-  });
+  expect(response.status).toBe(503);
+  await expect(response.json()).resolves.toEqual(DISABLED_BODY);
 });
 
-test("admin keys route rejects unsupported tiers", async () => {
+test("admin keys route returns 503 — provisioning disabled (invalid tier)", async () => {
   const response = await POST(
     new Request("http://localhost/api/admin/keys", {
       method: "POST",
@@ -56,26 +52,11 @@ test("admin keys route rejects unsupported tiers", async () => {
     }),
   );
 
-  expect(response.status).toBe(400);
-  await expect(response.json()).resolves.toEqual({
-    code: "api_key_tier_invalid",
-    message: "tier is invalid",
-    retryable: false,
-  });
+  expect(response.status).toBe(503);
+  await expect(response.json()).resolves.toEqual(DISABLED_BODY);
 });
 
-test("admin keys route provisions API keys", async () => {
-  mockGenerateKey.mockResolvedValueOnce({
-    ok: true,
-    key: {
-      id: "APIKEY-1",
-      prefix: "mrk_12345678",
-      tier: "pro",
-      billingAccountId: "BACC-1",
-    },
-    rawKey: "mrk_secret",
-  });
-
+test("admin keys route returns 503 — provisioning disabled (valid payload)", async () => {
   const response = await POST(
     new Request("http://localhost/api/admin/keys", {
       method: "POST",
@@ -84,11 +65,6 @@ test("admin keys route provisions API keys", async () => {
     }),
   );
 
-  expect(response.status).toBe(201);
-  await expect(response.json()).resolves.toMatchObject({
-    keyId: "APIKEY-1",
-    rawKey: "mrk_secret",
-    tier: "pro",
-    billingAccountId: "BACC-1",
-  });
+  expect(response.status).toBe(503);
+  await expect(response.json()).resolves.toEqual(DISABLED_BODY);
 });

@@ -1,8 +1,7 @@
 import {
-  openWritableDatabase,
   resolveDatabasePath,
-  type SqliteDatabaseLike,
 } from "../../db/client";
+import { getAsyncAdapter, type AsyncDbAdapter } from "../../db/async-client";
 import {
   fetchIoosData,
   resolveDefaultIoosSourceUrl,
@@ -80,7 +79,6 @@ export interface RunIoosIngestionResult {
 
 interface RunIoosIngestionDependencies {
   resolvePath?: typeof resolveDatabasePath;
-  openWritable?: typeof openWritableDatabase;
   now?: () => number;
   staleAfterMs?: number;
   sources?: IoosSourceConfig[];
@@ -90,6 +88,7 @@ interface RunIoosIngestionDependencies {
   }) => Promise<IoosFetchResult>;
   parseData?: (feedBody: string) => IoosParseResult;
   mapData?: (records: IoosParsedRecord[], sourceReference: string, fallbackRegionKey?: string) => IoosMappedBatch;
+  getAdapter?: (readOnly?: boolean) => AsyncDbAdapter;
 }
 
 function parseCsv(value: string | undefined): string[] {
@@ -176,13 +175,13 @@ function resolveRegionKey(record: IoosParsedRecord, sourceRegionKey: string | un
   return candidate.length > 0 ? candidate : fallback;
 }
 
-export function validateIoosRecord(
+export async function validateIoosRecord(
   record: IoosParsedRecord,
   now: number,
   staleAfterMs: number,
-  db: SqliteDatabaseLike,
+  adapter: AsyncDbAdapter,
   sourceRegionKey: string | undefined,
-): IoosRejectReason | null {
+): Promise<IoosRejectReason | null> {
   if (!record.stationId || record.observedAt === null || !hasAtLeastOneMeasurement(record)) {
     return "schema_drift";
   }
@@ -197,13 +196,13 @@ export function validateIoosRecord(
 
   const regionKey = resolveRegionKey(record, sourceRegionKey);
 
-  if (observationExists(db, record.stationId, record.observedAt)) {
+  if (await observationExists(adapter, record.stationId, record.observedAt, "ioos_regional")) {
     return "duplicate_record";
   }
 
   if (
     (record.salinityPsu !== null
-      && stationMetricExists(db, {
+      && await stationMetricExists(adapter, {
         source: "ioos_regional",
         stationId: record.stationId,
         regionKey,
@@ -211,7 +210,7 @@ export function validateIoosRecord(
         observedAt: record.observedAt,
       }))
     || (record.dissolvedOxygenMgL !== null
-      && stationMetricExists(db, {
+      && await stationMetricExists(adapter, {
         source: "ioos_regional",
         stationId: record.stationId,
         regionKey,
@@ -219,7 +218,7 @@ export function validateIoosRecord(
         observedAt: record.observedAt,
       }))
     || (record.chlorophyllMgM3 !== null
-      && stationMetricExists(db, {
+      && await stationMetricExists(adapter, {
         source: "ioos_regional",
         stationId: record.stationId,
         regionKey,
@@ -237,7 +236,6 @@ export async function runIoosIngestion(
   dependencies: RunIoosIngestionDependencies = {},
 ): Promise<RunIoosIngestionResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
-  const openWritable = dependencies.openWritable ?? openWritableDatabase;
   const nowFn = dependencies.now ?? Date.now;
   const staleAfterMs = dependencies.staleAfterMs ?? DEFAULT_STALE_AFTER_MS;
   const sources = (dependencies.sources ?? loadConfiguredIoosSources()).filter((source) => source.enabled !== false);
@@ -247,14 +245,16 @@ export async function runIoosIngestion(
 
   const startedAt = nowFn();
   const dbPath = resolvePath();
-  const db = openWritable(dbPath);
+  
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
+  const adapter = getAdapter(false);
 
-  ensureIngestionRunsTable(db);
-  ensureObservationsTable(db);
-  ensureStationMetricsTable(db);
-  ensureProvenanceRecordsTable(db);
+  await ensureIngestionRunsTable(adapter);
+  await ensureObservationsTable(adapter);
+  await ensureStationMetricsTable(adapter);
+  await ensureProvenanceRecordsTable(adapter);
 
-  const runId = createIngestionRun(db, {
+  const runId = await createIngestionRun(adapter, {
     source: "ioos_regional",
     startedAt,
     stationCount: sources.length,
@@ -294,7 +294,7 @@ export async function runIoosIngestion(
 
       for (const record of candidateRecords) {
         const now = nowFn();
-        const rejection = validateIoosRecord(record, now, staleAfterMs, db, source.regionKey);
+        const rejection = await validateIoosRecord(record, now, staleAfterMs, adapter, source.regionKey);
 
         if (rejection) {
           rejectedRows += 1;
@@ -314,7 +314,7 @@ export async function runIoosIngestion(
         const mapped = mapData([record], fetched.sourceUrl, source.regionKey ?? DEFAULT_REGION_KEY);
 
         for (const observation of mapped.observations) {
-          const observationId = insertObservation(db, {
+          const observationId = await insertObservation(adapter, {
             stationId: observation.stationId,
             source: observation.source,
             observedAt: observation.observedAt,
@@ -329,7 +329,7 @@ export async function runIoosIngestion(
             createdAt: now,
           });
 
-          insertProvenanceRecord(db, {
+          await insertProvenanceRecord(adapter, {
             ingestionRunId: runId,
             source: "ioos_regional",
             sourceStationId: observation.stationId,
@@ -350,7 +350,7 @@ export async function runIoosIngestion(
 
         for (const metric of mapped.metrics) {
           if (
-            stationMetricExists(db, {
+            await stationMetricExists(adapter, {
               source: "ioos_regional",
               stationId: metric.stationId,
               regionKey: metric.regionKey,
@@ -363,7 +363,7 @@ export async function runIoosIngestion(
             continue;
           }
 
-          const metricId = insertStationMetricRecord(db, {
+          const metricId = await insertStationMetricRecord(adapter, {
             stationId: metric.stationId,
             regionKey: metric.regionKey,
             metricType: metric.metricType,
@@ -377,7 +377,7 @@ export async function runIoosIngestion(
             createdAt: now,
           });
 
-          insertProvenanceRecord(db, {
+          await insertProvenanceRecord(adapter, {
             ingestionRunId: runId,
             source: "ioos_regional",
             sourceStationId: metric.stationId,
@@ -401,7 +401,7 @@ export async function runIoosIngestion(
 
     const finishedAt = nowFn();
 
-    finalizeIngestionRun(db, {
+    await finalizeIngestionRun(adapter, {
       runId,
       status: "completed",
       finishedAt,
@@ -421,7 +421,7 @@ export async function runIoosIngestion(
   } catch {
     const failedAt = nowFn();
 
-    finalizeIngestionRun(db, {
+    await finalizeIngestionRun(adapter, {
       runId,
       status: "failed",
       finishedAt: failedAt,
@@ -439,6 +439,6 @@ export async function runIoosIngestion(
       finishedAt: new Date(failedAt).toISOString(),
     };
   } finally {
-    db.close();
+    await adapter.close();
   }
 }

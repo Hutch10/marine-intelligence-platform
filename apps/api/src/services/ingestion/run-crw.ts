@@ -1,8 +1,7 @@
 import {
-  openWritableDatabase,
   resolveDatabasePath,
-  type SqliteDatabaseLike,
 } from "../../db/client";
+import { getAsyncAdapter, type AsyncDbAdapter } from "../../db/async-client";
 import {
   fetchCoralReefWatchData,
   buildCrwRegionalVirtualStationDataUrl,
@@ -64,13 +63,13 @@ export interface RunCrwIngestionResult {
 
 interface RunCrwIngestionDependencies {
   resolvePath?: typeof resolveDatabasePath;
-  openWritable?: typeof openWritableDatabase;
   now?: () => number;
   staleAfterMs?: number;
   targets?: CrwTargetConfig[];
   fetchData?: typeof fetchCoralReefWatchData;
   parseData?: typeof parseCoralReefWatchData;
   mapData?: typeof mapCrwRecords;
+  getAdapter?: (readOnly?: boolean) => AsyncDbAdapter;
   logLine?: (line: string) => void;
 }
 
@@ -127,12 +126,12 @@ function selectLatestTargetRecord(target: CrwTargetConfig, rows: CrwParsedRecord
   );
 }
 
-export function validateCrwRecord(
+export async function validateCrwRecord(
   record: CrwParsedRecord,
   now: number,
   staleAfterMs: number,
-  db: SqliteDatabaseLike,
-): CrwRejectReason | null {
+  adapter: AsyncDbAdapter,
+): Promise<CrwRejectReason | null> {
   if (
     record.observedAt === null
     || record.sstAnomalyC === null
@@ -155,8 +154,8 @@ export function validateCrwRecord(
   }
 
   if (
-    reefStressSnapshotExists(
-      db,
+    await reefStressSnapshotExists(
+      adapter,
       record.stationId,
       record.region,
       record.observedAt,
@@ -173,7 +172,6 @@ export async function runCrwIngestion(
   dependencies: RunCrwIngestionDependencies = {},
 ): Promise<RunCrwIngestionResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
-  const openWritable = dependencies.openWritable ?? openWritableDatabase;
   const nowFn = dependencies.now ?? Date.now;
   const staleAfterMs = dependencies.staleAfterMs ?? DEFAULT_STALE_AFTER_MS;
   const targets = (dependencies.targets ?? loadConfiguredCrwTargets()).filter((target) => target.enabled !== false);
@@ -186,16 +184,18 @@ export async function runCrwIngestion(
   const startedAt = nowFn();
   const dbPath = resolvePath();
   logDiagnostic(logLine, `resolved DB path: ${dbPath}`);
-  const db = openWritable(dbPath);
+  
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
+  const adapter = getAdapter(false);
 
   logDiagnostic(logLine, `configured target count: ${targets.length}`);
 
-  ensureIngestionRunsTable(db);
-  ensureProvenanceRecordsTable(db);
-  ensureStationMetricsTable(db);
-  ensureDerivedSignalsTable(db);
+  await ensureIngestionRunsTable(adapter);
+  await ensureProvenanceRecordsTable(adapter);
+  await ensureStationMetricsTable(adapter);
+  await ensureDerivedSignalsTable(adapter);
 
-  const runId = createIngestionRun(db, {
+  const runId = await createIngestionRun(adapter, {
     source: CRW_SOURCE,
     startedAt,
     stationCount: targets.length,
@@ -244,7 +244,7 @@ export async function runCrwIngestion(
       }
 
       const now = nowFn();
-      const rejection = validateCrwRecord(record, now, staleAfterMs, db);
+      const rejection = await validateCrwRecord(record, now, staleAfterMs, adapter);
 
       if (rejection) {
         rejectedRows += 1;
@@ -255,7 +255,7 @@ export async function runCrwIngestion(
       const mapped = mapData([record]);
 
       for (const metric of mapped.metrics) {
-        const metricId = insertStationMetric(db, {
+        const metricId = await insertStationMetric(adapter, {
           stationId: metric.stationId,
           regionKey: metric.region,
           metricType: metric.metricType,
@@ -269,7 +269,7 @@ export async function runCrwIngestion(
           createdAt: now,
         });
 
-        insertProvenanceRecord(db, {
+        await insertProvenanceRecord(adapter, {
           ingestionRunId: runId,
           source: CRW_SOURCE,
           sourceStationId: metric.stationId ?? metric.region,
@@ -289,7 +289,7 @@ export async function runCrwIngestion(
       }
 
       for (const signal of mapped.signals) {
-        const signalId = insertDerivedSignal(db, {
+        const signalId = await insertDerivedSignal(adapter, {
           stationId: signal.stationId,
           regionKey: signal.region,
           signalType: signal.signalType,
@@ -304,7 +304,7 @@ export async function runCrwIngestion(
           createdAt: now,
         });
 
-        insertProvenanceRecord(db, {
+        await insertProvenanceRecord(adapter, {
           ingestionRunId: runId,
           source: CRW_SOURCE,
           sourceStationId: signal.stationId ?? signal.region,
@@ -326,7 +326,7 @@ export async function runCrwIngestion(
     }
 
     const finishedAt = nowFn();
-    finalizeIngestionRun(db, {
+    await finalizeIngestionRun(adapter, {
       runId,
       status: "completed",
       finishedAt,
@@ -349,7 +349,7 @@ export async function runCrwIngestion(
     const message = error instanceof Error ? error.message : String(error);
     logDiagnostic(logLine, `failed: ${message}`);
 
-    finalizeIngestionRun(db, {
+    await finalizeIngestionRun(adapter, {
       runId,
       status: "failed",
       finishedAt: failedAt,
@@ -368,6 +368,6 @@ export async function runCrwIngestion(
       error: message,
     };
   } finally {
-    db.close();
+    await adapter.close();
   }
 }

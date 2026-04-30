@@ -6,32 +6,34 @@ import type {
 } from "../types";
 import type { LiveConditionsReadResult } from "../repositories/observations";
 
-function readDatabaseLiveConditions(): LiveConditionsReadResult {
+async function readDatabaseLiveConditions(): Promise<LiveConditionsReadResult> {
   try {
     const runtimeRequire = eval("require") as NodeRequire;
     const repository = runtimeRequire("../repositories/observations") as {
-      listLatestLiveConditions: () => LiveConditionsReadResult;
+      listLatestLiveConditions: () => Promise<LiveConditionsReadResult>;
     };
 
-    return repository.listLatestLiveConditions();
+    return await repository.listLatestLiveConditions();
   } catch {
     return { source: "mock", fallbackReason: "db_query_failed" };
   }
 }
 
-export function buildLiveConditionsRouteResponse(
-  readResult = readDatabaseLiveConditions(),
-): { status: number; json: LiveConditionsResponse; telemetry: LiveConditionsTelemetry } {
-  if (readResult.source === "db") {
+export async function buildLiveConditionsRouteResponse(
+  readResult?: LiveConditionsReadResult,
+): Promise<{ status: number; json: LiveConditionsResponse; telemetry: LiveConditionsTelemetry }> {
+  const actualReadResult = readResult ?? await readDatabaseLiveConditions();
+
+  if (actualReadResult.source === "db") {
     return {
       status: 200,
       json: {
-        conditions: readResult.conditions,
+        conditions: actualReadResult.conditions,
       },
       telemetry: {
         route: "GET /live-conditions",
         source: "db",
-        conditionCount: readResult.conditions.length,
+        conditionCount: actualReadResult.conditions.length,
       },
     };
   }
@@ -45,7 +47,7 @@ export function buildLiveConditionsRouteResponse(
       route: "GET /live-conditions",
       source: "mock",
       conditionCount: apiMockData.liveMarineConditionsData.length,
-      fallbackReason: readResult.fallbackReason,
+      fallbackReason: actualReadResult.fallbackReason,
     },
   };
 }
@@ -53,7 +55,7 @@ export function buildLiveConditionsRouteResponse(
 export const getLiveConditionsRoute: RouteDefinition<LiveConditionsResponse> = {
   method: "GET",
   path: "/live-conditions",
-  handler() {
-    return buildLiveConditionsRouteResponse();
+  async handler() {
+    return await buildLiveConditionsRouteResponse();
   },
 };

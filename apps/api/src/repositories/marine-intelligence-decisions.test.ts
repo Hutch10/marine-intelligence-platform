@@ -35,17 +35,28 @@ function createInMemoryDb(): SqliteDatabaseLike {
   };
 }
 
-test("marine intelligence decisions repository records decisions and telemetry events", () => {
+test("marine intelligence decisions repository records decisions and telemetry events", async () => {
   const db = createInMemoryDb();
   const deps = {
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openWritable: () => db,
-    openReadOnly: () => db,
+    getAdapter: () => ({
+      execute: async (sql: string, params: unknown[] = []) => {
+        const stmt = db.prepare(sql);
+        const upper = sql.trim().toUpperCase();
+        if (upper.startsWith("SELECT") || upper.startsWith("PRAGMA")) {
+          return stmt.all(...params);
+        } else {
+          return stmt.run(...params);
+        }
+      },
+      close: async () => {},
+      resourceId: "mock-async",
+    }),
     now: () => NOW,
   };
 
-  const decisionResult = recordMarineIntelligenceDecision(
+  const decisionResult = await recordMarineIntelligenceDecision(
     {
       investigationId: "MI-001",
       stationId: "STA-001",
@@ -64,7 +75,7 @@ test("marine intelligence decisions repository records decisions and telemetry e
     assert.equal(decisionResult.result.event?.decisionId, `MID-${NOW}-1`);
   }
 
-  const viewEvent = recordMarineIntelligenceTelemetryEvent(
+  const viewEvent = await recordMarineIntelligenceTelemetryEvent(
     {
       eventType: "view",
       investigationId: "MI-001",
@@ -75,7 +86,7 @@ test("marine intelligence decisions repository records decisions and telemetry e
     deps,
   );
 
-  const clickEvent = recordMarineIntelligenceTelemetryEvent(
+  const clickEvent = await recordMarineIntelligenceTelemetryEvent(
     {
       eventType: "click",
       investigationId: "MI-001",
@@ -89,7 +100,7 @@ test("marine intelligence decisions repository records decisions and telemetry e
   assert.equal(viewEvent.source, "db");
   assert.equal(clickEvent.source, "db");
 
-  const feedbackResult = recordMarineIntelligenceFeedback(
+  const feedbackResult = await recordMarineIntelligenceFeedback(
     {
       useful: true,
       note: "Recommendation matched field conditions.",
@@ -108,7 +119,7 @@ test("marine intelligence decisions repository records decisions and telemetry e
     assert.deepEqual(feedbackResult.result.feedback?.signalSnapshot, ["Low pressure", "High wave height"]);
   }
 
-  const summary = getMarineIntelligenceDecisionSummary(deps);
+  const summary = await getMarineIntelligenceDecisionSummary(undefined, deps);
   assert.equal(summary.source, "db");
 
   if (summary.source === "db") {
@@ -128,10 +139,10 @@ test("marine intelligence decisions repository records decisions and telemetry e
   }
 });
 
-test("marine intelligence decisions repository validates inputs and handles missing storage", () => {
+test("marine intelligence decisions repository validates inputs and handles missing storage", async () => {
   const db = createInMemoryDb();
 
-  const invalidDecision = recordMarineIntelligenceDecision(
+  const invalidDecision = await recordMarineIntelligenceDecision(
     {
       investigationId: "",
       stationId: "STA-001",
@@ -142,7 +153,19 @@ test("marine intelligence decisions repository validates inputs and handles miss
     {
       resolvePath: () => "test.sqlite",
       hasPath: () => true,
-      openWritable: () => db,
+      getAdapter: () => ({
+        execute: async (sql: string, params: unknown[] = []) => {
+          const stmt = db.prepare(sql);
+          const upper = sql.trim().toUpperCase();
+          if (upper.startsWith("SELECT") || upper.startsWith("PRAGMA")) {
+            return stmt.all(...params);
+          } else {
+            return stmt.run(...params);
+          }
+        },
+        close: async () => {},
+        resourceId: "mock-async",
+      }),
       now: () => NOW,
     },
   );
@@ -153,7 +176,7 @@ test("marine intelligence decisions repository validates inputs and handles miss
     assert.equal(invalidDecision.result.reason, "validation");
   }
 
-  const unavailable = recordMarineIntelligenceTelemetryEvent(
+  const unavailable = await recordMarineIntelligenceTelemetryEvent(
     {
       eventType: "view",
       investigationId: "MI-001",
@@ -168,7 +191,7 @@ test("marine intelligence decisions repository validates inputs and handles miss
 
   assert.equal(unavailable.source, "unavailable");
 
-  const invalidFeedback = recordMarineIntelligenceFeedback(
+  const invalidFeedback = await recordMarineIntelligenceFeedback(
     {
       useful: true,
       timestamp: "not-a-timestamp",
@@ -176,7 +199,19 @@ test("marine intelligence decisions repository validates inputs and handles miss
     {
       resolvePath: () => "test.sqlite",
       hasPath: () => true,
-      openWritable: () => db,
+      getAdapter: () => ({
+        execute: async (sql: string, params: unknown[] = []) => {
+          const stmt = db.prepare(sql);
+          const upper = sql.trim().toUpperCase();
+          if (upper.startsWith("SELECT") || upper.startsWith("PRAGMA")) {
+            return stmt.all(...params);
+          } else {
+            return stmt.run(...params);
+          }
+        },
+        close: async () => {},
+        resourceId: "mock-async",
+      }),
       now: () => NOW,
     },
   );
@@ -187,5 +222,18 @@ test("marine intelligence decisions repository validates inputs and handles miss
     assert.equal(invalidFeedback.result.reason, "validation");
   }
 
-  ensureMarineIntelligenceDecisionTables(db);
+  const mockAdapter = {
+    execute: async (sql: string, params: unknown[] = []) => {
+      const stmt = db.prepare(sql);
+      const upper = sql.trim().toUpperCase();
+      if (upper.startsWith("SELECT") || upper.startsWith("PRAGMA")) {
+        return stmt.all(...params);
+      } else {
+        return stmt.run(...params);
+      }
+    },
+    close: async () => {},
+    resourceId: "mock-async",
+  } as any;
+  await ensureMarineIntelligenceDecisionTables(mockAdapter);
 });

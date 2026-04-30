@@ -3,7 +3,8 @@ import { resolve } from "path";
 
 export interface SqliteStatementLike {
   all(...params: unknown[]): unknown[];
-  run?(...params: unknown[]): unknown;
+  get(...params: unknown[]): unknown;
+  run(...params: unknown[]): unknown;
 }
 
 export interface SqliteDatabaseLike {

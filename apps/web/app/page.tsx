@@ -75,71 +75,58 @@ export default async function DashboardPage() {
 
   const liveApiDisconnected =
     liveConditionsStatus.source === "fallback" && reefAlertsStatus.source === "fallback";
-  const metricsWithheld = liveApiDisconnected;
+
+  const warningNotices = notices.filter((n) => n.tone === "warning");
+  const triage = triageSummary(anomalySummary);
 
   return (
     <AppShell
       pageTitle="Marine Intelligence"
-      pageSubtitle="Live-backed marine risk surfaces only"
+      pageSubtitle="Monitor ocean conditions, detect anomalies, and track reef stress across monitored regions."
     >
       <div className="mx-auto flex max-w-[1400px] flex-col gap-6 p-6">
+        {/* Command center header */}
         <section className="rounded-2xl border border-surface-border bg-ocean-900 p-5">
-          {metricsWithheld && (
-            <article className="mb-4 rounded-xl border border-amber-500/35 bg-amber-500/10 p-4">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-amber-300">
-                System Integrity Notice
-              </p>
-              <h3 className="mt-2 text-base font-semibold text-amber-100">Metrics are intentionally hidden until live data is verified.</h3>
-              <div className="mt-3 grid gap-2 text-[11px] text-amber-50 sm:grid-cols-2">
-                <p className="rounded-md border border-amber-500/25 bg-black/20 px-3 py-2">Data source unavailable</p>
-                <p className="rounded-md border border-amber-500/25 bg-black/20 px-3 py-2">Live API disconnected</p>
-                <p className="rounded-md border border-amber-500/25 bg-black/20 px-3 py-2">Metrics withheld</p>
-                <p className="rounded-md border border-amber-500/25 bg-black/20 px-3 py-2">Awaiting verified telemetry</p>
-              </div>
-            </article>
-          )}
-
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="space-y-2">
               <p className="text-[11px] font-medium uppercase tracking-[0.28em] text-cyan-400">
-                Dashboard Scope
+                Marine Intelligence Command Center
               </p>
               <h2 className="text-lg font-semibold text-slate-100">
-                This dashboard now shows only live-backed marine risk surfaces.
+                Live ocean conditions, signal detection, and reef stress monitoring.
               </h2>
-              <p className="max-w-3xl text-sm text-slate-400">
-                Station conditions, reef stress, anomalies, regional risk, and signal detections on this page are sourced from the marine intelligence stack.
-                The dashboard excludes demo workflows and unsourced summary widgets.
+              <p className="max-w-2xl text-sm text-slate-400">
+                Real-time data surfaces from monitored stations and NOAA NDBC ingestion.
+                All metrics reflect verified telemetry — stale or seed data is labeled inline.
               </p>
-              {(() => {
-                const triage = triageSummary(anomalySummary);
-                return (
-                  <p className={cn(
-                    "inline-flex w-fit rounded-full border px-3 py-1 text-[11px] font-medium",
-                    triage.tone === "critical"
-                      ? "border-rose-500/25 bg-rose-500/10 text-rose-200"
-                      : triage.tone === "warning"
-                        ? "border-amber-500/25 bg-amber-500/10 text-amber-200"
-                        : "border-emerald-500/25 bg-emerald-500/10 text-emerald-200",
-                  )}>
-                    {triage.text}
-                  </p>
-                );
-              })()}
+              <p className={cn(
+                "inline-flex w-fit rounded-full border px-3 py-1 text-[11px] font-medium",
+                triage.tone === "critical"
+                  ? "border-rose-500/25 bg-rose-500/10 text-rose-200"
+                  : triage.tone === "warning"
+                    ? "border-amber-500/25 bg-amber-500/10 text-amber-200"
+                    : "border-emerald-500/25 bg-emerald-500/10 text-emerald-200",
+              )}>
+                {triage.text}
+              </p>
             </div>
 
-            <div className="grid gap-2 md:min-w-[360px]">
-              {notices.map((notice) => (
+            <div className="flex flex-col gap-2 md:min-w-[320px]">
+              {liveApiDisconnected && (
+                <article className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm">
+                  <p className="font-medium text-amber-200">API connection required for live data</p>
+                  <p className="mt-1 text-[12px] leading-relaxed text-slate-300">
+                    Station and reef stress APIs are unreachable. Metrics show last known values.
+                    Start the API server or run ingestion to restore live feeds.
+                  </p>
+                </article>
+              )}
+              {warningNotices.map((notice) => (
                 <article
                   key={notice.title}
-                  className={cn(
-                    "rounded-xl border px-4 py-3 text-sm",
-                    notice.tone === "warning"
-                      ? "border-amber-500/25 bg-amber-500/10 text-amber-100"
-                      : "border-cyan-500/25 bg-cyan-500/10 text-cyan-100",
-                  )}
+                  className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm"
                 >
-                  <p className="font-medium">{notice.title}</p>
+                  <p className="font-medium text-amber-200">{notice.title}</p>
                   <p className="mt-1 text-[12px] leading-relaxed text-slate-300">{notice.detail}</p>
                 </article>
               ))}
@@ -147,18 +134,10 @@ export default async function DashboardPage() {
           </div>
         </section>
 
+        {/* Status metrics */}
         <section>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {(metricsWithheld
-              ? metrics.map((metric) => ({
-                  ...metric,
-                  value: "WITHHELD",
-                  caption: "Awaiting verified telemetry from the live API connection.",
-                  href: null,
-                  tone: "warning" as const,
-                }))
-              : metrics
-            ).map((metric) => {
+            {metrics.map((metric) => {
               const content = (
                 <div className={cn("rounded-xl border p-4", METRIC_TONE[metric.tone])}>
                   <p className="text-[10px] uppercase tracking-[0.18em]">{metric.label}</p>
@@ -190,26 +169,35 @@ export default async function DashboardPage() {
           signals={prioritizedSignals}
           getSignalHref={getSignalDetailHref}
           statusLine={formatSurfaceStatusLine(signalCenterStatus)}
-          emptyStateTitle="No live signal detections are open"
-          emptyStateSubtitle="The persisted signal store returned no active detections. Use regional and station pages for direct risk output."
+          emptyStateTitle="No active signal detections"
+          emptyStateSubtitle="Signals appear here when the ingestion pipeline flags anomalies at monitored stations."
         />
 
         <DataCoverageMap />
 
+        {/* Live ocean conditions */}
         <section className="rounded-2xl border border-surface-border bg-ocean-900 p-5 space-y-4">
           <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <p className="text-xs font-semibold text-slate-200">Live Marine Conditions</p>
+              <p className="text-xs font-semibold text-slate-200">Live Ocean Conditions</p>
               <p className="mt-0.5 text-[11px] text-slate-500">
                 {formatSurfaceStatusLine(liveConditionsStatus)}
               </p>
             </div>
             {liveConditionsStatus.source === "fallback" && (
               <span className="inline-flex w-fit rounded-full border border-amber-500/25 bg-amber-500/10 px-3 py-1 text-[11px] font-medium text-amber-300">
-                Fallback mode
+                Station API offline
               </span>
             )}
           </div>
+
+          {liveConditions.length > 0 && liveConditions.every((c) => c.source === "seed") && (
+            <div className="rounded-lg border border-cyan-500/25 bg-cyan-500/5 px-4 py-3 text-[11px] text-cyan-200">
+              <span className="font-semibold uppercase tracking-wider">Seed data</span>
+              {" — "}These observations are from the seed dataset, not live ingestion.
+              Run <code className="font-mono text-cyan-300">pnpm --filter api ingest:live</code> to replace with real NDBC readings.
+            </div>
+          )}
 
           {liveConditions.length > 0 ? (
             <div className="grid gap-2">
@@ -261,13 +249,17 @@ export default async function DashboardPage() {
               ))}
             </div>
           ) : (
-            <div className="rounded-xl border border-dashed border-amber-500/30 bg-ocean-850/70 p-4 text-sm text-slate-300">
-              <p className="font-medium text-amber-200">Data source unavailable</p>
-              <p className="mt-1 text-[12px] text-slate-400">Station condition metrics withheld until live API telemetry is verified.</p>
+            <div className="rounded-xl border border-dashed border-surface-borderSubtle bg-ocean-850/70 p-4 text-sm text-slate-300">
+              <p className="font-medium text-slate-200">No station observations loaded yet</p>
+              <p className="mt-1 text-[12px] text-slate-400">
+                Run <code className="font-mono text-slate-300">pnpm --filter api ingest:live</code> or{" "}
+                <code className="font-mono text-slate-300">seed:datasets</code> to populate station conditions.
+              </p>
             </div>
           )}
         </section>
 
+        {/* Reef stress */}
         <section className="rounded-2xl border border-surface-border bg-ocean-900 p-5 space-y-4">
           <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
             <div>
@@ -278,7 +270,7 @@ export default async function DashboardPage() {
             </div>
             {reefAlertsStatus.source === "fallback" && (
               <span className="inline-flex w-fit rounded-full border border-amber-500/25 bg-amber-500/10 px-3 py-1 text-[11px] font-medium text-amber-300">
-                Fallback mode
+                CRW feed offline
               </span>
             )}
           </div>
@@ -333,16 +325,19 @@ export default async function DashboardPage() {
               })}
             </div>
           ) : (
-            <div className="rounded-xl border border-dashed border-amber-500/30 bg-ocean-850/70 p-4 text-sm text-slate-300">
-              <p className="font-medium text-amber-200">Live API disconnected</p>
-              <p className="mt-1 text-[12px] text-slate-400">Reef stress metrics withheld while awaiting verified telemetry.</p>
+            <div className="rounded-xl border border-dashed border-surface-borderSubtle bg-ocean-850/70 p-4 text-sm text-slate-300">
+              <p className="font-medium text-slate-200">No reef stress data available yet</p>
+              <p className="mt-1 text-[12px] text-slate-400">
+                Run live ingestion to populate CRW stress records for monitored regions.
+              </p>
             </div>
           )}
         </section>
 
+        {/* Quick navigation */}
         <section>
           <p className="mb-3 text-xs font-medium uppercase tracking-widest text-slate-500">
-            Live Views
+            Explore
           </p>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             {quickLinks.map((link) => (

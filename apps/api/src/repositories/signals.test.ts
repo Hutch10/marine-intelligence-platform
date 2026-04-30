@@ -7,47 +7,17 @@ import {
   listSignals,
   promoteSignalToInvestigation,
 } from "./signals";
-import type { SqliteDatabaseLike } from "../db/client";
+import type { AsyncDbAdapter, AsyncDbRow } from "../db/async-client";
 
 const NOW = Date.parse("2026-03-17T12:00:00.000Z");
 
-function createInMemoryDb(): SqliteDatabaseLike {
+function createInMemoryAsyncDb(): AsyncDbAdapter {
   const runtimeRequire = eval("require") as NodeRequire;
   const { DatabaseSync } = runtimeRequire("node:sqlite") as {
-    DatabaseSync: new (path: string, options?: { open?: boolean; readOnly?: boolean }) => {
-      exec: (sql: string) => void;
-      prepare: (sql: string) => {
-        all: (...params: unknown[]) => unknown[];
-        run: (...params: unknown[]) => unknown;
-      };
-    };
+    DatabaseSync: new (path: string, options?: { open?: boolean; readOnly?: boolean }) => any;
   };
 
   const raw = new DatabaseSync(":memory:");
-  raw.exec(`
-    CREATE TABLE IF NOT EXISTS investigations (
-      id TEXT PRIMARY KEY
-    );
-
-    CREATE TABLE IF NOT EXISTS signal_detections (
-      id TEXT PRIMARY KEY,
-      signal_type TEXT NOT NULL,
-      severity TEXT NOT NULL,
-      confidence INTEGER NOT NULL,
-      source_type TEXT NOT NULL,
-      source_id TEXT NOT NULL,
-      region TEXT NOT NULL,
-      station_id TEXT,
-      title TEXT NOT NULL,
-      summary TEXT NOT NULL,
-      detail TEXT NOT NULL,
-      status TEXT NOT NULL,
-      detected_at INTEGER NOT NULL,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      linked_investigation_id TEXT
-    );
-  `);
   raw.exec(`
     CREATE TABLE IF NOT EXISTS investigations (
       id TEXT PRIMARY KEY,
@@ -70,37 +40,38 @@ function createInMemoryDb(): SqliteDatabaseLike {
       detected_at INTEGER NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
-      linked_investigation_id TEXT
+      linked_investigation_id TEXT REFERENCES investigations(id)
     );
   `);
 
   return {
-    prepare(sql: string) {
-      return raw.prepare(sql);
+    async execute(sql: string, params: unknown[] = []): Promise<AsyncDbRow[]> {
+      const stmt = raw.prepare(sql);
+      if (
+        sql.trim().toUpperCase().startsWith("INSERT") ||
+        sql.trim().toUpperCase().startsWith("UPDATE") ||
+        sql.trim().toUpperCase().startsWith("DELETE") ||
+        sql.trim().toUpperCase().startsWith("CREATE")
+      ) {
+        stmt.run(...params);
+        return [];
+      } else {
+        return stmt.all(...params) as AsyncDbRow[];
+      }
     },
     close() {
-      return undefined;
+      // No-op in tests to allow reuse of the same adapter/database
     },
+
   };
 }
 
-function runStatement(db: SqliteDatabaseLike, sql: string, ...params: unknown[]) {
-  const statement = db.prepare(sql);
-
-  if (typeof statement.run === "function") {
-    statement.run(...params);
-    return;
-  }
-
-  statement.all(...params);
+async function seedInvestigation(adapter: AsyncDbAdapter, id: string) {
+  await adapter.execute("INSERT INTO investigations (id) VALUES (?)", [id]);
 }
 
-function seedInvestigation(db: SqliteDatabaseLike, id: string) {
-  runStatement(db, "INSERT INTO investigations (id) VALUES (?)", id);
-}
-
-function seedSignal(
-  db: SqliteDatabaseLike,
+async function seedSignal(
+  adapter: AsyncDbAdapter,
   signal: {
     id: string;
     severity: string;
@@ -109,44 +80,44 @@ function seedSignal(
     linkedInvestigationId?: string | null;
   },
 ) {
-  runStatement(
-    db,
+  await adapter.execute(
     `INSERT INTO signal_detections
       (id, signal_type, severity, confidence, source_type, source_id, region, station_id, title, summary, detail, status, detected_at, created_at, updated_at, linked_investigation_id)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    
-    signal.id,
-    "thermal_anomaly",
-    signal.severity,
-    82,
-    "test_source",
-    "test-source-id",
-    "North Pacific",
-    null,
-    `Signal ${signal.id}`,
-    `Summary ${signal.id}`,
-    `Detail ${signal.id}`,
-    signal.status,
-    signal.detectedAt,
-    signal.detectedAt,
-    signal.detectedAt,
-    signal.linkedInvestigationId ?? null,
+    [
+      signal.id,
+      "thermal_anomaly",
+      signal.severity,
+      82,
+      "test_source",
+      "test-source-id",
+      "North Pacific",
+      null,
+      `Signal ${signal.id}`,
+      `Summary ${signal.id}`,
+      `Detail ${signal.id}`,
+      signal.status,
+      signal.detectedAt,
+      signal.detectedAt,
+      signal.detectedAt,
+      signal.linkedInvestigationId ?? null,
+    ],
   );
 }
 
-test("signals repository lists detections with filters and descending timeline order", () => {
-  const db = createInMemoryDb();
+test("signals repository lists detections with filters and descending timeline order", async () => {
+  const adapter = createInMemoryAsyncDb();
 
-  seedSignal(db, { id: "SIG-001", severity: "medium", status: "open", detectedAt: NOW - 5_000 });
-  seedSignal(db, { id: "SIG-002", severity: "high", status: "open", detectedAt: NOW - 1_000 });
-  seedSignal(db, { id: "SIG-003", severity: "high", status: "dismissed", detectedAt: NOW - 2_000 });
+  await seedSignal(adapter, { id: "SIG-001", severity: "medium", status: "open", detectedAt: NOW - 5_000 });
+  await seedSignal(adapter, { id: "SIG-002", severity: "high", status: "open", detectedAt: NOW - 1_000 });
+  await seedSignal(adapter, { id: "SIG-003", severity: "high", status: "dismissed", detectedAt: NOW - 2_000 });
 
-  const result = listSignals(
+  const result = await listSignals(
     { severity: "high", status: "open", limit: 10 },
     {
       resolvePath: () => "test.sqlite",
       hasPath: () => true,
-      openReadOnly: () => db,
+      getAdapter: () => adapter,
       now: () => NOW,
     },
   );
@@ -159,14 +130,14 @@ test("signals repository lists detections with filters and descending timeline o
   }
 });
 
-test("signals repository gets signal by id", () => {
-  const db = createInMemoryDb();
-  seedSignal(db, { id: "SIG-ABC", severity: "critical", status: "open", detectedAt: NOW });
+test("signals repository gets signal by id", async () => {
+  const adapter = createInMemoryAsyncDb();
+  await seedSignal(adapter, { id: "SIG-ABC", severity: "critical", status: "open", detectedAt: NOW });
 
-  const found = getSignalById("SIG-ABC", {
+  const found = await getSignalById("SIG-ABC", {
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openReadOnly: () => db,
+    getAdapter: () => adapter,
     now: () => NOW,
   });
 
@@ -179,20 +150,20 @@ test("signals repository gets signal by id", () => {
     }
   }
 
-  const missing = getSignalById("SIG-MISSING", {
+  const missing = await getSignalById("SIG-MISSING", {
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openReadOnly: () => db,
+    getAdapter: () => adapter,
     now: () => NOW,
   });
 
   assert.deepEqual(missing, { source: "db", result: "not_found" });
 });
 
-test("signals repository creates a new signal", () => {
-  const db = createInMemoryDb();
+test("signals repository creates a new signal", async () => {
+  const adapter = createInMemoryAsyncDb();
 
-  const result = createSignal(
+  const result = await createSignal(
     {
       signalType: "oxygen_depletion",
       severity: "high",
@@ -207,7 +178,7 @@ test("signals repository creates a new signal", () => {
     {
       resolvePath: () => "test.sqlite",
       hasPath: () => true,
-      openWritable: () => db,
+      getAdapter: () => adapter,
       now: () => NOW,
     },
   );
@@ -220,21 +191,21 @@ test("signals repository creates a new signal", () => {
   }
 });
 
-test("signals repository promotes signal and records investigation event", () => {
-  const db = createInMemoryDb();
-  seedInvestigation(db, "TRK-201");
-  seedSignal(db, { id: "SIG-LINK-1", severity: "high", status: "open", detectedAt: NOW - 30_000 });
+test("signals repository promotes signal and records investigation event", async () => {
+  const adapter = createInMemoryAsyncDb();
+  await seedInvestigation(adapter, "TRK-201");
+  await seedSignal(adapter, { id: "SIG-LINK-1", severity: "high", status: "open", detectedAt: NOW - 30_000 });
 
   const recordedEvents: Array<{ investigationId: string; eventType: string; summary: string }> = [];
 
-  const result = promoteSignalToInvestigation(
+  const result = await promoteSignalToInvestigation(
     "SIG-LINK-1",
     "TRK-201",
     "pilot.analyst@marine.local",
     {
       resolvePath: () => "test.sqlite",
       hasPath: () => true,
-      openWritable: () => db,
+      getAdapter: () => adapter,
       now: () => NOW,
       recordEvent: (input) => {
         recordedEvents.push({
@@ -260,14 +231,14 @@ test("signals repository promotes signal and records investigation event", () =>
   assert.equal(recordedEvents[0]?.eventType, "signal_linked");
 });
 
-test("signals repository dismisses signal", () => {
-  const db = createInMemoryDb();
-  seedSignal(db, { id: "SIG-DISMISS-1", severity: "medium", status: "open", detectedAt: NOW - 20_000 });
+test("signals repository dismisses signal", async () => {
+  const adapter = createInMemoryAsyncDb();
+  await seedSignal(adapter, { id: "SIG-DISMISS-1", severity: "medium", status: "open", detectedAt: NOW - 20_000 });
 
-  const result = dismissSignal("SIG-DISMISS-1", "operator", {
+  const result = await dismissSignal("SIG-DISMISS-1", "operator", {
     resolvePath: () => "test.sqlite",
     hasPath: () => true,
-    openWritable: () => db,
+    getAdapter: () => adapter,
     now: () => NOW,
   });
 
@@ -280,8 +251,8 @@ test("signals repository dismisses signal", () => {
   }
 });
 
-test("signals repository falls back when DB path is missing", () => {
-  const listResult = listSignals({}, {
+test("signals repository falls back when DB path is missing", async () => {
+  const listResult = await listSignals({}, {
     resolvePath: () => "missing.sqlite",
     hasPath: () => false,
   });
@@ -291,7 +262,7 @@ test("signals repository falls back when DB path is missing", () => {
     fallbackReason: "db_path_missing",
   });
 
-  const createResult = createSignal(
+  const createResult = await createSignal(
     {
       signalType: "station_health",
       severity: "low",
@@ -314,3 +285,4 @@ test("signals repository falls back when DB path is missing", () => {
     fallbackReason: "db_path_missing",
   });
 });
+

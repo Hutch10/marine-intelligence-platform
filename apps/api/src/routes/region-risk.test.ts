@@ -5,8 +5,8 @@ import assert from "node:assert/strict";
 import { buildRegionRiskScoreRouteResponse } from "./region-risk";
 import { buildV1RegionRiskRouteResponse } from "./v1-region-risk";
 
-test("region risk score route returns 404 for an unknown region", () => {
-  const response = buildRegionRiskScoreRouteResponse("unknown-region", {
+test("region risk score route returns 404 for an unknown region", async () => {
+  const response = await buildRegionRiskScoreRouteResponse("unknown-region", {
     getRegionConfig: () => undefined,
   });
 
@@ -53,10 +53,10 @@ test("region risk score route returns aggregated regional risk output", () => {
   assert.ok(region.fusionSummary);
 });
 
-test("v1 region risk route maps internal output into the public response", () => {
-  const response = buildV1RegionRiskRouteResponse(
+test("v1 region risk route maps internal output into the public response", async () => {
+  const response = await buildV1RegionRiskRouteResponse(
     "southeast-florida",
-    () => ({
+    async () => ({
       status: 200,
       json: {
         region_id: "southeast-florida",

@@ -2,12 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createMarineEventFoundationService } from "./marine-intelligence-events";
 
-test("marine event foundation service rejects unknown ontology terms", () => {
+test("marine event foundation service rejects unknown ontology terms", async () => {
   const service = createMarineEventFoundationService({
     getOntologyTerm: () => null,
   });
 
-  const result = service.recordEvent({
+  const result = await service.recordEvent({
     ontologyTermId: "missing.term",
     eventClass: "threshold_alert",
     severity: "high",
@@ -28,7 +28,7 @@ test("marine event foundation service rejects unknown ontology terms", () => {
   assert.equal(result.reason, "ontology_term_not_found");
 });
 
-test("marine event foundation service enforces modeled term and class alignment", () => {
+test("marine event foundation service enforces modeled term and class alignment", async () => {
   const service = createMarineEventFoundationService({
     getOntologyTerm: () => ({
       id: "mdl.trend_signal",
@@ -42,7 +42,7 @@ test("marine event foundation service enforces modeled term and class alignment"
     }),
   });
 
-  const result = service.recordEvent({
+  const result = await service.recordEvent({
     ontologyTermId: "mdl.trend_signal",
     eventClass: "threshold_alert",
     severity: "medium",
@@ -64,7 +64,7 @@ test("marine event foundation service enforces modeled term and class alignment"
   assert.match(result.error ?? "", /eventClass does not match/);
 });
 
-test("marine event foundation service returns repository results for valid input", () => {
+test("marine event foundation service returns repository results for valid input", async () => {
   const service = createMarineEventFoundationService({
     getOntologyTerm: () => ({
       id: "mdl.threshold_alert",
@@ -76,38 +76,35 @@ test("marine event foundation service returns repository results for valid input
       tags: ["model"],
       version: 1,
     }),
-    createEvent: () => ({
-      source: "db",
-      result: {
-        ok: true,
-        event: {
-          id: "MEV-1",
-          ontologyTermId: "mdl.threshold_alert",
-          eventClass: "threshold_alert",
-          severity: "high",
-          status: "detected",
-          title: "Threshold exceeded",
-          summary: "Event summary",
-          region: "North Pacific",
-          stationId: null,
-          confidence: 90,
-          lineage: {
-            source: "crw",
-            sourceRecordId: "rec-3",
-            ingestionRunId: "run-3",
-            observedAt: "2026-03-20T11:00:00.000Z",
-            ingestedAt: "2026-03-20T11:05:00.000Z",
-          },
-          detectedAt: "2026-03-20T11:06:00.000Z",
-          resolvedAt: null,
-          createdAt: "2026-03-20T11:06:00.000Z",
-          updatedAt: "2026-03-20T11:06:00.000Z",
+    createEvent: async () => ({
+      ok: true,
+      event: {
+        id: "MEV-1",
+        ontologyTermId: "mdl.threshold_alert",
+        eventClass: "threshold_alert",
+        severity: "high",
+        status: "detected",
+        title: "Threshold exceeded",
+        summary: "Event summary",
+        region: "North Pacific",
+        stationId: null,
+        confidence: 90,
+        lineage: {
+          source: "crw",
+          sourceRecordId: "rec-3",
+          ingestionRunId: "run-3",
+          observedAt: "2026-03-20T11:00:00.000Z",
+          ingestedAt: "2026-03-20T11:05:00.000Z",
         },
+        detectedAt: "2026-03-20T11:06:00.000Z",
+        resolvedAt: null,
+        createdAt: "2026-03-20T11:06:00.000Z",
+        updatedAt: "2026-03-20T11:06:00.000Z",
       },
     }),
   });
 
-  const result = service.recordEvent({
+  const result = await service.recordEvent({
     ontologyTermId: "mdl.threshold_alert",
     eventClass: "threshold_alert",
     severity: "high",
@@ -128,15 +125,16 @@ test("marine event foundation service returns repository results for valid input
   assert.equal(result.event?.id, "MEV-1");
 });
 
-test("marine event foundation service returns empty list on repository unavailability", () => {
+test("marine event foundation service returns empty list on repository unavailability", async () => {
   const service = createMarineEventFoundationService({
-    listEvents: () => ({
-      source: "unavailable",
-      fallbackReason: "db_open_failed",
+    listEvents: async () => ({
+      ok: false,
+      events: [],
+      error: "db_open_failed",
     }),
   });
 
-  const result = service.listEvents();
+  const result = await service.listEvents();
 
   assert.equal(result.ok, false);
   assert.deepEqual(result.events, []);

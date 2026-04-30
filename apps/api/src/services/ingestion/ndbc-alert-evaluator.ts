@@ -197,17 +197,17 @@ function evaluateHybridThreshold(
  * The alert source is formatted as "noaa_ndbc:{stationId}" so that
  * operational alerts can be grouped and resolved per-station.
  */
-export function evaluateNdbcAnomalies(
+export async function evaluateNdbcAnomalies(
   observation: NdbcMappedObservation,
   options: {
     baselineHistory?: BaselineObservationInput[];
     baseline?: BaselineAnomalyOptions;
     thresholds?: ResolvedStationRiskThreshold[];
   } = {},
-): OperationalAlertAction[] {
+): Promise<OperationalAlertAction[]> {
   const actions: OperationalAlertAction[] = [];
   const source = `noaa_ndbc:${observation.stationId}`;
-  const thresholds = options.thresholds ?? resolveStationRiskThresholds(observation.stationId);
+  const thresholds = options.thresholds ?? (await resolveStationRiskThresholds(observation.stationId));
   const baselineStats = options.baselineHistory?.length
     ? scoreBaselineAnomalies(observation, options.baselineHistory, options.baseline)
     : [];

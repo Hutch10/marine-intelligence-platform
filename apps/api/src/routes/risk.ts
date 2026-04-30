@@ -16,11 +16,10 @@ import {
 import { SovereignTrustService } from "../services/sovereign-trust";
 import type { NdbcMappedObservation } from "../connectors/ndbc/map";
 import {
-  openReadOnlyDatabase,
   resolveDatabasePath,
   hasDatabasePath,
-  type SqliteDatabaseLike,
 } from "../db/client";
+import { getAsyncAdapter, type AsyncDbAdapter } from "../db/async-client";
 import { buildRiskSignal } from "../services/signal-fusion";
 import {
   readLatestObservationSnapshotsFromDb,
@@ -53,6 +52,7 @@ import {
   type SignalFusionResult,
 } from "../services/signal-fusion";
 import { listNeighborStationIds } from "../services/neighbor-stations";
+import { toFailClosedPublicRiskLevel } from "../services/contradiction-policy";
 import type { RouteDefinition } from "../types";
 
 const DEFAULT_WINDOW_DAYS = 45;
@@ -933,10 +933,10 @@ function logFusionAssessment(
   }));
 }
 
-export function readObservationHistory(
+export async function readObservationHistory(
   stationId: string,
   windowDays: number,
-): ReadObservationHistoryResultSuccess | ReadObservationHistoryResultFailure {
+): Promise<ReadObservationHistoryResultSuccess | ReadObservationHistoryResultFailure> {
   const dbPath = resolveDatabasePath();
 
   if (!hasDatabasePath(dbPath)) {
@@ -948,10 +948,9 @@ export function readObservationHistory(
     };
   }
 
-  let db: SqliteDatabaseLike;
-
+  let adapter: AsyncDbAdapter;
   try {
-    db = openReadOnlyDatabase(dbPath);
+    adapter = getAsyncAdapter(true);
   } catch {
     return {
       ok: false,
@@ -964,14 +963,14 @@ export function readObservationHistory(
   try {
     const lookbackDays = Math.max(windowDays, BASELINE_HISTORY_LOOKBACK_DAYS);
     const sinceObservedAt = Date.now() - (lookbackDays * 24 * 60 * 60 * 1000);
-    const history = readRecentObservationHistoryFromDb(
-      db,
+    const history = await readRecentObservationHistoryFromDb(
+      adapter,
       stationId,
       sinceObservedAt,
       MAX_HISTORY_POINTS,
     );
-    const crwHistory = readRecentCrwRiskHistoryFromDb(
-      db,
+    const crwHistory = await readRecentCrwRiskHistoryFromDb(
+      adapter,
       sinceObservedAt,
       MAX_HISTORY_POINTS,
     );
@@ -1006,14 +1005,14 @@ export function readObservationHistory(
     logRiskDiagnostic(
       `station ${stationId} loaded ${crwHistory.length} CRW contextual records within ${lookbackDays} days for auxiliary baseline analysis.`,
     );
-    const erddapSalinity = readRecentStationMetricHistoryFromDb(db, {
+    const erddapSalinity = await readRecentStationMetricHistoryFromDb(adapter, {
       stationId,
       metricType: "salinity_psu",
       sinceObservedAt,
       limit: MAX_HISTORY_POINTS,
       sources: ["ioos_erddap"],
     });
-    const erddapDissolvedOxygen = readRecentStationMetricHistoryFromDb(db, {
+    const erddapDissolvedOxygen = await readRecentStationMetricHistoryFromDb(adapter, {
       stationId,
       metricType: "dissolved_oxygen_mg_l",
       sinceObservedAt,
@@ -1024,11 +1023,11 @@ export function readObservationHistory(
       `station ${stationId} loaded ${erddapSalinity.length} salinity and ${erddapDissolvedOxygen.length} dissolved oxygen ERDDAP records for anomaly augmentation.`,
     );
     const configuredNeighborStationIds = listNeighborStationIds(stationId);
-    const neighborObservations = readLatestObservationSnapshotsFromDb(
-      db,
+    const neighborObservations = (await readLatestObservationSnapshotsFromDb(
+      adapter,
       configuredNeighborStationIds,
       preferredCurrent.observedAt,
-    ).map(toBaselineInput);
+    )).map(toBaselineInput);
     logRiskDiagnostic(
       `station ${stationId} loaded ${neighborObservations.length} neighbor station snapshots for regional corroboration.`,
     );
@@ -1084,7 +1083,7 @@ export function readObservationHistory(
       fallbackReason: "db_unavailable",
     };
   } finally {
-    db.close();
+    if (adapter) await adapter.close();
   }
 }
 
@@ -1187,7 +1186,7 @@ export async function buildRiskAnalysis(
   erddapContext: ErddapMetricContext = { salinity: [], dissolvedOxygen: [] },
   sourceAgreement: SourceAgreementAssessment = { confidenceAdjustment: 0, detail: null },
 ): Promise<RiskAnalysisResult> {
-  const resolvedThresholds = resolveStationRiskThresholds(observation.stationId);
+  const resolvedThresholds = await resolveStationRiskThresholds(observation.stationId);
   const fusion = fuseStationSignals({
     observation,
     thresholds: resolvedThresholds,
@@ -1293,6 +1292,9 @@ export async function buildRiskAnalysis(
     }
   }
 
+  // Apply contradiction-policy to ensure fail-closed public visibility.
+  const finalPublicRisk = toFailClosedPublicRiskLevel(overallRisk as any);
+  
   return {
     appliedThresholds: toAppliedThresholds(resolvedThresholds),
     confidenceScore: adjustedConfidence,
@@ -1302,7 +1304,7 @@ export async function buildRiskAnalysis(
     sampleSufficiency: trust.sampleSufficiency,
     warningMessages,
     operatorSummary,
-    overallRisk,
+    overallRisk: finalPublicRisk,
     signals,
     triggeredRules,
     sovereignVerification: {
@@ -1314,10 +1316,10 @@ export async function buildRiskAnalysis(
   };
 }
 
-function readObservationEvidenceMap(
+async function readObservationEvidenceMap(
   stationIds: string[],
   sinceMs: number,
-): Map<string, ObservationHistoryItem[]> {
+): Promise<Map<string, ObservationHistoryItem[]>> {
   const evidenceByStation = new Map<string, ObservationHistoryItem[]>();
   const uniqueStationIds = Array.from(new Set(stationIds.filter((stationId) => stationId.trim().length > 0)));
 
@@ -1331,32 +1333,32 @@ function readObservationEvidenceMap(
     return evidenceByStation;
   }
 
-  let db: SqliteDatabaseLike;
+  let adapter: AsyncDbAdapter;
 
   try {
-    db = openReadOnlyDatabase(dbPath);
+    adapter = getAsyncAdapter(true);
   } catch {
     return evidenceByStation;
   }
 
   try {
     for (const stationId of uniqueStationIds) {
-      const history = readRecentObservationHistoryFromDb(db, stationId, sinceMs, 3);
+      const history = await readRecentObservationHistoryFromDb(adapter, stationId, sinceMs, 3);
       evidenceByStation.set(stationId, history);
     }
   } catch {
     return new Map<string, ObservationHistoryItem[]>();
   } finally {
-    db.close();
+    await adapter.close();
   }
 
   return evidenceByStation;
 }
 
-function readErddapMetricEvidenceMap(
+async function readErddapMetricEvidenceMap(
   stationIds: string[],
   sinceMs: number,
-): Map<string, ErddapMetricContext> {
+): Promise<Map<string, ErddapMetricContext>> {
   const evidenceByStation = new Map<string, ErddapMetricContext>();
   const uniqueStationIds = Array.from(new Set(stationIds.filter((stationId) => stationId.trim().length > 0)));
 
@@ -1369,10 +1371,10 @@ function readErddapMetricEvidenceMap(
     return evidenceByStation;
   }
 
-  let db: SqliteDatabaseLike;
+  let adapter: AsyncDbAdapter;
 
   try {
-    db = openReadOnlyDatabase(dbPath);
+    adapter = getAsyncAdapter(true);
   } catch {
     return evidenceByStation;
   }
@@ -1380,14 +1382,14 @@ function readErddapMetricEvidenceMap(
   try {
     for (const stationId of uniqueStationIds) {
       evidenceByStation.set(stationId, {
-        salinity: readRecentStationMetricHistoryFromDb(db, {
+        salinity: await readRecentStationMetricHistoryFromDb(adapter, {
           stationId,
           metricType: "salinity_psu",
           sinceObservedAt: sinceMs,
           limit: 180,
           sources: ["ioos_erddap"],
         }),
-        dissolvedOxygen: readRecentStationMetricHistoryFromDb(db, {
+        dissolvedOxygen: await readRecentStationMetricHistoryFromDb(adapter, {
           stationId,
           metricType: "dissolved_oxygen_mg_l",
           sinceObservedAt: sinceMs,
@@ -1399,7 +1401,7 @@ function readErddapMetricEvidenceMap(
   } catch {
     return new Map<string, ErddapMetricContext>();
   } finally {
-    db.close();
+    if (adapter) await adapter.close();
   }
 
   return evidenceByStation;
@@ -1514,7 +1516,7 @@ export async function buildRiskScoreRouteResponse(query: RiskScoreQuery = {}): P
     };
   }
 
-  const result = readObservationHistory(stationId, window);
+  const result = await readObservationHistory(stationId, window);
 
   if (!result.ok) {
     if (result.fallbackReason) {
@@ -1544,12 +1546,7 @@ export async function buildRiskScoreRouteResponse(query: RiskScoreQuery = {}): P
       window: window,
       triggeredRules: analysis.triggeredRules,
       signals: analysis.signals,
-      overallRisk:
-        analysis.overallRisk === "unknown"
-        || analysis.overallRisk === "insufficient_data"
-        || analysis.overallRisk === "conflicting_signals"
-          ? "low"
-          : analysis.overallRisk,
+      overallRisk: toFailClosedPublicRiskLevel(analysis.overallRisk),
       computedAt: new Date().toISOString(),
       appliedThresholds: analysis.appliedThresholds,
       confidenceScore: analysis.confidenceScore,
@@ -1602,7 +1599,7 @@ export async function buildRiskEvaluateRouteResponse(body: RiskEvaluateRequest):
   }
 
   const dbHistoryResult = mapped.history === null
-    ? readObservationHistory(mapped.observation.stationId, DEFAULT_WINDOW_DAYS)
+    ? await readObservationHistory(mapped.observation.stationId, DEFAULT_WINDOW_DAYS)
     : null;
   const dbHistory = mapped.history ?? (dbHistoryResult?.ok ? dbHistoryResult.history : null);
 
@@ -1645,10 +1642,10 @@ export async function buildRiskEvaluateRouteResponse(body: RiskEvaluateRequest):
   };
 }
 
-export function buildAnomaliesRouteResponse(query: AnomaliesQuery = {}): {
+export async function buildAnomaliesRouteResponse(query: AnomaliesQuery = {}): Promise<{
   status: 200 | 400 | 503;
   json: AnomalyListResponse | { message: string };
-} {
+}> {
   const stationId = normalizeText(query.stationId);
   const limit = normalizePositiveInteger(query.limit, DEFAULT_LIMIT, MAX_LIMIT);
   const defaultSince = new Date(Date.now() - (DEFAULT_ANOMALY_LOOKBACK_DAYS * 24 * 60 * 60 * 1000)).toISOString();
@@ -1673,7 +1670,7 @@ export function buildAnomaliesRouteResponse(query: AnomaliesQuery = {}): {
     };
   }
 
-  const signalResult = listSignals({
+  const signalResult = await listSignals({
     stationId: stationId ?? undefined,
     limit: MAX_LIMIT,
   });
@@ -1691,14 +1688,14 @@ export function buildAnomaliesRouteResponse(query: AnomaliesQuery = {}): {
   }
 
   const filteredSignals = signalResult.signals.filter((signal) => Date.parse(signal.detectedAt) >= since);
-  const observationEvidence = readObservationEvidenceMap(
+  const observationEvidence = await readObservationEvidenceMap(
     filteredSignals.map((signal) => signal.stationId ?? ""),
     since,
   );
   const stationScope = stationId
     ? [stationId]
     : Array.from(new Set(filteredSignals.map((signal) => signal.stationId ?? "").filter((id) => id.length > 0)));
-  const erddapMetricEvidence = readErddapMetricEvidenceMap(stationScope, since);
+  const erddapMetricEvidence = await readErddapMetricEvidenceMap(stationScope, since);
   const signalAnomalies = filteredSignals
     .slice(0, limit)
     .map((signal) => buildAnomalyItem(signal, observationEvidence.get(signal.stationId ?? "") ?? []));
@@ -1765,7 +1762,7 @@ export const getAnomaliesRoute: RouteDefinition<
 > = {
   method: "GET",
   path: "/anomalies",
-  handler(request) {
-    return buildAnomaliesRouteResponse(request.query ?? {});
+  async handler(request) {
+    return await buildAnomaliesRouteResponse(request.query ?? {});
   },
 };

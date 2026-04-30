@@ -1,6 +1,5 @@
 import type {
   MarineAlertStatus,
-  MarineEventListResult,
   MarineEventRecord,
   MarineInvestigationCreateInput,
   MarineInvestigationCreateResult,
@@ -10,18 +9,13 @@ import {
   acknowledgeMarineAlert,
   listMarineAlerts,
   resolveMarineAlert,
-  type MarineAlertsRepositoryListResult,
-  type MarineAlertsRepositoryMutationResult,
 } from "../repositories/marine-intelligence-alerts";
 import {
   createMarineInvestigation,
   listMarineInvestigations,
-  type MarineInvestigationsRepositoryCreateResult,
-  type MarineInvestigationsRepositoryListResult,
 } from "../repositories/marine-investigations";
 import {
   listMarineEvents,
-  type MarineEventsRepositoryReadResult,
 } from "../repositories/marine-events";
 import type {
   MarineWorkflowAlertFilters,
@@ -32,6 +26,7 @@ import type {
   MarineWorkflowInvestigationFilters,
   MarineWorkflowInvestigationItem,
 } from "@marine/shared";
+import { getAsyncAdapter, type AsyncDbAdapter } from "../db/async-client";
 
 const JOIN_LIMIT = 500;
 
@@ -47,7 +42,10 @@ export interface MarineWorkflowListInvestigationsResult {
   fallbackReason?: "db_path_missing" | "db_open_failed" | "db_query_failed";
 }
 
-export interface MarineWorkflowCreateInvestigationResult extends MarineInvestigationCreateResult {
+export interface MarineWorkflowCreateInvestigationResult {
+  ok: boolean;
+  reason?: "validation" | "not_found" | "invalid_transition";
+  error?: string;
   investigation: MarineWorkflowInvestigationItem | null;
   fallbackReason?: "db_path_missing" | "db_open_failed" | "db_query_failed";
 }
@@ -67,38 +65,26 @@ export interface MarineWorkflowAlertMutationResult {
 }
 
 export interface MarineIntelligenceWorkflowService {
-  listEvents(filters?: MarineWorkflowEventFilters): MarineWorkflowListEventsResult;
+  listEvents(filters?: MarineWorkflowEventFilters): Promise<MarineWorkflowListEventsResult>;
   listInvestigations(
     filters?: MarineWorkflowInvestigationFilters,
-  ): MarineWorkflowListInvestigationsResult;
+  ): Promise<MarineWorkflowListInvestigationsResult>;
   createInvestigation(
     input: MarineInvestigationCreateInput,
-  ): MarineWorkflowCreateInvestigationResult;
-  listAlerts(filters?: MarineWorkflowAlertFilters): MarineWorkflowListAlertsResult;
-  acknowledgeAlert(alertId: string): MarineWorkflowAlertMutationResult;
-  resolveAlert(alertId: string): MarineWorkflowAlertMutationResult;
+  ): Promise<MarineWorkflowCreateInvestigationResult>;
+  listAlerts(filters?: MarineWorkflowAlertFilters): Promise<MarineWorkflowListAlertsResult>;
+  acknowledgeAlert(alertId: string): Promise<MarineWorkflowAlertMutationResult>;
+  resolveAlert(alertId: string): Promise<MarineWorkflowAlertMutationResult>;
 }
 
-interface MarineIntelligenceWorkflowDependencies {
-  readEvents?: (filters?: MarineWorkflowEventFilters & { id?: string }) => MarineEventsRepositoryReadResult;
-  readInvestigations?: (
-    filters?: { eventId?: string; status?: MarineInvestigationRecord["status"]; ownerId?: string; limit?: number },
-  ) => MarineInvestigationsRepositoryListResult;
-  createInvestigation?: (
-    input: MarineInvestigationCreateInput,
-  ) => MarineInvestigationsRepositoryCreateResult;
-  readAlerts?: (
-    filters?: {
-      eventId?: string;
-      investigationId?: string;
-      status?: MarineAlertStatus;
-      severity?: MarineWorkflowAlertItem["severity"];
-      ruleType?: MarineWorkflowAlertItem["ruleType"];
-      limit?: number;
-    },
-  ) => MarineAlertsRepositoryListResult;
-  acknowledgeAlert?: (alertId: string) => MarineAlertsRepositoryMutationResult;
-  resolveAlert?: (alertId: string) => MarineAlertsRepositoryMutationResult;
+export interface MarineIntelligenceWorkflowDependencies {
+  getAdapter?: typeof getAsyncAdapter;
+  listMarineEvents?: typeof listMarineEvents;
+  listMarineInvestigations?: typeof listMarineInvestigations;
+  createMarineInvestigation?: typeof createMarineInvestigation;
+  listMarineAlerts?: typeof listMarineAlerts;
+  acknowledgeMarineAlert?: typeof acknowledgeMarineAlert;
+  resolveMarineAlert?: typeof resolveMarineAlert;
 }
 
 function byTimestampDescThenIdAsc(leftTimestamp: string, rightTimestamp: string, leftId: string, rightId: string): number {
@@ -125,6 +111,7 @@ function mapEvent(event: MarineEventRecord): MarineWorkflowEventItem {
     stationId: event.stationId,
     confidence: event.confidence,
     lineage: { ...event.lineage },
+    truthPartition: event.truthPartition ?? "FIELD_TRUTH",
     detectedAt: event.detectedAt,
     resolvedAt: event.resolvedAt,
     createdAt: event.createdAt,
@@ -152,25 +139,12 @@ function mapInvestigation(
     acknowledgedAt: investigation.acknowledgedAt,
     resolvedAt: investigation.resolvedAt,
     dismissedAt: investigation.dismissedAt,
+    truthPartition: investigation.truthPartition ?? "FIELD_TRUTH",
   };
 }
 
 function mapAlert(
-  alert: MarineAlertsRepositoryListResult extends never ? never : {
-    id: string;
-    eventId: string;
-    investigationId: string | null;
-    severity: MarineWorkflowAlertItem["severity"];
-    status: MarineWorkflowAlertItem["status"];
-    ruleType: MarineWorkflowAlertItem["ruleType"];
-    title: string;
-    detail: string | null;
-    detectedAt: string;
-    acknowledgedAt: string | null;
-    resolvedAt: string | null;
-    createdAt: string;
-    updatedAt: string;
-  },
+  alert: any,
   event: MarineEventRecord | null,
 ): MarineWorkflowAlertItem {
   return {
@@ -191,67 +165,42 @@ function mapAlert(
     resolvedAt: alert.resolvedAt,
     createdAt: alert.createdAt,
     updatedAt: alert.updatedAt,
-  };
-}
-
-function normalizeEventsResult(result: MarineEventsRepositoryReadResult): MarineWorkflowListEventsResult {
-  if (result.source !== "db") {
-    return { ok: false, events: [], fallbackReason: result.fallbackReason };
-  }
-
-  return {
-    ok: result.result.ok,
-    events: result.result.events
-      .map(mapEvent)
-      .sort((left, right) => byTimestampDescThenIdAsc(left.detectedAt, right.detectedAt, left.id, right.id)),
-  };
-}
-
-function buildEventMap(readEvents: (filters?: MarineWorkflowEventFilters & { id?: string }) => MarineEventsRepositoryReadResult) {
-  return (filters: MarineWorkflowEventFilters & { id?: string } = {}) => {
-    const result = readEvents(filters);
-    if (result.source !== "db") {
-      return {
-        ok: false,
-        fallbackReason: result.fallbackReason,
-        byId: new Map<string, MarineEventRecord>(),
-        events: [] as MarineEventRecord[],
-      };
-    }
-
-    const events = result.result.events.slice().sort((left, right) =>
-      byTimestampDescThenIdAsc(left.detectedAt, right.detectedAt, left.id, right.id),
-    );
-    return {
-      ok: true,
-      byId: new Map(events.map((event) => [event.id, event])),
-      events,
-    };
+    truthPartition: alert.truthPartition ?? "FIELD_TRUTH",
   };
 }
 
 export function createMarineIntelligenceWorkflowService(
   dependencies: MarineIntelligenceWorkflowDependencies = {},
 ): MarineIntelligenceWorkflowService {
-  const readEvents = dependencies.readEvents ?? ((filters) => listMarineEvents(filters));
-  const readInvestigations = dependencies.readInvestigations ?? ((filters) => listMarineInvestigations(filters));
-  const createInvestigationInRepository =
-    dependencies.createInvestigation ?? ((input) => createMarineInvestigation(input));
-  const readAlerts = dependencies.readAlerts ?? ((filters) => listMarineAlerts(filters));
-  const acknowledgeAlertInRepository =
-    dependencies.acknowledgeAlert ?? ((alertId) => acknowledgeMarineAlert(alertId));
-  const resolveAlertInRepository =
-    dependencies.resolveAlert ?? ((alertId) => resolveMarineAlert(alertId));
-  const readEventMap = buildEventMap(readEvents);
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
+  const listMarineEventsInjected = dependencies.listMarineEvents ?? listMarineEvents;
+  const listMarineInvestigationsInjected = dependencies.listMarineInvestigations ?? listMarineInvestigations;
+  const createMarineInvestigationInjected = dependencies.createMarineInvestigation ?? createMarineInvestigation;
+  const listMarineAlertsInjected = dependencies.listMarineAlerts ?? listMarineAlerts;
+  const acknowledgeMarineAlertInjected = dependencies.acknowledgeMarineAlert ?? acknowledgeMarineAlert;
+  const resolveMarineAlertInjected = dependencies.resolveMarineAlert ?? resolveMarineAlert;
 
-  function listEvents(filters: MarineWorkflowEventFilters = {}): MarineWorkflowListEventsResult {
-    return normalizeEventsResult(readEvents(filters));
+  async function listEvents(filters: MarineWorkflowEventFilters = {}): Promise<MarineWorkflowListEventsResult> {
+    const adapter = getAdapter(true);
+    try {
+      const result = await listMarineEventsInjected(adapter, filters);
+      return {
+        ok: result.ok,
+        events: result.events
+          .map(mapEvent)
+          .sort((left, right) => byTimestampDescThenIdAsc(left.detectedAt, right.detectedAt, left.id, right.id)),
+      };
+    } catch (err) {
+      return { ok: false, events: [], fallbackReason: "db_query_failed" };
+    } finally {
+      adapter.close();
+    }
   }
 
-  function listInvestigations(
+  async function listInvestigations(
     filters: MarineWorkflowInvestigationFilters = {},
-  ): MarineWorkflowListInvestigationsResult {
-    const investigationResult = readInvestigations({
+  ): Promise<MarineWorkflowListInvestigationsResult> {
+    const investigationResult = await listMarineInvestigationsInjected({
       eventId: filters.eventId,
       status: filters.status,
       ownerId: filters.ownerId,
@@ -266,49 +215,53 @@ export function createMarineIntelligenceWorkflowService(
       };
     }
 
-    const eventLookup = readEventMap({
-      stationId: filters.stationId,
-      region: filters.region,
-      limit: JOIN_LIMIT,
-    });
+    const adapter = getAdapter(true);
+    try {
+      const eventResult = await listMarineEventsInjected(adapter, {
+        stationId: filters.stationId,
+        region: filters.region,
+        limit: JOIN_LIMIT,
+      });
 
-    if (!eventLookup.ok) {
-      return {
-        ok: false,
-        investigations: [],
-        fallbackReason: eventLookup.fallbackReason,
-      };
+      if (!eventResult.ok) {
+        return { ok: false, investigations: [], fallbackReason: "db_query_failed" };
+      }
+
+      const events = eventResult.events;
+      const eventById = new Map(events.map(e => [e.id, e]));
+      const allowedEventIds = (filters.stationId || filters.region) ? new Set(events.map(e => e.id)) : null;
+
+      const investigations = investigationResult.result.investigations
+        .filter((investigation) => !allowedEventIds || allowedEventIds.has(investigation.eventId))
+        .map((investigation) => mapInvestigation(investigation, eventById.get(investigation.eventId) ?? null))
+        .sort((left, right) => byTimestampDescThenIdAsc(left.createdAt, right.createdAt, left.id, right.id));
+
+      return { ok: true, investigations };
+    } finally {
+      adapter.close();
     }
-
-    const allowedEventIds =
-      filters.stationId || filters.region
-        ? new Set(eventLookup.events.map((event) => event.id))
-        : null;
-
-    const investigations = investigationResult.result.investigations
-      .filter((investigation) => !allowedEventIds || allowedEventIds.has(investigation.eventId))
-      .map((investigation) => mapInvestigation(investigation, eventLookup.byId.get(investigation.eventId) ?? null))
-      .sort((left, right) => byTimestampDescThenIdAsc(left.createdAt, right.createdAt, left.id, right.id));
-
-    return { ok: true, investigations };
   }
 
-  function createInvestigation(
+  async function createInvestigation(
     input: MarineInvestigationCreateInput,
-  ): MarineWorkflowCreateInvestigationResult {
-    const eventLookup = readEventMap({ id: input.eventId, limit: 1 });
-
-    if (!eventLookup.ok) {
-      return {
-        ok: false,
-        reason: "validation",
-        error: "Marine event storage unavailable",
-        investigation: null,
-        fallbackReason: eventLookup.fallbackReason,
-      };
+  ): Promise<MarineWorkflowCreateInvestigationResult> {
+    const adapter = getAdapter(true);
+    let event: MarineEventRecord | null = null;
+    try {
+      const eventResult = await listMarineEventsInjected(adapter, { id: input.eventId, limit: 1 });
+      if (!eventResult.ok) {
+        return {
+          ok: false,
+          reason: "validation",
+          error: "Marine event storage unavailable",
+          investigation: null,
+          fallbackReason: "db_query_failed",
+        };
+      }
+      event = eventResult.events[0] ?? null;
+    } finally {
+      adapter.close();
     }
-
-    const event = eventLookup.byId.get(input.eventId) ?? null;
 
     if (!event) {
       return {
@@ -319,7 +272,7 @@ export function createMarineIntelligenceWorkflowService(
       };
     }
 
-    const createResult = createInvestigationInRepository(input);
+    const createResult = await createMarineInvestigationInjected(input);
 
     if (createResult.source !== "db") {
       return {
@@ -339,8 +292,8 @@ export function createMarineIntelligenceWorkflowService(
     };
   }
 
-  function listAlerts(filters: MarineWorkflowAlertFilters = {}): MarineWorkflowListAlertsResult {
-    const alertResult = readAlerts({
+  async function listAlerts(filters: MarineWorkflowAlertFilters = {}): Promise<MarineWorkflowListAlertsResult> {
+    const alertResult = await listMarineAlertsInjected({
       eventId: filters.eventId,
       investigationId: filters.investigationId,
       status: filters.status,
@@ -357,39 +310,43 @@ export function createMarineIntelligenceWorkflowService(
       };
     }
 
-    const eventLookup = readEventMap({
-      stationId: filters.stationId,
-      region: filters.region,
-      limit: JOIN_LIMIT,
-    });
+    const adapter = getAdapter(true);
+    try {
+      const eventResult = await listMarineEventsInjected(adapter, {
+        stationId: filters.stationId,
+        region: filters.region,
+        limit: JOIN_LIMIT,
+      });
 
-    if (!eventLookup.ok) {
-      return {
-        ok: false,
-        alerts: [],
-        fallbackReason: eventLookup.fallbackReason,
-      };
+      if (!eventResult.ok) {
+        return { ok: false, alerts: [], fallbackReason: "db_query_failed" };
+      }
+
+      const eventById = new Map(eventResult.events.map(e => [e.id, e]));
+      const allowedEventIds = (filters.stationId || filters.region) ? new Set(eventResult.events.map(e => e.id)) : null;
+
+      const alerts = alertResult.result.alerts
+        .filter((alert) => !allowedEventIds || allowedEventIds.has(alert.eventId))
+        .map((alert) => mapAlert(alert, eventById.get(alert.eventId) ?? null))
+        .sort((left, right) => byTimestampDescThenIdAsc(left.detectedAt, right.detectedAt, left.id, right.id));
+
+      return { ok: true, alerts };
+    } finally {
+      adapter.close();
     }
-
-    const allowedEventIds =
-      filters.stationId || filters.region
-        ? new Set(eventLookup.events.map((event) => event.id))
-        : null;
-
-    const alerts = alertResult.result.alerts
-      .filter((alert) => !allowedEventIds || allowedEventIds.has(alert.eventId))
-      .map((alert) => mapAlert(alert, eventLookup.byId.get(alert.eventId) ?? null))
-      .sort((left, right) => byTimestampDescThenIdAsc(left.detectedAt, right.detectedAt, left.id, right.id));
-
-    return { ok: true, alerts };
   }
 
-  function mutateAlert(
-    alertId: string,
-    mutation: (alertId: string) => MarineAlertsRepositoryMutationResult,
-  ): MarineWorkflowAlertMutationResult {
-    const mutationResult = mutation(alertId);
+  async function acknowledgeAlert(alertId: string): Promise<MarineWorkflowAlertMutationResult> {
+    const mutationResult = await acknowledgeMarineAlertInjected(alertId);
+    return handleAlertMutation(mutationResult);
+  }
 
+  async function resolveAlert(alertId: string): Promise<MarineWorkflowAlertMutationResult> {
+    const mutationResult = await resolveMarineAlertInjected(alertId);
+    return handleAlertMutation(mutationResult);
+  }
+
+  async function handleAlertMutation(mutationResult: any): Promise<MarineWorkflowAlertMutationResult> {
     if (mutationResult.source !== "db") {
       return {
         ok: false,
@@ -409,33 +366,18 @@ export function createMarineIntelligenceWorkflowService(
       };
     }
 
-    const eventLookup = readEventMap({ id: mutationResult.result.alert.eventId, limit: 1 });
+    const adapter = getAdapter(true);
+    try {
+      const eventResult = await listMarineEventsInjected(adapter, { id: mutationResult.result.alert.eventId, limit: 1 });
+      const event = eventResult.events[0] ?? null;
 
-    if (!eventLookup.ok) {
       return {
-        ok: false,
-        reason: "validation",
-        error: "Marine event storage unavailable",
-        alert: null,
-        fallbackReason: eventLookup.fallbackReason,
+        ok: true,
+        alert: mapAlert(mutationResult.result.alert, event),
       };
+    } finally {
+      adapter.close();
     }
-
-    return {
-      ok: true,
-      alert: mapAlert(
-        mutationResult.result.alert,
-        eventLookup.byId.get(mutationResult.result.alert.eventId) ?? null,
-      ),
-    };
-  }
-
-  function acknowledgeAlert(alertId: string): MarineWorkflowAlertMutationResult {
-    return mutateAlert(alertId, acknowledgeAlertInRepository);
-  }
-
-  function resolveAlert(alertId: string): MarineWorkflowAlertMutationResult {
-    return mutateAlert(alertId, resolveAlertInRepository);
   }
 
   return {
