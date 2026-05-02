@@ -12,6 +12,8 @@ export declare const IntegrityStatus: {
     readonly VERIFIED: "VERIFIED";
     readonly UNVERIFIED: "UNVERIFIED";
     readonly REJECTED: "REJECTED";
+    readonly SOVEREIGN_VERIFIED: "SOVEREIGN_VERIFIED";
+    readonly SOVEREIGN_CONTRADICTED: "SOVEREIGN_CONTRADICTED";
 };
 export type IntegrityStatus = (typeof IntegrityStatus)[keyof typeof IntegrityStatus];
 export declare const SystemIntegrityStatus: {
@@ -369,6 +371,12 @@ export interface RiskScoreResponse {
     inputSnapshotHash?: string;
     causalGraph?: CausalEvidenceGraph;
     latentRiskLevel?: RiskScoreResponse["overallRisk"];
+    sovereignVerification?: {
+        status: IntegrityStatus;
+        claimId: string;
+        contradictions: string[];
+        verifiedAt: string;
+    };
     overrideReason?: string | null;
     coverage?: SignalCoverage;
     systemIntegrity: SystemIntegrityStatus;
@@ -655,10 +663,15 @@ export interface InvestigationSignalMetric {
 export type InvestigationTrackState = "Correlated" | "Watch" | "Escalated";
 export interface InvestigationAnalysisTrack {
     id: string;
+    eventId?: string;
     title: string;
     summary: string;
     confidence: number;
     state: InvestigationTrackState;
+    sourceType?: "signal" | "anomaly" | null;
+    region?: string | null;
+    stationId?: string | null;
+    detectedAt?: string | null;
     outcome?: "confirmed" | "false_positive" | "inconclusive" | null;
     signals?: Array<{
         id: string;
@@ -803,6 +816,7 @@ export interface SignalDetection {
     linkedMissionId: string | null;
     validationState: ValidationState;
     validationMetadata: Record<string, any> | null;
+    sovereignStatus?: IntegrityStatus;
 }
 export interface SignalFilters {
     signalType?: SignalType;
@@ -1470,13 +1484,47 @@ export type OperationalAlertStatus = "active" | "resolved";
 export type OperationalAlertRuleType = "source_failed" | "source_stale" | "repeated_degraded" | "persistence_failure" | "high_sea_temperature" | "high_wave_height" | "high_wind_speed" | "low_pressure_system";
 export type OperationalAlertSeverity = "critical" | "warning" | "info";
 export type OperationalAlertsFallbackReason = "db_path_missing" | "db_open_failed" | "db_query_failed";
+export interface OperationalAlertAction {
+    type: "create" | "resolve";
+    source: string;
+    ruleType: OperationalAlertRuleType;
+    severity: OperationalAlertSeverity;
+    title: string;
+    detail?: string;
+    stationId?: string | null;
+    validationState?: string;
+    validationMetadata?: Record<string, any> | null;
+}
+export interface OperationalAlert {
+    id: string;
+    source: string;
+    stationId: string | null;
+    ruleType: OperationalAlertRuleType;
+    severity: OperationalAlertSeverity;
+    status: OperationalAlertStatus;
+    lifecycleStatus: "open" | "ongoing" | "resolved";
+    title: string;
+    detail: string | null;
+    metadataJson: string | null;
+    detectedAt: number;
+    resolvedAt: number | null;
+    occurrenceCount: number;
+    windowStartedAt: number;
+    windowEndsAt: number;
+    validationState?: string;
+    validationMetadata?: Record<string, any> | null;
+    frozen_system_integrity: string;
+    createdAt: string;
+    updatedAt: string;
+    investigationId?: string | null;
+}
 export interface OperationalAlertItem {
     id: string;
     source: string;
     ruleType: OperationalAlertRuleType;
     severity: OperationalAlertSeverity;
     status: OperationalAlertStatus;
-    lifecycleStatus?: "open" | "ongoing" | "resolved";
+    lifecycleStatus: "open" | "ongoing" | "resolved";
     title: string;
     detail: string | null;
     detectedAt: number;
@@ -1484,6 +1532,7 @@ export interface OperationalAlertItem {
     validationState?: string;
     createdAt: string;
     updatedAt: string;
+    investigationId?: string | null;
 }
 export interface OperationalAlertsSummary {
     activeAlertCount: number;
@@ -1494,21 +1543,21 @@ export interface OperationalAlertsSummary {
     staleSourceCount: number;
     lastUpdatedAt: string;
 }
+export interface OperationalAlertsData {
+    source: "db" | "unavailable";
+    fallbackReason: OperationalAlertsFallbackReason | string | null;
+    generatedAt: string;
+    systemIntegrity: SystemIntegrityStatus;
+    summary: OperationalAlertsSummary;
+    activeAlerts: OperationalAlertItem[];
+    recentHistory: OperationalAlertItem[];
+}
 export interface OperationalAlertsFilters {
     status?: OperationalAlertStatus;
     source?: string;
     ruleType?: OperationalAlertRuleType;
     limit?: number;
     historyLimit?: number;
-}
-export interface OperationalAlertsData {
-    source: "db" | "unavailable";
-    fallbackReason: OperationalAlertsFallbackReason | null;
-    generatedAt: string;
-    summary: OperationalAlertsSummary;
-    activeAlerts: OperationalAlertItem[];
-    recentHistory: OperationalAlertItem[];
-    systemIntegrity: SystemIntegrityStatus;
 }
 export interface AiLabSuggestedPrompt {
     title: string;
@@ -1692,6 +1741,7 @@ export interface MarineWorkflowInvestigationItem {
     id: string;
     eventId: string;
     eventTitle: string | null;
+    sourceType: "signal" | "anomaly" | null;
     stationId: string | null;
     region: string | null;
     detectedAt: string | null;
@@ -1739,6 +1789,10 @@ export interface MarineWorkflowCreateInvestigationRequest {
     eventId: string;
     title: string;
     ownerId?: string;
+    sourceType?: "signal" | "anomaly";
+    stationId?: string;
+    region?: string;
+    detectedAt?: string;
 }
 export interface MarineWorkflowCreateInvestigationResponse {
     investigation: MarineWorkflowInvestigationItem;
@@ -1855,6 +1909,10 @@ export interface RegionsResponse {
         status: string;
         summary: string;
         metrics: OceanMapRegionMetric[];
+        centroid?: {
+            lat: number;
+            lng: number;
+        } | null;
     }>;
     map: OceanMapWorkspaceData;
     systemIntegrity: SystemIntegrityStatus;
@@ -2740,7 +2798,7 @@ export interface DataExplorerFetchMeta {
     errorMessage?: string;
 }
 export interface DataExplorerWorkspaceFetchResult {
-    data: DataExplorerWorkspaceData;
+    data: DataExplorerWorkspaceData | null;
     meta: DataExplorerFetchMeta;
 }
 export interface DataExplorerDatasetDetailFetchResult {
@@ -3009,82 +3067,4 @@ export interface DataExplorerBehaviorDedupeDropSummaryExportHistoryResult {
 export declare const DATA_EXPLORER_DEFAULT_PRESET_FILTERS: DataExplorerPresetFilters;
 export declare const DATA_EXPLORER_ALLOWED_SORTS: DataExplorerDatasetSortBy[];
 export declare const DATA_EXPLORER_ALLOWED_DIRECTIONS: DataExplorerSortDirection[];
-export type OperationalAlertRuleType = "source_failed" | "source_stale" | "repeated_degraded" | "persistence_failure" | "high_sea_temperature" | "high_wave_height" | "high_wind_speed" | "low_pressure_system";
-export type OperationalAlertSeverity = "critical" | "warning" | "info";
-export type OperationalAlertStatus = "active" | "resolved";
-export interface OperationalAlertAction {
-    type: "create" | "resolve";
-    source: string;
-    ruleType: OperationalAlertRuleType;
-    severity: OperationalAlertSeverity;
-    title: string;
-    detail?: string;
-    stationId?: string | null;
-    validationState?: string;
-    validationMetadata?: Record<string, any> | null;
-}
-export interface OperationalAlert {
-    id: string;
-    source: string;
-    stationId: string | null;
-    ruleType: OperationalAlertRuleType;
-    severity: OperationalAlertSeverity;
-    status: OperationalAlertStatus;
-    lifecycleStatus: "open" | "ongoing" | "resolved";
-    title: string;
-    detail: string | null;
-    metadataJson: string | null;
-    detectedAt: number;
-    resolvedAt: number | null;
-    occurrenceCount: number;
-    windowStartedAt: number;
-    windowEndsAt: number;
-    validationState?: string;
-    validationMetadata?: Record<string, any> | null;
-    frozen_system_integrity: string;
-    createdAt: string;
-    updatedAt: string;
-    investigationId?: string | null;
-}
-export interface OperationalAlertItem {
-    id: string;
-    source: string;
-    ruleType: OperationalAlertRuleType;
-    severity: OperationalAlertSeverity;
-    status: OperationalAlertStatus;
-    lifecycleStatus: "open" | "ongoing" | "resolved";
-    title: string;
-    detail: string | null;
-    detectedAt: number;
-    resolvedAt: number | null;
-    validationState?: string;
-    createdAt: string;
-    updatedAt: string;
-    investigationId?: string;
-}
-export interface OperationalAlertsSummary {
-    activeAlertCount: number;
-    criticalCount: number;
-    warningCount: number;
-    infoCount: number;
-    failedSourceCount: number;
-    staleSourceCount: number;
-    lastUpdatedAt: string;
-}
-export interface OperationalAlertsData {
-    source: "db" | "unavailable";
-    fallbackReason: string | null;
-    generatedAt: string;
-    systemIntegrity: SystemIntegrityStatus;
-    summary: OperationalAlertsSummary;
-    activeAlerts: OperationalAlertItem[];
-    recentHistory: OperationalAlertItem[];
-}
-export interface OperationalAlertsFilters {
-    status?: OperationalAlertStatus;
-    source?: string;
-    ruleType?: OperationalAlertRuleType;
-    limit?: number;
-    historyLimit?: number;
-}
 //# sourceMappingURL=types.d.ts.map
