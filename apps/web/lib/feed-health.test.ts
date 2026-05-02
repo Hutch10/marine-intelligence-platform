@@ -6,7 +6,7 @@
  * failed by run status, failed by error field, and missing source entries.
  */
 import { describe, test, expect, vi, beforeEach } from "vitest";
-import { getFeedHealth } from "@/lib/feed-health";
+import { getFeedHealth, getFeedHealthDiagnostics } from "@/lib/feed-health";
 
 const { mockBuildFeedHealthRouteResponse } = vi.hoisted(() => ({
   mockBuildFeedHealthRouteResponse: vi.fn(),
@@ -122,18 +122,24 @@ describe("getFeedHealth — DB unavailable", () => {
     expect(result.dbAvailable).toBe(false);
     expect(result.ndbc.status).toBe("unknown");
     expect(result.crw.status).toBe("unknown");
+    expect(result.ioos.status).toBe("unknown");
+    expect(result.erddap.status).toBe("unknown");
     expect(result.overallStatus).toBe("unknown");
     expect(result.ndbc.lastIngestedAt).toBeNull();
     expect(result.crw.lastIngestedAt).toBeNull();
+    expect(result.ioos.lastIngestedAt).toBeNull();
+    expect(result.erddap.lastIngestedAt).toBeNull();
   });
 });
 
 describe("getFeedHealth — live status", () => {
-  test("returns live when both sources completed within 8 hours", () => {
+  test("returns live when all sources completed within 8 hours", () => {
     mockBuildFeedHealthRouteResponse.mockReturnValue(
       makeDbResponse([
-        makeSourceEntry("ndbc", makeTimestamp(1)),
+        makeSourceEntry("noaa_ndbc", makeTimestamp(1)),
         makeSourceEntry("crw", makeTimestamp(3)),
+        makeSourceEntry("ioos_regional", makeTimestamp(2)),
+        makeSourceEntry("ioos_erddap", makeTimestamp(4)),
       ]),
     );
 
@@ -141,62 +147,83 @@ describe("getFeedHealth — live status", () => {
 
     expect(result.ndbc.status).toBe("live");
     expect(result.crw.status).toBe("live");
+    expect(result.ioos.status).toBe("live");
+    expect(result.erddap.status).toBe("live");
     expect(result.overallStatus).toBe("live");
     expect(result.ndbc.ageLabel).toBe("1h ago");
     expect(result.crw.ageLabel).toBe("3h ago");
+    expect(result.ioos.ageLabel).toBe("2h ago");
+    expect(result.erddap.ageLabel).toBe("4h ago");
   });
 
   test("returns live at exactly the boundary (7h 59m)", () => {
     const almostStale = new Date(NOW - (8 * HOUR_MS - 60 * 1000)).toISOString();
     mockBuildFeedHealthRouteResponse.mockReturnValue(
-      makeDbResponse([makeSourceEntry("ndbc", almostStale), makeSourceEntry("crw", almostStale)]),
+      makeDbResponse([
+        makeSourceEntry("noaa_ndbc", almostStale),
+        makeSourceEntry("crw", almostStale),
+        makeSourceEntry("ioos_regional", almostStale),
+        makeSourceEntry("ioos_erddap", almostStale),
+      ]),
     );
 
     const result = getFeedHealth();
     expect(result.ndbc.status).toBe("live");
     expect(result.crw.status).toBe("live");
+    expect(result.ioos.status).toBe("live");
+    expect(result.erddap.status).toBe("live");
   });
 });
 
 describe("getFeedHealth — stale status", () => {
-  test("returns stale when source is 8–24 hours old", () => {
+  test("returns stale when ERDDAP source is 8–24 hours old", () => {
     mockBuildFeedHealthRouteResponse.mockReturnValue(
       makeDbResponse([
-        makeSourceEntry("ndbc", makeTimestamp(10)),
+        makeSourceEntry("noaa_ndbc", makeTimestamp(1)),
         makeSourceEntry("crw", makeTimestamp(3)),
+        makeSourceEntry("ioos_regional", makeTimestamp(2)),
+        makeSourceEntry("ioos_erddap", makeTimestamp(10)),
       ]),
     );
 
     const result = getFeedHealth();
 
-    expect(result.ndbc.status).toBe("stale");
+    expect(result.erddap.status).toBe("stale");
+    expect(result.ndbc.status).toBe("live");
     expect(result.crw.status).toBe("live");
+    expect(result.ioos.status).toBe("live");
     expect(result.overallStatus).toBe("stale");
-    expect(result.ndbc.ageLabel).toBe("10h ago");
+    expect(result.erddap.ageLabel).toBe("10h ago");
   });
 });
 
 describe("getFeedHealth — failed status", () => {
-  test("returns failed when source is older than 24 hours", () => {
+  test("returns failed when IOOS source is older than 24 hours", () => {
     mockBuildFeedHealthRouteResponse.mockReturnValue(
       makeDbResponse([
-        makeSourceEntry("ndbc", makeTimestamp(30)),
+        makeSourceEntry("noaa_ndbc", makeTimestamp(1)),
         makeSourceEntry("crw", makeTimestamp(3)),
+        makeSourceEntry("ioos_regional", makeTimestamp(30)),
+        makeSourceEntry("ioos_erddap", makeTimestamp(4)),
       ]),
     );
 
     const result = getFeedHealth();
 
-    expect(result.ndbc.status).toBe("failed");
+    expect(result.ioos.status).toBe("failed");
     expect(result.crw.status).toBe("live");
+    expect(result.ndbc.status).toBe("live");
+    expect(result.erddap.status).toBe("live");
     expect(result.overallStatus).toBe("failed");
   });
 
   test("returns failed when run status is 'failed' regardless of timestamp age", () => {
     mockBuildFeedHealthRouteResponse.mockReturnValue(
       makeDbResponse([
-        makeSourceEntry("ndbc", makeTimestamp(1), "failed"),
+        makeSourceEntry("noaa_ndbc", makeTimestamp(1), "failed"),
         makeSourceEntry("crw", makeTimestamp(1)),
+        makeSourceEntry("ioos_regional", makeTimestamp(1)),
+        makeSourceEntry("ioos_erddap", makeTimestamp(1)),
       ]),
     );
 
@@ -209,8 +236,10 @@ describe("getFeedHealth — failed status", () => {
   test("returns failed when error field is non-null regardless of timestamp age", () => {
     mockBuildFeedHealthRouteResponse.mockReturnValue(
       makeDbResponse([
-        makeSourceEntry("ndbc", makeTimestamp(1), "success", "fetch timeout"),
+        makeSourceEntry("noaa_ndbc", makeTimestamp(1), "success", "fetch timeout"),
         makeSourceEntry("crw", makeTimestamp(1)),
+        makeSourceEntry("ioos_regional", makeTimestamp(1)),
+        makeSourceEntry("ioos_erddap", makeTimestamp(1)),
       ]),
     );
 
@@ -224,14 +253,20 @@ describe("getFeedHealth — failed status", () => {
 describe("getFeedHealth — missing source entries", () => {
   test("returns unknown for a source with no ingestion history when DB is available", () => {
     mockBuildFeedHealthRouteResponse.mockReturnValue(
-      makeDbResponse([makeSourceEntry("crw", makeTimestamp(2))]),
+      makeDbResponse([
+        makeSourceEntry("noaa_ndbc", makeTimestamp(2)),
+        makeSourceEntry("crw", makeTimestamp(2)),
+        makeSourceEntry("ioos_erddap", makeTimestamp(2)),
+      ]),
     );
 
     const result = getFeedHealth();
 
     expect(result.dbAvailable).toBe(true);
-    expect(result.ndbc.status).toBe("unknown");
+    expect(result.ndbc.status).toBe("live");
     expect(result.crw.status).toBe("live");
+    expect(result.erddap.status).toBe("live");
+    expect(result.ioos.status).toBe("unknown");
     expect(result.overallStatus).toBe("unknown");
   });
 
@@ -243,7 +278,27 @@ describe("getFeedHealth — missing source entries", () => {
     expect(result.dbAvailable).toBe(true);
     expect(result.ndbc.status).toBe("unknown");
     expect(result.crw.status).toBe("unknown");
+    expect(result.ioos.status).toBe("unknown");
+    expect(result.erddap.status).toBe("unknown");
     expect(result.overallStatus).toBe("unknown");
+  });
+});
+
+describe("getFeedHealth — never-ran source", () => {
+  test("returns honest no-data-yet state for ERDDAP when never run", () => {
+    mockBuildFeedHealthRouteResponse.mockReturnValue(
+      makeDbResponse([
+        makeSourceEntry("noaa_ndbc", makeTimestamp(1)),
+        makeSourceEntry("crw", makeTimestamp(1)),
+        makeSourceEntry("ioos_regional", makeTimestamp(1)),
+      ]),
+    );
+
+    const result = getFeedHealth();
+
+    expect(result.erddap.status).toBe("unknown");
+    expect(result.erddap.lastIngestedAt).toBeNull();
+    expect(result.erddap.ageLabel).toBeNull();
   });
 });
 
@@ -251,8 +306,10 @@ describe("getFeedHealth — overallStatus worst-case propagation", () => {
   test("overallStatus is failed when one source failed and other is live", () => {
     mockBuildFeedHealthRouteResponse.mockReturnValue(
       makeDbResponse([
-        makeSourceEntry("ndbc", makeTimestamp(30)),
+        makeSourceEntry("noaa_ndbc", makeTimestamp(30)),
         makeSourceEntry("crw", makeTimestamp(2)),
+        makeSourceEntry("ioos_regional", makeTimestamp(2)),
+        makeSourceEntry("ioos_erddap", makeTimestamp(2)),
       ]),
     );
 
@@ -262,10 +319,109 @@ describe("getFeedHealth — overallStatus worst-case propagation", () => {
 
   test("overallStatus is unknown when one source is unknown and other is live", () => {
     mockBuildFeedHealthRouteResponse.mockReturnValue(
-      makeDbResponse([makeSourceEntry("crw", makeTimestamp(2))]),
+      makeDbResponse([
+        makeSourceEntry("noaa_ndbc", makeTimestamp(2)),
+        makeSourceEntry("crw", makeTimestamp(2)),
+        makeSourceEntry("ioos_regional", makeTimestamp(2)),
+      ]),
     );
 
     const result = getFeedHealth();
     expect(result.overallStatus).toBe("unknown");
+  });
+});
+
+describe("getFeedHealthDiagnostics", () => {
+  test("returns empty diagnostics when feed-health source is unavailable", () => {
+    mockBuildFeedHealthRouteResponse.mockReturnValue(makeUnavailableResponse());
+
+    const result = getFeedHealthDiagnostics();
+
+    expect(result).toEqual([]);
+  });
+
+  test("maps per-station rejection reasons into failure counts and reason category", () => {
+    mockBuildFeedHealthRouteResponse.mockReturnValue(
+      makeDbResponse([
+        {
+          ...makeSourceEntry("noaa_ndbc", makeTimestamp(2)),
+          station_diagnostics: [
+            {
+              station_id: "41009",
+              status: "degraded",
+              last_successful_ingestion_at: "2026-03-27T10:00:00.000Z",
+              latest_observation_timestamp: "2026-03-27T09:55:00.000Z",
+              latest_observation_age_ms: 300000,
+              usable_metric_coverage: {
+                present_count: 4,
+                total_count: 4,
+                metrics_present: ["seaSurfaceTempC", "waveHeightM", "windSpeedMps", "pressureHpa"],
+              },
+              missing_field_rates: {
+                sea_surface_temp_c: 0,
+                wave_height_m: 0,
+                wind_speed_mps: 0,
+                pressure_hpa: 0,
+              },
+              rejection_breakdown: {
+                transient_failure: 2,
+                timestamp_stale: 1,
+              },
+              last_fetch_url: "https://www.ndbc.noaa.gov/data/realtime2/41009.txt",
+            },
+          ],
+        },
+      ]),
+    );
+
+    const result = getFeedHealthDiagnostics();
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      source: "ndbc",
+      sourceLabel: "NDBC",
+      stationId: "41009",
+      failureCount: 3,
+      parseFailureCount: 2,
+      validationFailureCount: 1,
+      reasonCategory: "mixed",
+      lastFailureAt: expect.any(String),
+    });
+  });
+
+  test("does not emit diagnostics rows when there are no station rejection counts", () => {
+    mockBuildFeedHealthRouteResponse.mockReturnValue(
+      makeDbResponse([
+        {
+          ...makeSourceEntry("ioos_regional", makeTimestamp(1)),
+          station_diagnostics: [
+            {
+              station_id: "NDBC-TEST",
+              status: "healthy",
+              last_successful_ingestion_at: "2026-03-27T11:00:00.000Z",
+              latest_observation_timestamp: "2026-03-27T10:55:00.000Z",
+              latest_observation_age_ms: 300000,
+              usable_metric_coverage: {
+                present_count: 4,
+                total_count: 4,
+                metrics_present: ["seaSurfaceTempC", "waveHeightM", "windSpeedMps", "pressureHpa"],
+              },
+              missing_field_rates: {
+                sea_surface_temp_c: 0,
+                wave_height_m: 0,
+                wind_speed_mps: 0,
+                pressure_hpa: 0,
+              },
+              rejection_breakdown: {},
+              last_fetch_url: null,
+            },
+          ],
+        },
+      ]),
+    );
+
+    const result = getFeedHealthDiagnostics();
+
+    expect(result).toEqual([]);
   });
 });

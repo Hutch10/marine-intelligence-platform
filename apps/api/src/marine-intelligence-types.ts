@@ -181,6 +181,10 @@ export interface MarineInvestigationRecord {
   id: string;
   eventId: string;
   title: string;
+  sourceType: "signal" | "anomaly" | null;
+  stationId: string | null;
+  region: string | null;
+  detectedAt: string | null;
   status: MarineInvestigationStatus;
   ownerId: string | null;
   notes: string | null;
@@ -199,6 +203,10 @@ export interface MarineInvestigationRecord {
 export interface MarineInvestigationCreateInput {
   eventId: string;
   title: string;
+  sourceType?: "signal" | "anomaly";
+  stationId?: string | null;
+  region?: string | null;
+  detectedAt?: string | null;
   ownerId?: string | null;
   truthPartition?: TruthPartition;
 }

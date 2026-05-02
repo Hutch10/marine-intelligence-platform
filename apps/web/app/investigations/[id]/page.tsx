@@ -8,6 +8,27 @@ interface InvestigationDetailPageProps {
   params: { id: string };
 }
 
+function formatSourceType(value: "signal" | "anomaly" | null | undefined): string {
+  if (!value) {
+    return "Not provided";
+  }
+
+  return value === "signal" ? "Signal" : "Anomaly";
+}
+
+function formatDetectedAt(value: string | null | undefined): string {
+  if (!value) {
+    return "Not provided";
+  }
+
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) {
+    return value;
+  }
+
+  return `${new Date(parsed).toISOString().slice(0, 16).replace("T", " ")} UTC`;
+}
+
 export default async function InvestigationDetailPage({ params }: InvestigationDetailPageProps) {
 
   const investigation = await getInvestigationById(params.id);
@@ -40,6 +61,29 @@ export default async function InvestigationDetailPage({ params }: InvestigationD
             This event has a confidence score of {investigation.confidence}. Environmental or operational impact is based on real signal data.
           </div>
         </section>
+
+        <section className="mb-6">
+          <h2 className="text-lg font-semibold mb-2">Original Source Metadata</h2>
+          <dl className="grid gap-2 text-sm text-slate-300 sm:grid-cols-2">
+            <div>
+              <dt className="text-slate-500">Source type</dt>
+              <dd>{formatSourceType(investigation.sourceType ?? null)}</dd>
+            </div>
+            <div>
+              <dt className="text-slate-500">Related station</dt>
+              <dd>{investigation.stationId ?? "Not provided"}</dd>
+            </div>
+            <div>
+              <dt className="text-slate-500">Region</dt>
+              <dd>{investigation.region ?? "Not provided"}</dd>
+            </div>
+            <div>
+              <dt className="text-slate-500">Detected</dt>
+              <dd>{formatDetectedAt(investigation.detectedAt ?? null)}</dd>
+            </div>
+          </dl>
+        </section>
+
         <section className="mb-6">
           <h2 className="text-lg font-semibold mb-2">What signals contributed</h2>
           {signals.length > 0 ? (

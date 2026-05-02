@@ -124,6 +124,7 @@ beforeEach(() => {
         id: "MIID-001",
         eventId: "MEV-001",
         eventTitle: "Thermal threshold exceeded",
+        sourceType: "signal",
         stationId: "STA-001",
         region: "North Pacific",
         detectedAt: "2026-03-20T11:06:00.000Z",

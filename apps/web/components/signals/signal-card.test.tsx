@@ -70,3 +70,9 @@ test("signal card with stationId in signal does not expose dead investigation re
 
   expect(screen.queryByText("TRK-999")).not.toBeInTheDocument();
 });
+
+test("signal card exposes create investigation action", () => {
+  render(<SignalCard signal={buildSignal()} detailHref="/v1/risk/41009" />);
+
+  expect(screen.getByRole("button", { name: /create investigation/i })).toBeInTheDocument();
+});

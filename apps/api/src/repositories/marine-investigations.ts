@@ -87,6 +87,10 @@ interface MarineInvestigationRow {
   id: string;
   event_id: string;
   title: string;
+  source_type: "signal" | "anomaly" | null;
+  station_id: string | null;
+  region: string | null;
+  detected_at: string | null;
   status: string;
   owner_id: string | null;
   notes: string | null;
@@ -102,6 +106,32 @@ function normalizeText(value: string | undefined | null): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeInvestigationSourceType(value: unknown): "signal" | "anomaly" | null {
+  if (value === "signal" || value === "anomaly") {
+    return value;
+  }
+
+  return null;
+}
+
+function normalizeDetectedAt(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const parsed = Date.parse(trimmed);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+
+  return new Date(parsed).toISOString();
 }
 
 function normalizeStatus(value: string): MarineInvestigationStatus | null {
@@ -120,6 +150,10 @@ function mapRow(row: MarineInvestigationRow): MarineInvestigationRecord {
     id: row.id,
     eventId: row.event_id,
     title: row.title,
+    sourceType: normalizeInvestigationSourceType(row.source_type),
+    stationId: row.station_id,
+    region: row.region,
+    detectedAt: row.detected_at,
     status: normalizeStatus(row.status) ?? "open",
     ownerId: row.owner_id,
     notes: row.notes,
@@ -144,6 +178,10 @@ export async function ensureMarineInvestigationTables(adapter: AsyncDbAdapter) {
       id TEXT PRIMARY KEY,
       event_id TEXT NOT NULL,
       title TEXT NOT NULL,
+      source_type TEXT,
+      station_id TEXT,
+      region TEXT,
+      detected_at TEXT,
       status TEXT NOT NULL DEFAULT 'open',
       owner_id TEXT,
       notes TEXT,
@@ -164,6 +202,31 @@ export async function ensureMarineInvestigationTables(adapter: AsyncDbAdapter) {
   // Column Guard: truth_partition
   try {
     await adapter.execute("ALTER TABLE marine_intelligence_investigations ADD COLUMN truth_partition TEXT NOT NULL DEFAULT 'FIELD_TRUTH'");
+  } catch {
+    // Column already exists
+  }
+
+  // Column guards for investigation metadata depth.
+  try {
+    await adapter.execute("ALTER TABLE marine_intelligence_investigations ADD COLUMN source_type TEXT");
+  } catch {
+    // Column already exists
+  }
+
+  try {
+    await adapter.execute("ALTER TABLE marine_intelligence_investigations ADD COLUMN station_id TEXT");
+  } catch {
+    // Column already exists
+  }
+
+  try {
+    await adapter.execute("ALTER TABLE marine_intelligence_investigations ADD COLUMN region TEXT");
+  } catch {
+    // Column already exists
+  }
+
+  try {
+    await adapter.execute("ALTER TABLE marine_intelligence_investigations ADD COLUMN detected_at TEXT");
   } catch {
     // Column already exists
   }
@@ -236,17 +299,25 @@ export async function createMarineInvestigation(
     const nowIso = new Date(nowMs).toISOString();
     const id = await nextInvestigationId(adapter, nowMs);
     const ownerId = normalizeText(input.ownerId ?? null);
+    const sourceType = normalizeInvestigationSourceType(input.sourceType);
+    const stationId = normalizeText(input.stationId ?? null);
+    const region = normalizeText(input.region ?? null);
+    const detectedAt = normalizeDetectedAt(input.detectedAt ?? null);
     const truthPartition = input.truthPartition || "FIELD_TRUTH";
 
     await adapter.execute(`
       INSERT INTO marine_intelligence_investigations
-        (id, event_id, title, status, owner_id, notes,
+        (id, event_id, title, source_type, station_id, region, detected_at, status, owner_id, notes,
          created_at, updated_at, acknowledged_at, resolved_at, dismissed_at, truth_partition)
-      VALUES (?, ?, ?, 'open', ?, NULL, ?, ?, NULL, NULL, NULL, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, NULL, ?, ?, NULL, NULL, NULL, ?)
     `, [
       id,
       eventIdNorm,
       titleNorm,
+      sourceType,
+      stationId,
+      region,
+      detectedAt,
       ownerId,
       nowIso,
       nowIso,

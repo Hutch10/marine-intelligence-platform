@@ -2,10 +2,12 @@ import Link from "next/link";
 import { AlertTriangle, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { DashboardAnomalySummary } from "@/lib/api/types";
+import { CreateInvestigationAction, type CreateInvestigationPrefill } from "@/components/investigations/create-investigation-action";
 
 interface DashboardAnomalySummaryProps {
   summary: DashboardAnomalySummary;
   statusLine?: string;
+  createInvestigationPrefill?: CreateInvestigationPrefill | null;
   links?: {
     totalHref?: string;
     elevatedHref?: string;
@@ -48,6 +50,7 @@ function SummaryTile({ label, value, caption, className, href }: SummaryTileProp
 export function DashboardAnomalySummaryCard({
   summary,
   statusLine,
+  createInvestigationPrefill,
   links,
 }: DashboardAnomalySummaryProps) {
   const TrendIcon =
@@ -134,6 +137,13 @@ export function DashboardAnomalySummaryCard({
             {summary.criticalAnomalies} critical {summary.criticalAnomalies === 1 ? "anomaly" : "anomalies"} require manual review in investigations.
           </p>
         </div>
+      )}
+
+      {createInvestigationPrefill && (
+        <CreateInvestigationAction
+          prefill={createInvestigationPrefill}
+          buttonLabel="Create Investigation From Anomaly"
+        />
       )}
     </section>
   );

@@ -84,6 +84,7 @@ test("marine investigation mutation route enforces station.view_admin", async ()
 
 test("marine investigation mutation route returns created investigation payload", async () => {
   vi.stubEnv("MARINE_API_BASE_URL", "https://api.marine.test");
+  vi.stubEnv("MARINE_INTERNAL_API_KEY", "mk_internal_web_proxy");
   fetchMock.mockResolvedValueOnce(
     new Response(JSON.stringify({ investigation: { id: "MIID-001" } }), {
       status: 200,
@@ -101,9 +102,50 @@ test("marine investigation mutation route returns created investigation payload"
 
   expect(response.status).toBe(200);
   expect(fetchMock).toHaveBeenCalledTimes(1);
+  const requestInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
+  const headers = new Headers(requestInit.headers as HeadersInit);
+  expect(headers.get("X-API-Key")).toBe("mk_internal_web_proxy");
   await expect(response.json()).resolves.toEqual({
     ok: true,
     investigation: { id: "MIID-001" },
+  });
+});
+
+test("marine investigation mutation route forwards optional metadata fields", async () => {
+  vi.stubEnv("MARINE_API_BASE_URL", "https://api.marine.test");
+  fetchMock.mockResolvedValueOnce(
+    new Response(JSON.stringify({ investigation: { id: "MIID-001" } }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }),
+  );
+
+  await createInvestigation(
+    new Request("http://localhost/api/marine-intelligence/investigations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        eventId: "MEV-001",
+        title: "Investigate threshold alert",
+        sourceType: "signal",
+        stationId: "41009",
+        region: "Southeast Florida",
+        detectedAt: "2026-03-18T10:50:00.000Z",
+      }),
+    }),
+  );
+
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  const requestInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
+  const requestBody = JSON.parse(String(requestInit?.body ?? "{}")) as Record<string, unknown>;
+
+  expect(requestBody).toMatchObject({
+    eventId: "MEV-001",
+    title: "Investigate threshold alert",
+    sourceType: "signal",
+    stationId: "41009",
+    region: "Southeast Florida",
+    detectedAt: "2026-03-18T10:50:00.000Z",
   });
 });
 

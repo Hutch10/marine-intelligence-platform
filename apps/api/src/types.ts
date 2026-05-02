@@ -8,6 +8,7 @@ export interface RouteRequest<TBody = any, TQuery = any> {
   body: TBody;
   query?: TQuery;
   params?: Record<string, string>;
+  headers?: Record<string, string | undefined>;
   auth?: OceanStationAdminAuthContext;
 }
 

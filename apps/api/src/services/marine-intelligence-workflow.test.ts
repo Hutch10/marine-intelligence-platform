@@ -59,6 +59,10 @@ const INVESTIGATION_A: MarineInvestigationRecord = {
   id: "MIID-2",
   eventId: "MEV-002",
   title: "North Pacific follow-up",
+  sourceType: "signal",
+  stationId: EVENT_A.stationId,
+  region: EVENT_A.region,
+  detectedAt: EVENT_A.detectedAt,
   status: "acknowledged",
   ownerId: "ops.north@marine.local",
   notes: null,
@@ -73,6 +77,10 @@ const INVESTIGATION_B: MarineInvestigationRecord = {
   id: "MIID-1",
   eventId: "MEV-001",
   title: "Coral Sea escalation",
+  sourceType: "anomaly",
+  stationId: EVENT_B.stationId,
+  region: EVENT_B.region,
+  detectedAt: EVENT_B.detectedAt,
   status: "open",
   ownerId: null,
   notes: null,
@@ -168,7 +176,8 @@ test("marine intelligence workflow service filters investigations by linked even
     assert.equal(listed.investigations.length, 1);
     assert.equal(listed.investigations[0]?.id, "MIID-2");
     assert.equal(listed.investigations[0]?.eventTitle, EVENT_A.title);
-    assert.equal(listed.investigations[0]?.region, EVENT_A.region);
+    assert.equal(listed.investigations[0]?.region, INVESTIGATION_A.region);
+    assert.equal(listed.investigations[0]?.sourceType, "signal");
   }
 });
 
@@ -197,6 +206,10 @@ test("marine intelligence workflow service creates investigations and enriches t
     id: "MIID-NEW",
     eventId: EVENT_B.id,
     title: "New Coral Sea follow-up",
+    sourceType: "anomaly",
+    stationId: EVENT_B.stationId,
+    region: EVENT_B.region,
+    detectedAt: EVENT_B.detectedAt,
     status: "open",
     ownerId: "ops.coral@marine.local",
     createdAt: "2026-03-20T12:30:00.000Z",
@@ -227,7 +240,8 @@ test("marine intelligence workflow service creates investigations and enriches t
   if (created.ok) {
     assert.equal(created.investigation?.id, "MIID-NEW");
     assert.equal(created.investigation?.eventTitle, EVENT_B.title);
-    assert.equal(created.investigation?.stationId, EVENT_B.stationId);
+    assert.equal(created.investigation?.stationId, createdRecord.stationId);
+    assert.equal(created.investigation?.sourceType, createdRecord.sourceType);
   }
 });
 

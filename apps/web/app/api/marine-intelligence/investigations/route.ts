@@ -9,6 +9,33 @@ import {
 interface CreateInvestigationBody {
   eventId?: unknown;
   title?: unknown;
+  sourceType?: unknown;
+  stationId?: unknown;
+  region?: unknown;
+  detectedAt?: unknown;
+}
+
+function normalizeOptionalText(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function normalizeDetectedAt(value: unknown): string | undefined {
+  const normalized = normalizeOptionalText(value);
+  if (!normalized) {
+    return undefined;
+  }
+
+  const parsed = Date.parse(normalized);
+  if (!Number.isFinite(parsed)) {
+    return undefined;
+  }
+
+  return new Date(parsed).toISOString();
 }
 
 export async function POST(request: Request) {
@@ -28,6 +55,12 @@ export async function POST(request: Request) {
 
   const eventId = typeof body.eventId === "string" ? body.eventId.trim() : "";
   const title = typeof body.title === "string" ? body.title.trim() : "";
+  const sourceType = body.sourceType === "signal" || body.sourceType === "anomaly"
+    ? body.sourceType
+    : undefined;
+  const stationId = normalizeOptionalText(body.stationId);
+  const region = normalizeOptionalText(body.region);
+  const detectedAt = normalizeDetectedAt(body.detectedAt);
 
   if (!eventId || !title) {
     return NextResponse.json({ message: "eventId and title are required" }, { status: 400 });
@@ -43,7 +76,15 @@ export async function POST(request: Request) {
     const response = await fetch(new URL("/marine-intelligence/investigations", origin), {
       method: "POST",
       headers: buildMarineIntelligenceProxyHeaders(authResult.auth, "application/json"),
-      body: JSON.stringify({ eventId, title, ownerId: authResult.auth.actorId }),
+      body: JSON.stringify({
+        eventId,
+        title,
+        ownerId: authResult.auth.actorId,
+        sourceType,
+        stationId,
+        region,
+        detectedAt,
+      }),
       cache: "no-store",
     });
     const payload = await response.json() as MarineWorkflowCreateInvestigationResponse | { message?: string };

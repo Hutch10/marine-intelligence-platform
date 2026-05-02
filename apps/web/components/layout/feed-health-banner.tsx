@@ -40,7 +40,20 @@ function sourceStatusCopy(src: FeedSourceHealth): string {
     case "failed":
       return `No recent ${src.label} ingestion — data may be unreliable`;
     default:
-      return `${src.label} status unknown`;
+      return `${src.label} never ran — no data yet`;
+  }
+}
+
+function compactSourceSummary(src: FeedSourceHealth): string {
+  switch (src.status) {
+    case "live":
+      return `${src.label} ${src.ageLabel ?? "live"}`;
+    case "stale":
+      return `${src.label} stale${src.ageLabel ? ` · ${src.ageLabel}` : ""}`;
+    case "failed":
+      return `${src.label} failed${src.ageLabel ? ` · ${src.ageLabel}` : ""}`;
+    default:
+      return `${src.label} never ran`;
   }
 }
 
@@ -85,7 +98,12 @@ export function FeedHealthBanner({ feedHealth }: FeedHealthBannerProps) {
   }
 
   const allLive =
-    feedHealth.ndbc.status === "live" && feedHealth.crw.status === "live";
+    feedHealth.ndbc.status === "live"
+    && feedHealth.crw.status === "live"
+    && feedHealth.ioos.status === "live"
+    && feedHealth.erddap.status === "live";
+
+  const secondarySources = [feedHealth.ioos, feedHealth.erddap];
 
   return (
     <div
@@ -98,8 +116,7 @@ export function FeedHealthBanner({ feedHealth }: FeedHealthBannerProps) {
           <>
             <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full bg-emerald-400" />
             <span className="text-[11px] text-emerald-300">
-              Data sources healthy — NDBC updated {feedHealth.ndbc.ageLabel ?? "recently"}, CRW updated{" "}
-              {feedHealth.crw.ageLabel ?? "recently"}
+              Data sources healthy — NDBC updated {feedHealth.ndbc.ageLabel ?? "recently"}, CRW updated {feedHealth.crw.ageLabel ?? "recently"}, IOOS updated {feedHealth.ioos.ageLabel ?? "recently"}, ERDDAP updated {feedHealth.erddap.ageLabel ?? "recently"}
             </span>
           </>
         ) : (
@@ -109,6 +126,9 @@ export function FeedHealthBanner({ feedHealth }: FeedHealthBannerProps) {
               |
             </span>
             <SourceChip src={feedHealth.crw} />
+            <div className="w-full text-[10px] text-slate-500 sm:ml-auto sm:w-auto">
+              Aux feeds: {secondarySources.map(compactSourceSummary).join(" • ")}
+            </div>
           </>
         )}
       </div>

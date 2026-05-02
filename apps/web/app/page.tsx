@@ -56,6 +56,80 @@ function formatStressLevel(level: string | null): string {
     .replace(/\b\w/g, (token) => token.toUpperCase());
 }
 
+function feedBadgeClass(status: "live" | "stale" | "failed" | "unknown"): string {
+  switch (status) {
+    case "live":
+      return "border-emerald-500/25 bg-emerald-500/10 text-emerald-300";
+    case "stale":
+      return "border-amber-500/25 bg-amber-500/10 text-amber-300";
+    case "failed":
+      return "border-rose-500/25 bg-rose-500/10 text-rose-300";
+    default:
+      return "border-slate-500/25 bg-slate-500/10 text-slate-400";
+  }
+}
+
+function compactFeedBadgeLabel(input: {
+  label: string;
+  status: "live" | "stale" | "failed" | "unknown";
+  ageLabel: string | null;
+}): string {
+  switch (input.status) {
+    case "live":
+      return `${input.label} live${input.ageLabel ? ` · ${input.ageLabel}` : ""}`;
+    case "stale":
+      return `${input.label} stale${input.ageLabel ? ` · ${input.ageLabel}` : ""}`;
+    case "failed":
+      return `${input.label} failed${input.ageLabel ? ` · ${input.ageLabel}` : ""}`;
+    default:
+      return `${input.label} never ran`;
+  }
+}
+
+function resolveAuxFeedSource(
+  source:
+    | {
+        source: string;
+        label: string;
+        status: "live" | "stale" | "failed" | "unknown";
+        ageLabel: string | null;
+      }
+    | undefined,
+  fallback: { source: string; label: string },
+) {
+  return source ?? {
+    ...fallback,
+    status: "unknown" as const,
+    ageLabel: null,
+  };
+}
+
+function formatFailureTimestamp(value: string | null): string {
+  if (!value) {
+    return "unknown";
+  }
+
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) {
+    return "unknown";
+  }
+
+  return new Date(parsed).toISOString().slice(0, 16).replace("T", " ") + " UTC";
+}
+
+function formatReasonCategory(category: "parse_failure" | "validation_failure" | "mixed" | "unknown"): string {
+  switch (category) {
+    case "parse_failure":
+      return "parse failures";
+    case "validation_failure":
+      return "validation failures";
+    case "mixed":
+      return "mixed failures";
+    default:
+      return "uncategorized failures";
+  }
+}
+
 export default async function DashboardPage() {
   const marineData = await getDashboardMarineSurfaceData();
   const {
@@ -63,6 +137,7 @@ export default async function DashboardPage() {
     anomalySummary,
     anomalySummaryLinks,
     anomalySummaryStatus,
+    anomalyInvestigationPrefill,
     prioritizedSignals,
     signalCenterStatus,
     liveConditions,
@@ -71,10 +146,16 @@ export default async function DashboardPage() {
     reefAlertsStatus,
     quickLinks,
     notices,
+    feedHealth,
+    stationIngestionDiagnostics = [],
   } = marineData;
 
   const liveApiDisconnected =
     liveConditionsStatus.source === "fallback" && reefAlertsStatus.source === "fallback";
+  const auxiliaryFeedSources = [
+    resolveAuxFeedSource(feedHealth.ioos, { source: "ioos", label: "IOOS" }),
+    resolveAuxFeedSource(feedHealth.erddap, { source: "erddap", label: "ERDDAP" }),
+  ];
 
   const warningNotices = notices.filter((n) => n.tone === "warning");
   const triage = triageSummary(anomalySummary);
@@ -163,6 +244,7 @@ export default async function DashboardPage() {
           summary={anomalySummary}
           links={anomalySummaryLinks}
           statusLine={formatSurfaceStatusLine(anomalySummaryStatus)}
+          createInvestigationPrefill={anomalyInvestigationPrefill}
         />
 
         <SignalCenter
@@ -183,10 +265,35 @@ export default async function DashboardPage() {
               <p className="mt-0.5 text-[11px] text-slate-500">
                 {formatSurfaceStatusLine(liveConditionsStatus)}
               </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {auxiliaryFeedSources.map((source) => (
+                  <span
+                    key={source.source}
+                    className={cn(
+                      "inline-flex rounded-full border px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em]",
+                      feedBadgeClass(source.status),
+                    )}
+                  >
+                    {compactFeedBadgeLabel(source)}
+                  </span>
+                ))}
+              </div>
             </div>
             {liveConditionsStatus.source === "fallback" && (
               <span className="inline-flex w-fit rounded-full border border-amber-500/25 bg-amber-500/10 px-3 py-1 text-[11px] font-medium text-amber-300">
                 Station API offline
+              </span>
+            )}
+            {liveConditionsStatus.source !== "fallback" && feedHealth.ndbc.status !== "live" && feedHealth.ndbc.status !== "unknown" && (
+              <span className={cn(
+                "inline-flex w-fit rounded-full border px-3 py-1 text-[11px] font-medium",
+                feedHealth.ndbc.status === "failed"
+                  ? "border-rose-500/25 bg-rose-500/10 text-rose-300"
+                  : "border-amber-500/25 bg-amber-500/10 text-amber-300",
+              )}>
+                NDBC {feedHealth.ndbc.status === "failed"
+                  ? (feedHealth.ndbc.ageLabel ? `no data since ${feedHealth.ndbc.ageLabel}` : "no recent data")
+                  : `stale · ${feedHealth.ndbc.ageLabel ?? "old"}`}
               </span>
             )}
           </div>
@@ -257,6 +364,32 @@ export default async function DashboardPage() {
               </p>
             </div>
           )}
+
+          {stationIngestionDiagnostics.length > 0 && (
+            <details className="rounded-xl border border-surface-borderSubtle bg-ocean-850/50 p-3">
+              <summary className="cursor-pointer text-[11px] font-medium uppercase tracking-[0.18em] text-slate-300">
+                Station ingestion diagnostics ({stationIngestionDiagnostics.length})
+              </summary>
+              <div className="mt-3 grid gap-2">
+                {stationIngestionDiagnostics.map((diagnostic) => (
+                  <article
+                    key={`${diagnostic.source}-${diagnostic.stationId}`}
+                    className="rounded-lg border border-surface-borderSubtle bg-ocean-900/70 px-3 py-2 text-[11px] text-slate-300"
+                  >
+                    <p className="font-semibold text-slate-100">
+                      {diagnostic.stationId} · {diagnostic.sourceLabel}
+                    </p>
+                    <p className="mt-1 text-slate-400">
+                      failures {diagnostic.failureCount} · last failure {formatFailureTimestamp(diagnostic.lastFailureAt)}
+                    </p>
+                    <p className="mt-0.5 text-slate-500">
+                      category {formatReasonCategory(diagnostic.reasonCategory)} · parse {diagnostic.parseFailureCount} · validation {diagnostic.validationFailureCount}
+                    </p>
+                  </article>
+                ))}
+              </div>
+            </details>
+          )}
         </section>
 
         {/* Reef stress */}
@@ -271,6 +404,18 @@ export default async function DashboardPage() {
             {reefAlertsStatus.source === "fallback" && (
               <span className="inline-flex w-fit rounded-full border border-amber-500/25 bg-amber-500/10 px-3 py-1 text-[11px] font-medium text-amber-300">
                 CRW feed offline
+              </span>
+            )}
+            {reefAlertsStatus.source !== "fallback" && feedHealth.crw.status !== "live" && feedHealth.crw.status !== "unknown" && (
+              <span className={cn(
+                "inline-flex w-fit rounded-full border px-3 py-1 text-[11px] font-medium",
+                feedHealth.crw.status === "failed"
+                  ? "border-rose-500/25 bg-rose-500/10 text-rose-300"
+                  : "border-amber-500/25 bg-amber-500/10 text-amber-300",
+              )}>
+                CRW {feedHealth.crw.status === "failed"
+                  ? (feedHealth.crw.ageLabel ? `no data since ${feedHealth.crw.ageLabel}` : "no recent data")
+                  : `stale · ${feedHealth.crw.ageLabel ?? "old"}`}
               </span>
             )}
           </div>

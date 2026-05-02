@@ -49,8 +49,122 @@ import {
   type MarineIntelligenceFeedbackCreateResult,
   type MarineIntelligenceTelemetryEventCreateResult,
 } from "../repositories/marine-intelligence-decisions";
+import { lookupApiKeyById } from "../repositories/api-keys";
 
 const workflowService = createMarineIntelligenceWorkflowService();
+
+const DEFAULT_PAID_API_TIERS = ["paid", "pro", "enterprise"];
+
+type MarineApiKeyGateResult =
+  | { ok: true; keyId: string; tier: string; active: true }
+  | { ok: false; status: 401 | 403 | 503; message: string };
+
+type ApiKeyLookupById = typeof lookupApiKeyById;
+
+function normalizeHeaders(
+  headers: Record<string, string | undefined> | undefined,
+): Record<string, string> {
+  if (!headers) {
+    return {};
+  }
+
+  const normalized: Record<string, string> = {};
+
+  for (const [key, value] of Object.entries(headers)) {
+    if (typeof value !== "string") {
+      continue;
+    }
+
+    normalized[key.toLowerCase()] = value;
+  }
+
+  return normalized;
+}
+
+function extractApiKeyId(headers: Record<string, string | undefined> | undefined): string | null {
+  const normalized = normalizeHeaders(headers);
+  const apiKeyHeader = (normalized["x-api-key"] ?? "").trim();
+
+  if (apiKeyHeader.length > 0) {
+    return apiKeyHeader;
+  }
+
+  const authorizationHeader = (normalized["authorization"] ?? "").trim();
+  if (!authorizationHeader) {
+    return null;
+  }
+
+  const bearerPrefix = "bearer ";
+  if (authorizationHeader.toLowerCase().startsWith(bearerPrefix)) {
+    const token = authorizationHeader.slice(bearerPrefix.length).trim();
+    return token.length > 0 ? token : null;
+  }
+
+  return null;
+}
+
+function getPaidTierAllowList(): Set<string> {
+  const configured = (process.env.MARINE_PAID_API_TIERS ?? "").trim();
+
+  if (!configured) {
+    return new Set(DEFAULT_PAID_API_TIERS);
+  }
+
+  return new Set(
+    configured
+      .split(",")
+      .map((value) => value.trim().toLowerCase())
+      .filter((value) => value.length > 0),
+  );
+}
+
+export function buildMarineApiKeyGateFailure(status: 401 | 403 | 503, message: string) {
+  return {
+    status,
+    json: { message },
+  };
+}
+
+export async function resolveMarineApiKeyGate(
+  headers: Record<string, string | undefined> | undefined,
+  lookupById: ApiKeyLookupById = lookupApiKeyById,
+): Promise<MarineApiKeyGateResult> {
+  const keyId = extractApiKeyId(headers);
+  if (!keyId) {
+    return { ok: false, status: 401, message: "API key required" };
+  }
+
+  const keyLookup = lookupById(keyId);
+
+  if (keyLookup.source === "unavailable") {
+    return { ok: false, status: 503, message: "API key store unavailable" };
+  }
+
+  if (!keyLookup.result.ok) {
+    return { ok: false, status: 503, message: keyLookup.result.error || "API key validation failed" };
+  }
+
+  const key = keyLookup.result.key;
+  if (!key) {
+    return { ok: false, status: 401, message: "API key invalid" };
+  }
+
+  if (key.revokedAt !== null) {
+    return { ok: false, status: 403, message: "API key inactive" };
+  }
+
+  const paidTiers = getPaidTierAllowList();
+  if (!paidTiers.has(key.tier.trim().toLowerCase())) {
+    return { ok: false, status: 403, message: "API key tier is not enabled for paid access" };
+  }
+
+  return {
+    ok: true,
+    keyId: key.id,
+    tier: key.tier,
+    active: true,
+  };
+}
 
 function hasViewAdminPermission(
   auth: OceanStationAdminAuthContext | undefined,
@@ -631,6 +745,11 @@ export const getMarineWorkflowEventsRoute: RouteDefinition<
   method: "GET",
   path: "/marine-intelligence/events",
   async handler(request) {
+    const keyGate = await resolveMarineApiKeyGate(request.headers);
+    if (!keyGate.ok) {
+      return buildMarineApiKeyGateFailure(keyGate.status, keyGate.message);
+    }
+
     const { includeAllPartitions, truthPartition, ...query } = (request.query ?? {}) as any;
     const readResult = await workflowService.listEvents(query);
     return buildMarineWorkflowEventsRouteResponse(request.auth, query, readResult);
@@ -645,6 +764,11 @@ export const getMarineWorkflowInvestigationsRoute: RouteDefinition<
   method: "GET",
   path: "/marine-intelligence/investigations",
   async handler(request) {
+    const keyGate = await resolveMarineApiKeyGate(request.headers);
+    if (!keyGate.ok) {
+      return buildMarineApiKeyGateFailure(keyGate.status, keyGate.message);
+    }
+
     const { includeAllPartitions, truthPartition, ...query } = (request.query ?? {}) as any;
     const readResult = await workflowService.listInvestigations(query);
     return buildMarineWorkflowInvestigationsRouteResponse(request.auth, query, readResult);
@@ -658,6 +782,11 @@ export const postMarineWorkflowCreateInvestigationRoute: RouteDefinition<
   method: "POST",
   path: "/marine-intelligence/investigations",
   async handler(request) {
+    const keyGate = await resolveMarineApiKeyGate(request.headers);
+    if (!keyGate.ok) {
+      return buildMarineApiKeyGateFailure(keyGate.status, keyGate.message);
+    }
+
     const createResult = await workflowService.createInvestigation(request.body);
     return buildMarineWorkflowCreateInvestigationRouteResponse(request.auth, request.body, createResult);
   },
@@ -671,6 +800,11 @@ export const getMarineWorkflowAlertsRoute: RouteDefinition<
   method: "GET",
   path: "/marine-intelligence/alerts",
   async handler(request) {
+    const keyGate = await resolveMarineApiKeyGate(request.headers);
+    if (!keyGate.ok) {
+      return buildMarineApiKeyGateFailure(keyGate.status, keyGate.message);
+    }
+
     const { includeAllPartitions, truthPartition, ...query } = (request.query ?? {}) as any;
     const readResult = await workflowService.listAlerts(query);
     return buildMarineWorkflowAlertsRouteResponse(request.auth, query, readResult);
@@ -684,6 +818,11 @@ export const postMarineWorkflowAcknowledgeAlertRoute: RouteDefinition<
   method: "POST",
   path: "/marine-intelligence/alerts/:alertId/acknowledge",
   async handler(request) {
+    const keyGate = await resolveMarineApiKeyGate(request.headers);
+    if (!keyGate.ok) {
+      return buildMarineApiKeyGateFailure(keyGate.status, keyGate.message);
+    }
+
     const mutationResult = await workflowService.acknowledgeAlert(request.body.alertId);
     return buildMarineWorkflowAlertMutationRouteResponse(
       "POST /marine-intelligence/alerts/:alertId/acknowledge",
@@ -701,6 +840,11 @@ export const postMarineWorkflowResolveAlertRoute: RouteDefinition<
   method: "POST",
   path: "/marine-intelligence/alerts/:alertId/resolve",
   async handler(request) {
+    const keyGate = await resolveMarineApiKeyGate(request.headers);
+    if (!keyGate.ok) {
+      return buildMarineApiKeyGateFailure(keyGate.status, keyGate.message);
+    }
+
     const mutationResult = await workflowService.resolveAlert(request.body.alertId);
     return buildMarineWorkflowAlertMutationRouteResponse(
       "POST /marine-intelligence/alerts/:alertId/resolve",
@@ -718,6 +862,11 @@ export const postMarineWorkflowDecisionRoute: RouteDefinition<
   method: "POST",
   path: "/marine-intelligence/decisions",
   async handler(request) {
+    const keyGate = await resolveMarineApiKeyGate(request.headers);
+    if (!keyGate.ok) {
+      return buildMarineApiKeyGateFailure(keyGate.status, keyGate.message);
+    }
+
     const createResult = await recordMarineIntelligenceDecision(request.body);
     return buildMarineWorkflowDecisionRouteResponse(request.auth, request.body, createResult);
   },
@@ -730,6 +879,11 @@ export const postMarineWorkflowFeedbackRoute: RouteDefinition<
   method: "POST",
   path: "/marine-intelligence/feedback",
   async handler(request) {
+    const keyGate = await resolveMarineApiKeyGate(request.headers);
+    if (!keyGate.ok) {
+      return buildMarineApiKeyGateFailure(keyGate.status, keyGate.message);
+    }
+
     const createResult = await recordMarineIntelligenceFeedback(request.body);
     return buildMarineWorkflowFeedbackRouteResponse(request.auth, request.body, createResult);
   },
@@ -742,6 +896,11 @@ export const postMarineWorkflowTelemetryRoute: RouteDefinition<
   method: "POST",
   path: "/marine-intelligence/telemetry",
   async handler(request) {
+    const keyGate = await resolveMarineApiKeyGate(request.headers);
+    if (!keyGate.ok) {
+      return buildMarineApiKeyGateFailure(keyGate.status, keyGate.message);
+    }
+
     const createResult = await recordMarineIntelligenceTelemetryEvent(request.body);
     return buildMarineWorkflowTelemetryRouteResponse(request.auth, request.body, createResult);
   },
@@ -754,6 +913,11 @@ export const getMarineWorkflowSummaryRoute: RouteDefinition<
   method: "GET",
   path: "/marine-intelligence/summary",
   async handler(request) {
+    const keyGate = await resolveMarineApiKeyGate(request.headers);
+    if (!keyGate.ok) {
+      return buildMarineApiKeyGateFailure(keyGate.status, keyGate.message);
+    }
+
     const { includeAllPartitions, truthPartition, ...query } = (request.query ?? {}) as any;
     const summaryResult = await getMarineIntelligenceDecisionSummary(query);
     return buildMarineWorkflowSummaryRouteResponse(request.auth, query, summaryResult);

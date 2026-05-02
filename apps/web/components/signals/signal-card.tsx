@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { AlertTriangle, Radar, Waves } from "lucide-react";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { CreateInvestigationAction } from "@/components/investigations/create-investigation-action";
 import { cn } from "@/lib/utils";
 import type { SignalDetection } from "@/lib/api/types";
 
@@ -117,6 +118,18 @@ export function SignalCard({ signal, detailHref }: SignalCardProps) {
           </Link>
         </div>
       ) : null}
+
+      <CreateInvestigationAction
+        prefill={{
+          eventId: signal.sourceId ?? null,
+          title: signal.title,
+          sourceType: "signal",
+          region: signal.region ?? null,
+          detectedAt: signal.detectedAt,
+          stationId: signal.stationId,
+          relatedStations: signal.stationId ? [signal.stationId] : [],
+        }}
+      />
     </article>
   );
 }

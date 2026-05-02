@@ -125,6 +125,12 @@ const MARINE_SURFACE_DATA = {
       tone: "warning" as const,
     },
   ],
+  feedHealth: {
+    ndbc: { source: "ndbc" as const, label: "NDBC", status: "live" as const, lastIngestedAt: "2026-03-18T08:00:00.000Z", ageLabel: "2h ago" },
+    crw: { source: "crw" as const, label: "CRW", status: "live" as const, lastIngestedAt: "2026-03-18T08:00:00.000Z", ageLabel: "2h ago" },
+    overallStatus: "live" as const,
+    dbAvailable: true,
+  },
 };
 
 const { mockMarineSurfaceData } = vi.hoisted(() => ({

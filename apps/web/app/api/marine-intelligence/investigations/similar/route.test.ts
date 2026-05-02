@@ -26,6 +26,7 @@ test("similar investigations proxy returns 503 when the API origin is not config
 
 test("similar investigations proxy forwards the request to the API service", async () => {
   vi.stubEnv("MARINE_API_BASE_URL", "https://api.marine.test");
+  vi.stubEnv("MARINE_INTERNAL_API_KEY", "mk_internal_web_proxy");
   fetchMock.mockResolvedValueOnce(
     new Response(
       JSON.stringify({
@@ -63,6 +64,9 @@ test("similar investigations proxy forwards the request to the API service", asy
   expect(fetchMock.mock.calls[0]?.[0].toString()).toBe(
     "https://api.marine.test/investigations/similar?id=TRK-201&k=3&stationId=46042&windowDays=30",
   );
+  const requestInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
+  const headers = new Headers(requestInit.headers as HeadersInit);
+  expect(headers.get("X-API-Key")).toBe("mk_internal_web_proxy");
   expect(response.status).toBe(200);
   await expect(response.json()).resolves.toMatchObject({
     queryId: "TRK-201",

@@ -65,6 +65,72 @@ test("createMarineInvestigation issues a MIID and stores investigation", async (
   }
 });
 
+test("createMarineInvestigation persists full metadata payload", async () => {
+  const db = new MockDatabase();
+  const result = await createMarineInvestigation(
+    {
+      eventId: "evt-full",
+      title: "Full metadata case",
+      sourceType: "signal",
+      stationId: "41009",
+      region: "Southeast Florida",
+      detectedAt: "2026-03-18T10:50:00.000Z",
+    },
+    { getAdapter: () => db.adapter, now: () => 1700000000001 }
+  );
+
+  assert.equal(result.source, "db");
+  if (result.source === "db") {
+    assert.equal(result.result.ok, true);
+    assert.equal(result.result.investigation?.sourceType, "signal");
+    assert.equal(result.result.investigation?.stationId, "41009");
+    assert.equal(result.result.investigation?.region, "Southeast Florida");
+    assert.equal(result.result.investigation?.detectedAt, "2026-03-18T10:50:00.000Z");
+  }
+});
+
+test("createMarineInvestigation persists partial metadata without filling missing fields", async () => {
+  const db = new MockDatabase();
+  const result = await createMarineInvestigation(
+    {
+      eventId: "evt-partial",
+      title: "Partial metadata case",
+      sourceType: "anomaly",
+      detectedAt: "2026-03-20T03:21:00.000Z",
+    },
+    { getAdapter: () => db.adapter, now: () => 1700000000002 }
+  );
+
+  assert.equal(result.source, "db");
+  if (result.source === "db") {
+    assert.equal(result.result.ok, true);
+    assert.equal(result.result.investigation?.sourceType, "anomaly");
+    assert.equal(result.result.investigation?.detectedAt, "2026-03-20T03:21:00.000Z");
+    assert.equal(result.result.investigation?.stationId, null);
+    assert.equal(result.result.investigation?.region, null);
+  }
+});
+
+test("createMarineInvestigation leaves optional metadata null when omitted", async () => {
+  const db = new MockDatabase();
+  const result = await createMarineInvestigation(
+    {
+      eventId: "evt-missing",
+      title: "Missing metadata case",
+    },
+    { getAdapter: () => db.adapter, now: () => 1700000000003 }
+  );
+
+  assert.equal(result.source, "db");
+  if (result.source === "db") {
+    assert.equal(result.result.ok, true);
+    assert.equal(result.result.investigation?.sourceType, null);
+    assert.equal(result.result.investigation?.stationId, null);
+    assert.equal(result.result.investigation?.region, null);
+    assert.equal(result.result.investigation?.detectedAt, null);
+  }
+});
+
 test("getMarineInvestigation retrieves an existing record", async () => {
   const db = new MockDatabase();
   const createResult = await createMarineInvestigation(

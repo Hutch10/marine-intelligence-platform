@@ -2410,7 +2410,15 @@ export const apiClient = {
     },
 
     async createInvestigation(
-      input: { eventId: string; title: string; ownerId?: string },
+      input: {
+        eventId: string;
+        title: string;
+        ownerId?: string;
+        sourceType?: "signal" | "anomaly";
+        stationId?: string;
+        region?: string;
+        detectedAt?: string;
+      },
       auth?: OceanStationAdminAuthContext,
     ): Promise<
       | { ok: true; investigation: MarineWorkflowInvestigationItem }
@@ -2426,9 +2434,10 @@ export const apiClient = {
           id: `MIID-${Date.now()}`,
           eventId: input.eventId,
           eventTitle: input.title,
-          stationId: null,
-          region: null,
-          detectedAt: nowIso(),
+          sourceType: input.sourceType ?? null,
+          stationId: input.stationId ?? null,
+          region: input.region ?? null,
+          detectedAt: input.detectedAt ?? null,
           title: input.title,
           status: "open",
           ownerId: input.ownerId ?? auth?.actorId ?? null,

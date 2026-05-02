@@ -4,6 +4,7 @@ import type {
   ReefStressWatchItem,
   SignalDetection,
 } from "@/lib/api/types";
+import { getFeedHealth, getFeedHealthDiagnostics, type FeedHealthStatus, type FeedStationDiagnostics } from "@/lib/feed-health";
 import {
   getMarineRegionConfig,
   listMarineRegionConfigs,
@@ -262,6 +263,7 @@ export interface DashboardMarineSurfaceData {
     regionsHref: string | null;
   };
   anomalySummaryStatus: SurfaceStatus;
+  anomalyInvestigationPrefill: InvestigationCreatePrefillData | null;
   prioritizedSignals: SignalDetection[];
   signalCenterStatus: SurfaceStatus;
   liveConditions: LiveMarineCondition[];
@@ -271,6 +273,18 @@ export interface DashboardMarineSurfaceData {
   primaryRegion: MarineRegionLink | null;
   quickLinks: DashboardQuickLink[];
   notices: DashboardTruthNotice[];
+  feedHealth: FeedHealthStatus;
+  stationIngestionDiagnostics: FeedStationDiagnostics[];
+}
+
+export interface InvestigationCreatePrefillData {
+  eventId: string | null;
+  title: string;
+  sourceType: "signal" | "anomaly" | null;
+  region: string | null;
+  detectedAt: string | null;
+  stationId: string | null;
+  relatedStations: string[];
 }
 
 export interface InvestigationLiveSummary {
@@ -797,6 +811,21 @@ export async function getDashboardMarineSurfaceData(): Promise<DashboardMarineSu
   const primaryRegion = buildPrimaryRegion(regionRisks);
   const primaryTrend = primaryRegion ? (await getRegionRiskTrend(primaryRegion.id)).data : null;
   const anomalySummary = buildAnomalySummary(anomalies, regionRisks, primaryTrend);
+  const firstAnomaly = anomalies[0] ?? null;
+  const anomalyRegion = firstAnomaly?.stationId
+    ? getMarineRegionForStation(firstAnomaly.stationId)?.name ?? null
+    : null;
+  const anomalyInvestigationPrefill: InvestigationCreatePrefillData | null = firstAnomaly
+    ? {
+        eventId: firstAnomaly.id,
+        title: firstAnomaly.title,
+        sourceType: "anomaly",
+        region: anomalyRegion,
+        detectedAt: firstAnomaly.detectedAt,
+        stationId: firstAnomaly.stationId,
+        relatedStations: firstAnomaly.stationId ? [firstAnomaly.stationId] : [],
+      }
+    : null;
 
   const latestConditionTimestamp = [...liveConditions]
     .map((condition) => condition.timestamp)
@@ -842,6 +871,8 @@ export async function getDashboardMarineSurfaceData(): Promise<DashboardMarineSu
     staleAfterHours: 12,
   });
 
+  const feedHealth = getFeedHealth();
+  const stationIngestionDiagnostics = getFeedHealthDiagnostics();
   const notices: DashboardTruthNotice[] = [];
 
   if (!liveConditionsResult.apiOk) {
@@ -850,12 +881,86 @@ export async function getDashboardMarineSurfaceData(): Promise<DashboardMarineSu
       detail: liveConditionsStatus.detail,
       tone: "warning",
     });
+  } else if (feedHealth.ndbc.status === "stale") {
+    notices.push({
+      title: `NDBC data is stale — last ingested ${feedHealth.ndbc.ageLabel ?? "unknown time"} ago`,
+      detail: "Station conditions are being served from the last successful ingestion. Run pnpm --filter api ingest:live to refresh.",
+      tone: "warning",
+    });
+  } else if (feedHealth.ndbc.status === "failed") {
+    notices.push({
+      title: "NDBC ingestion has not run recently",
+      detail: feedHealth.dbAvailable
+        ? `Last NDBC ingestion completed ${feedHealth.ndbc.ageLabel ?? "more than 24 hours"} ago or ended in failure. Station data may be severely out of date.`
+        : "No ingestion history found. Run pnpm --filter api ingest:live to populate station data.",
+      tone: "warning",
+    });
+  }
+
+  if (liveConditionsResult.apiOk) {
+    if (feedHealth.ioos.status === "stale") {
+      notices.push({
+        title: `IOOS data is stale — last ingested ${feedHealth.ioos.ageLabel ?? "unknown time"} ago`,
+        detail: "Auxiliary station metrics are being served from the last successful ingestion. Run pnpm --filter api ingest:live to refresh.",
+        tone: "warning",
+      });
+    } else if (feedHealth.ioos.status === "failed") {
+      notices.push({
+        title: "IOOS ingestion has not run recently",
+        detail: feedHealth.ioos.ageLabel
+          ? `Last IOOS ingestion completed ${feedHealth.ioos.ageLabel} ago or ended in failure. Auxiliary metrics may be out of date.`
+          : "No recent IOOS ingestion metadata is available. Auxiliary metrics may be out of date.",
+        tone: "warning",
+      });
+    } else if (feedHealth.ioos.status === "unknown") {
+      notices.push({
+        title: "IOOS ingestion has not run yet",
+        detail: "No IOOS ingestion metadata found. Run pnpm --filter api ingest:live to start auxiliary source tracking.",
+        tone: "warning",
+      });
+    }
+
+    if (feedHealth.erddap.status === "stale") {
+      notices.push({
+        title: `ERDDAP data is stale — last ingested ${feedHealth.erddap.ageLabel ?? "unknown time"} ago`,
+        detail: "Auxiliary station metrics are being served from the last successful ingestion. Run pnpm --filter api ingest:live to refresh.",
+        tone: "warning",
+      });
+    } else if (feedHealth.erddap.status === "failed") {
+      notices.push({
+        title: "ERDDAP ingestion has not run recently",
+        detail: feedHealth.erddap.ageLabel
+          ? `Last ERDDAP ingestion completed ${feedHealth.erddap.ageLabel} ago or ended in failure. Auxiliary metrics may be out of date.`
+          : "No recent ERDDAP ingestion metadata is available. Auxiliary metrics may be out of date.",
+        tone: "warning",
+      });
+    } else if (feedHealth.erddap.status === "unknown") {
+      notices.push({
+        title: "ERDDAP ingestion has not run yet",
+        detail: "No ERDDAP ingestion metadata found. Run pnpm --filter api ingest:live to start auxiliary source tracking.",
+        tone: "warning",
+      });
+    }
   }
 
   if (!reefAlertsResult.apiOk) {
     notices.push({
       title: "Reef stress feed unavailable",
       detail: reefAlertsStatus.detail,
+      tone: "warning",
+    });
+  } else if (feedHealth.crw.status === "stale") {
+    notices.push({
+      title: `CRW data is stale — last ingested ${feedHealth.crw.ageLabel ?? "unknown time"} ago`,
+      detail: "Reef stress records are being served from the last successful ingestion. Run pnpm --filter api ingest:live to refresh.",
+      tone: "warning",
+    });
+  } else if (feedHealth.crw.status === "failed") {
+    notices.push({
+      title: "CRW ingestion has not run recently",
+      detail: feedHealth.dbAvailable
+        ? `Last CRW ingestion completed ${feedHealth.crw.ageLabel ?? "more than 24 hours"} ago or ended in failure. Reef stress data may be severely out of date.`
+        : "No ingestion history found. Run pnpm --filter api ingest:live to populate reef stress data.",
       tone: "warning",
     });
   }
@@ -880,6 +985,7 @@ export async function getDashboardMarineSurfaceData(): Promise<DashboardMarineSu
       regionsHref: primaryRegion ? `/v1/regions/${primaryRegion.id}/risk/trend` : null,
     },
     anomalySummaryStatus,
+    anomalyInvestigationPrefill,
     prioritizedSignals,
     signalCenterStatus,
     liveConditions,
@@ -910,6 +1016,8 @@ export async function getDashboardMarineSurfaceData(): Promise<DashboardMarineSu
       }] : []),
     ],
     notices,
+    feedHealth,
+    stationIngestionDiagnostics,
   };
 }
 

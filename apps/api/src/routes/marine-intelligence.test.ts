@@ -49,6 +49,7 @@ const INVESTIGATION = {
   id: "MIID-001",
   eventId: "MEV-001",
   eventTitle: EVENT.title,
+  sourceType: "signal" as const,
   stationId: EVENT.stationId,
   region: EVENT.region,
   detectedAt: EVENT.detectedAt,

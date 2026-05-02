@@ -64,15 +64,22 @@ export async function requireMarineIntelligenceAdminSession(): Promise<
 }
 
 export function buildMarineIntelligenceProxyHeaders(
-  auth: OceanStationAdminAuthContext,
+  auth: OceanStationAdminAuthContext | undefined,
   contentType?: string,
 ): HeadersInit {
+  const internalApiKey = process.env.MARINE_INTERNAL_API_KEY?.trim();
+
   return {
     Accept: "application/json",
     ...(contentType ? { "Content-Type": contentType } : {}),
-    "x-marine-actor-id": auth.actorId,
-    "x-marine-csrf-token": auth.csrfToken,
-    "x-marine-role": auth.role,
-    "x-marine-permissions": auth.permissions.join(","),
+    ...(internalApiKey ? { "X-API-Key": internalApiKey } : {}),
+    ...(auth
+      ? {
+          "x-marine-actor-id": auth.actorId,
+          "x-marine-csrf-token": auth.csrfToken,
+          "x-marine-role": auth.role,
+          "x-marine-permissions": auth.permissions.join(","),
+        }
+      : {}),
   };
 }

@@ -774,10 +774,15 @@ export type InvestigationTrackState = "Correlated" | "Watch" | "Escalated";
 
 export interface InvestigationAnalysisTrack {
   id: string;
+  eventId?: string;
   title: string;
   summary: string;
   confidence: number;
   state: InvestigationTrackState;
+  sourceType?: "signal" | "anomaly" | null;
+  region?: string | null;
+  stationId?: string | null;
+  detectedAt?: string | null;
   outcome?: "confirmed" | "false_positive" | "inconclusive" | null;
   signals?: Array<{
     id: string;
@@ -2158,6 +2163,7 @@ export interface MarineWorkflowInvestigationItem {
   id: string;
   eventId: string;
   eventTitle: string | null;
+  sourceType: "signal" | "anomaly" | null;
   stationId: string | null;
   region: string | null;
   detectedAt: string | null;
@@ -2210,6 +2216,10 @@ export interface MarineWorkflowCreateInvestigationRequest {
   eventId: string;
   title: string;
   ownerId?: string;
+  sourceType?: "signal" | "anomaly";
+  stationId?: string;
+  region?: string;
+  detectedAt?: string;
 }
 
 export interface MarineWorkflowCreateInvestigationResponse {
