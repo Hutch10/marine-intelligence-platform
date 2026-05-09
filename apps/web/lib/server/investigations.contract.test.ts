@@ -33,7 +33,7 @@ describe("InvestigationAnalysisTrack shared type contract", () => {
 
   it("should match the API payload shape for signals", async () => {
     mockGetById.mockResolvedValue(MOCK_INVESTIGATION);
-    const investigation = (await getInvestigationById("INV-001")) as InvestigationAnalysisTrack & { signals?: any[] };
+    const investigation = (await getInvestigationById("INV-001")) as InvestigationAnalysisTrack & { signals?: Record<string, unknown>[] };
     expect(investigation).toBeTruthy();
     if (investigation?.signals) {
       for (const signal of investigation.signals) {

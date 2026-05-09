@@ -8,7 +8,8 @@ import { History, Calendar, Shield, Fingerprint, Database, AlertCircle, Search }
 import { Button } from "@/components/ui/button";
 import { type PlatformHealthOverview, type InvestigationLiveSummary } from "@marine/shared";
 import { SystemIntegrityStatus } from "@/lib/integrity-constants";
-import { cn } from "@/lib/utils";
+import { StatusBadge } from "@/components/ui/status-badge";
+
 
 export default function ForensicReplayPage() {
   const [anchor, setAnchor] = useState<string>("");
@@ -45,8 +46,8 @@ export default function ForensicReplayPage() {
       
       setSummary(data);
       setHealth(healthData);
-    } catch (err: any) {
-      setError(err.message || "Failed to execute forensic replay");
+    } catch (err: unknown) {
+      setError((err as Error).message || "Failed to execute forensic replay");
     } finally {
       setLoading(false);
     }
@@ -216,13 +217,4 @@ export default function ForensicReplayPage() {
   );
 }
 
-function StatusBadge({ label, className }: { label: string; className?: string }) {
-  return (
-    <span className={cn(
-      "px-2 py-0.5 rounded text-[9px] font-bold border border-current",
-      className
-    )}>
-      {label}
-    </span>
-  );
-}
+

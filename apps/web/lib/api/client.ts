@@ -1351,7 +1351,7 @@ export const apiClient = {
           source: data.source === "db" ? "db" : "unavailable",
           fallbackReason: data.fallback_reason ?? null,
           generatedAt: data.generated_at ?? new Date().toISOString(),
-          systemIntegrity: (data.system_integrity as any) ?? SIS.TRUST_BLOCKED,
+          systemIntegrity: (data.system_integrity as SystemIntegrityStatus) ?? SIS.TRUST_BLOCKED,
           summary: {
             activeAlertCount: Number(data.summary?.active_alert_count ?? 0),
             criticalCount: Number(data.summary?.critical_count ?? 0),

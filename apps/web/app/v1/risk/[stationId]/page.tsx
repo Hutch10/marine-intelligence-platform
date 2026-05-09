@@ -9,6 +9,8 @@ import {
   getStationRecentAnomalyEvidence,
   getStationRiskAssessment,
 } from "@/lib/marine-intelligence";
+import { StatusBadge } from "@/components/ui/status-badge";
+
 
 interface StationRiskPageProps {
   params: {
@@ -232,7 +234,7 @@ export default async function StationRiskPage({ params }: StationRiskPageProps) 
                 <h3 className="text-sm font-bold uppercase tracking-widest text-rose-200">Sovereign Oracle Contradiction</h3>
                 <p className="mt-2 text-sm text-rose-100/90 leading-relaxed">
                   The Forge Reality Engine has detected a fundamental contradiction in the signals associated with this assessment. 
-                  The primary risk assessment has been downgraded to "unknown" as a security precaution.
+                  The primary risk assessment has been downgraded to &quot;unknown&quot; as a security precaution.
                 </p>
                 <div className="mt-4 space-y-2">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-rose-300/70">Identified Anomalies</p>

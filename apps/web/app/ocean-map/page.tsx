@@ -4,7 +4,7 @@ import { Map, AdvancedMarker, Pin, InfoWindow } from "@vis.gl/react-google-maps"
 import { AppShell } from "@/components/layout/app-shell";
 import { TACTICAL_OCEAN_STYLE } from "@/lib/maps-provider";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Shield, Radio, Activity, ChevronRight, Fingerprint, History, Database } from "lucide-react";
+import { Shield, Radio, Fingerprint, History, Database } from "lucide-react";
 import Link from "next/link";
 import { type PlatformHealthOverview } from "@marine/shared";
 import { SystemIntegrityStatus } from "@/lib/integrity-constants";

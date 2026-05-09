@@ -13,7 +13,7 @@ import {
   ChevronRight,
   Activity
 } from "lucide-react";
-import { Mission, MissionStatus, SignalDetection } from "@marine/shared";
+import { Mission } from "@marine/shared";
 import { updateMissionStatus, linkSignalToMission } from "@/lib/marine-intelligence";
 import { PanelHeader } from "./panel-header";
 import { StatusChip } from "./status-chip";
@@ -21,10 +21,9 @@ import { TelemetryChip } from "./telemetry-chip";
 
 interface MissionControlPanelProps {
   initialMissions: Mission[];
-  availableSignals: SignalDetection[];
 }
 
-export function MissionControlPanel({ initialMissions, availableSignals }: MissionControlPanelProps) {
+export function MissionControlPanel({ initialMissions }: MissionControlPanelProps) {
   const [missions, setMissions] = useState<Mission[]>(initialMissions);
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
 

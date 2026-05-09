@@ -119,7 +119,7 @@ export default async function InvestigationsPage() {
                     </td>
                     <td className="px-5 py-3 tabular-nums text-slate-400">
                       {(() => {
-                        const { value, label, tone } = evaluateConfidence(
+                        const { value, label } = evaluateConfidence(
                           inv.confidence / 100,
                           undefined, // list view doesn't have local integrity context yet
                           effectiveIntegrity

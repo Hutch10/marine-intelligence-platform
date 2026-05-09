@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { AppShell } from "@/components/layout/app-shell";
 import { getInvestigationById } from "@/lib/server/investigations";
 import { InvestigationOutcomeEditor } from "@/components/ui/InvestigationOutcomeEditor";
-import type { InvestigationAnalysisTrack } from "@marine/shared";
+
 
 interface InvestigationDetailPageProps {
   params: { id: string };

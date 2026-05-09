@@ -55,7 +55,7 @@ describe("CoverageMap Guardrails", () => {
       ]
     };
 
-    (global.fetch as any).mockResolvedValue({
+    (global.fetch as vi.Mock).mockResolvedValue({
       ok: true,
       json: async () => mockRegions,
     });
