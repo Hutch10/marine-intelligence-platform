@@ -38,8 +38,10 @@ export default function OceanMapPage() {
 
   useEffect(() => {
     async function fetchData() {
+      const base = (process.env.NEXT_PUBLIC_MARINE_API_URL ?? "").trim();
+      if (!base) return;
       try {
-        const regionsRes = await fetch(`${process.env.NEXT_PUBLIC_MARINE_API_URL || "http://localhost:4000"}/regions`, { cache: 'no-store' });
+        const regionsRes = await fetch(`${base}/regions`, { cache: 'no-store' });
         
         const data: RegionsResponse = await regionsRes.json();
         if (data.regions) {

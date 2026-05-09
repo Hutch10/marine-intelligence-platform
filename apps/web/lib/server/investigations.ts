@@ -1,7 +1,15 @@
 import type { InvestigationAnalysisTrack } from "@marine/shared";
 
-const apiBase = () =>
-  (process.env.MARINE_API_BASE_URL ?? "http://localhost:4000").replace(/\/$/, "");
+function apiBase(): string {
+  const configured = process.env.MARINE_API_BASE_URL?.trim().replace(/\/$/, "");
+  if (!configured) {
+    if (process.env.NODE_ENV === "production" || process.env.VERCEL) {
+      throw new Error("MARINE_API_BASE_URL is not configured");
+    }
+    return "http://localhost:4000";
+  }
+  return configured;
+}
 
 export async function listInvestigations(): Promise<InvestigationAnalysisTrack[]> {
   try {

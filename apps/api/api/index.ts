@@ -1,3 +1,3 @@
-import { handleRequest } from "../src/server";
+import { handleRequest } from "../dist/api/src/server";
 
 export default handleRequest;

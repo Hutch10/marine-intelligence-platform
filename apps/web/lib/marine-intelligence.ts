@@ -15,11 +15,16 @@ import { SystemIntegrityStatus } from "@/lib/integrity-constants";
 // ─── API base URL ─────────────────────────────────────────────────────────────
 
 function getApiBase(): string {
-  return (
-    process.env.NEXT_PUBLIC_MARINE_API_URL
-    ?? process.env.MARINE_API_BASE_URL
-    ?? "http://localhost:4000"
-  ).replace(/\/$/, "");
+  const url =
+    process.env.NEXT_PUBLIC_MARINE_API_URL?.trim() ||
+    process.env.MARINE_API_BASE_URL?.trim();
+  if (!url) {
+    if (process.env.NODE_ENV === "production" || process.env.VERCEL) {
+      throw new Error("MARINE_API_BASE_URL is not configured — set this environment variable in production");
+    }
+    return "http://localhost:4000";
+  }
+  return url.replace(/\/$/, "");
 }
 
 const FETCH_TIMEOUT_MS = 5000;

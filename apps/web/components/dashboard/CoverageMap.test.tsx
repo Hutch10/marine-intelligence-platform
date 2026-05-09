@@ -1,4 +1,4 @@
-import { describe, test, expect, vi, beforeEach } from "vitest";
+import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { hasFiniteCentroid, toMarkerPercent, DataCoverageMap } from "./CoverageMap";
 import React from "react";
@@ -9,6 +9,11 @@ global.fetch = vi.fn();
 describe("CoverageMap Guardrails", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubEnv("NEXT_PUBLIC_MARINE_API_URL", "http://test-api.local");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   test("guardrail: no clamping path exists in toMarkerPercent", () => {

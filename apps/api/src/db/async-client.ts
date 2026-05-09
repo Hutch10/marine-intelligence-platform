@@ -88,5 +88,13 @@ export function getAsyncAdapter(readOnly = true): AsyncDbAdapter {
     }
     return createTursoAdapter(tursoUrl, tursoToken);
   }
+
+  // Fail-closed in production: ephemeral/missing SQLite is not a safe fallback.
+  if (process.env.NODE_ENV === "production" || process.env.VERCEL) {
+    throw new Error(
+      "FAIL-CLOSED: TURSO_DATABASE_URL is not set. Configure TURSO_DATABASE_URL and TURSO_AUTH_TOKEN for production.",
+    );
+  }
+
   return createLocalAdapter(resolveDatabasePath(), readOnly);
 }

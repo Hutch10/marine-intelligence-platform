@@ -68,7 +68,11 @@ export function DataCoverageMap() {
   const [selected, setSelected] = useState<string | null>(null);
 
   useEffect(() => {
-    const base = process.env.NEXT_PUBLIC_MARINE_API_URL ?? "http://localhost:4000";
+    const base = (process.env.NEXT_PUBLIC_MARINE_API_URL ?? "").trim();
+    if (!base) {
+      setLoading(false);
+      return;
+    }
     fetch(`${base}/regions`, { cache: "no-store" })
       .then((r) => r.json())
       .then((data: RegionsResponse) => {

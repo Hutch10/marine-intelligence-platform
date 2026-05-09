@@ -5,7 +5,16 @@ import { logApiUsageSafely, requireApiKeyAuth } from "../../_auth";
 import { attachRecommendationToRiskScoreResponse } from "../_recommendation";
 import { jsonPublicApiError, jsonPublicApiResponse } from "../../_responses";
 
-const API_BASE = (process.env.MARINE_API_BASE_URL ?? "http://localhost:4000").replace(/\/$/, "");
+function requireApiBase(): string {
+  const configured = process.env.MARINE_API_BASE_URL?.trim().replace(/\/$/, "");
+  if (!configured) {
+    if (process.env.NODE_ENV === "production" || process.env.VERCEL) {
+      throw new Error("MARINE_API_BASE_URL is not configured");
+    }
+    return "http://localhost:4000";
+  }
+  return configured;
+}
 
 export async function GET(request: NextRequest) {
   const startedAt = Date.now();
@@ -26,7 +35,7 @@ export async function GET(request: NextRequest) {
   let upstreamJson: unknown;
 
   try {
-    const upstream = await fetch(`${API_BASE}/risk/score${qs}`, {
+    const upstream = await fetch(`${requireApiBase()}/risk/score${qs}`, {
       headers: { Accept: "application/json" },
     });
     upstreamStatus = upstream.status;
