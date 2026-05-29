@@ -7,7 +7,7 @@
  *  FAILED  — > 24 hours OR ingestion run status was "failed"
  *  UNKNOWN — ingestion metadata unavailable (DB missing, never ran, query failed)
  *
- * getFeedHealth() is synchronous and safe to call from any Server Component.
+ * getFeedHealth() is async and safe to call from Server Components.
  * It returns UNKNOWN rather than assuming freshness when data is absent.
  */
 
@@ -214,8 +214,8 @@ function toFailureCategory(parseFailureCount: number, validationFailureCount: nu
   return "unknown";
 }
 
-export function getFeedHealthDiagnostics(): FeedStationDiagnostics[] {
-  const response = buildFeedHealthRouteResponse();
+export async function getFeedHealthDiagnostics(): Promise<FeedStationDiagnostics[]> {
+  const response = await buildFeedHealthRouteResponse();
 
   if (response.json.source !== "db") {
     return [];
@@ -262,8 +262,8 @@ export function getFeedHealthDiagnostics(): FeedStationDiagnostics[] {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-export function getFeedHealth(): FeedHealthStatus {
-  const response = buildFeedHealthRouteResponse();
+export async function getFeedHealth(): Promise<FeedHealthStatus> {
+  const response = await buildFeedHealthRouteResponse();
 
   if (response.json.source !== "db") {
     return {

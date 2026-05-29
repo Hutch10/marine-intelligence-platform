@@ -22,6 +22,19 @@ export function hasDatabasePath(path = resolveDatabasePath()): boolean {
   return existsSync(path);
 }
 
+/** True when Turso is configured or a local SQLite file exists. */
+export function isDatabaseConfigured(path = resolveDatabasePath()): boolean {
+  if (process.env.TURSO_DATABASE_URL) {
+    return true;
+  }
+
+  return hasDatabasePath(path);
+}
+
+export function usesTursoDatabase(): boolean {
+  return Boolean(process.env.TURSO_DATABASE_URL?.trim());
+}
+
 // Scaffolded local adapter wrapping node:sqlite for development
 export function createLocalAdapter(path = resolveDatabasePath(), readOnly = true): AsyncDbAdapter {
   if (typeof path !== "string" || !path) {

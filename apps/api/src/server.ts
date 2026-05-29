@@ -33,7 +33,9 @@ import v1ExplorerHandler from "./routes/v1-explorer";
 import v1ExplorerExportHandler from "./routes/v1-explorer-export";
 import { getValidationSummaryRoute } from "./routes/validation";
 import { getFeedHealthRoute } from "./routes/feed-health";
+import { getOperationalAlertsRoute } from "./routes/operational-alerts";
 import { hasDatabasePath, openReadOnlyDatabase } from "./db/client";
+import { isDatabaseConfigured } from "./db/async-client";
 import type { RouteResponse } from "./types";
 import type { SignalSeverity, SignalStatus, SignalType } from "@marine/shared";
 
@@ -226,7 +228,7 @@ const serverRoutes: ServerRoute[] = [
     handler: async () => {
       let dbReachable = false;
       try {
-        if (hasDatabasePath()) {
+        if (isDatabaseConfigured()) {
           const db = openReadOnlyDatabase();
           db.prepare("SELECT 1").all();
           db.close();
@@ -249,6 +251,23 @@ const serverRoutes: ServerRoute[] = [
         headers: {},
       };
     },
+  },
+
+  {
+    method: "GET",
+    path: "/feed-health",
+    handler: ({ query }) => getFeedHealthRoute.handler({
+      body: undefined,
+      query: query as Record<string, string | undefined>,
+    }),
+  },
+  {
+    method: "GET",
+    path: "/operational-alerts",
+    handler: ({ query }) => getOperationalAlertsRoute.handler({
+      body: undefined,
+      query: query as Record<string, string | undefined>,
+    }),
   },
 
   // ── Public v1 routes ──────────────────────────────────────────────────────

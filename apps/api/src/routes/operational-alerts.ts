@@ -38,6 +38,7 @@ interface OperationalAlertsSummaryResponse {
 interface OperationalAlertsResponse {
   source: "db" | "unavailable";
   fallback_reason: OperationalAlertsFallbackReason | null;
+  system_integrity: "NORMAL" | "DEGRADED" | "TRUST_BLOCKED";
   generated_at: string;
   summary: OperationalAlertsSummaryResponse;
   active_alerts: OperationalAlertsResponseItem[];
@@ -222,6 +223,21 @@ function buildEmptySummary(): OperationalAlertsSummaryResponse {
   };
 }
 
+function resolveSystemIntegrity(
+  source: "db" | "unavailable",
+  fallbackReason: OperationalAlertsFallbackReason | null | undefined,
+): "NORMAL" | "DEGRADED" | "TRUST_BLOCKED" {
+  if (source !== "db") {
+    return "TRUST_BLOCKED";
+  }
+
+  if (fallbackReason) {
+    return "DEGRADED";
+  }
+
+  return "NORMAL";
+}
+
 export async function buildOperationalAlertsRouteResponse(
   readResultPromise: Promise<OperationalAlertsReadResultResponse> | OperationalAlertsReadResultResponse = readDatabaseOperationalAlerts(undefined),
   query?: OperationalAlertsQuery,
@@ -260,6 +276,7 @@ export async function buildOperationalAlertsRouteResponse(
       json: {
         source: "db",
         fallback_reason: null,
+        system_integrity: resolveSystemIntegrity("db", null),
         generated_at: new Date().toISOString(),
         summary: toSummaryResponse(summaryData),
         active_alerts: activeAlertsResponse,
@@ -280,6 +297,7 @@ export async function buildOperationalAlertsRouteResponse(
     json: {
       source: "unavailable",
       fallback_reason: readResult.fallbackReason,
+      system_integrity: resolveSystemIntegrity("unavailable", readResult.fallbackReason),
       generated_at: new Date().toISOString(),
       summary: buildEmptySummary(),
       active_alerts: [],

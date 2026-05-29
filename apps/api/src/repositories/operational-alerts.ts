@@ -271,7 +271,7 @@ export async function evaluateAndApplyAlerts(
   );
 
   for (const sourceStatus of snapshot.latestBySource) {
-    if (sourceStatus.status === "healthy" || sourceStatus.status === "degraded") {
+    if (sourceStatus.status === "success" || sourceStatus.status === "partial") {
       await service.resolveAlertsForSource(sourceStatus.source);
     }
   }
@@ -357,7 +357,7 @@ async function readOperationalAlertsFromDatabase(options: {
     getAdapter = getAsyncAdapter,
   } = options;
 
-  if (!hasPath()) {
+  if (!process.env.TURSO_DATABASE_URL && !hasPath()) {
     return {
       source: "unavailable",
       fallbackReason: "db_path_missing",

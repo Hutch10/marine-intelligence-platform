@@ -876,8 +876,8 @@ export async function getDashboardMarineSurfaceData(): Promise<DashboardMarineSu
     staleAfterHours: 12,
   });
 
-  const feedHealth = getFeedHealth();
-  const stationIngestionDiagnostics = getFeedHealthDiagnostics();
+  const feedHealth = await getFeedHealth();
+  const stationIngestionDiagnostics = await getFeedHealthDiagnostics();
   const notices: DashboardTruthNotice[] = [];
 
   if (!liveConditionsResult.apiOk) {

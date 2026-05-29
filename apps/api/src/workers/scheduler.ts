@@ -152,7 +152,7 @@ async function runAndPersist(
   };
 
   try {
-    persistLiveIngestionReport(report);
+    await persistLiveIngestionReport(report);
   } catch (persistError) {
     const message = persistError instanceof Error ? persistError.message : String(persistError);
     log("error", source, `report persistence failed: ${message}`);

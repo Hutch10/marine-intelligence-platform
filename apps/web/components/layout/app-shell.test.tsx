@@ -14,13 +14,8 @@ vi.mock("@/components/layout/topbar", () => ({
   ),
 }));
 
-vi.mock("@/lib/feed-health", () => ({
-  getFeedHealth: () => ({
-    ndbc: { source: "ndbc", label: "NDBC", status: "unknown", lastIngestedAt: null, ageLabel: null },
-    crw: { source: "crw", label: "CRW", status: "unknown", lastIngestedAt: null, ageLabel: null },
-    overallStatus: "unknown",
-    dbAvailable: false,
-  }),
+vi.mock("@/components/layout/feed-health-banner-loader", () => ({
+  FeedHealthBannerLoader: () => <div data-testid="feed-health-banner" />,
 }));
 
 test("app shell keeps the main pane shrink-safe", () => {

@@ -229,9 +229,9 @@ export async function ingestLiveFeeds(
         // Get the latest health snapshot to evaluate for alerts
         const runtimeRequire = eval("require") as NodeRequire;
         const { getLiveIngestionHealthSnapshot } = runtimeRequire("../repositories/live-ingestion-reports") as {
-          getLiveIngestionHealthSnapshot: (options: { limit: number; staleAfterMs: number }) => any;
+          getLiveIngestionHealthSnapshot: (options: { limit: number; staleAfterMs: number }) => Promise<any>;
         };
-        const snapshotResult = getLiveIngestionHealthSnapshot({ limit: 20, staleAfterMs: 6 * 60 * 60 * 1000 });
+        const snapshotResult = await getLiveIngestionHealthSnapshot({ limit: 20, staleAfterMs: 6 * 60 * 60 * 1000 });
         if (snapshotResult.source === "db") {
           await dependencies.evaluateAlerts(snapshotResult.snapshot);
         }
