@@ -410,7 +410,8 @@ export async function listLatestReefStress(
   const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const databasePath = resolvePath();
 
-  if (!hasPath(databasePath)) {
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
+  if (!isTurso && !hasPath(databasePath)) {
     return { source: "mock", fallbackReason: "db_path_missing" };
   }
 
