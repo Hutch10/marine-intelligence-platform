@@ -37,6 +37,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Prepare local ingestion report directory
+        working-directory: apps/api
+        run: mkdir -p .data
+
       - name: Run ingest:live
         working-directory: apps/api
         env:
