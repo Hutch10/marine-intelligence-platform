@@ -144,6 +144,7 @@ export async function recordHarnessEvent(
   input: RecordHarnessEventInput,
   dependencies: { getAdapter?: typeof getAsyncAdapter; now?: () => number } = {},
 ): Promise<string> {
+  const ownsAdapter = dependencies.getAdapter === undefined;
   const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const now = dependencies.now ?? Date.now;
   const createdAtMs = input.createdAtMs ?? now();
@@ -186,7 +187,9 @@ export async function recordHarnessEvent(
       ],
     );
   } finally {
-    adapter.close();
+    if (ownsAdapter) {
+      adapter.close();
+    }
   }
 
   return eventId;

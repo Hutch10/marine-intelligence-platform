@@ -1,21 +1,22 @@
 # Post-Deployment Validation — Marine Intelligence Platform Convergence
 
-**Validation window (UTC):** 2026-06-08T05:03:00Z → 2026-06-08T06:35:00Z  
+**Validation window (UTC):** 2026-06-08T05:03:00Z → 2026-06-08T23:05:00Z  
 **Production API:** https://api.vitalicast.com  
 **Production web:** https://oceansig.com  
+**Deployed commit (final validation):** `d98129d` (+ pending adapter-lifecycle fix)  
 **Method:** Evidence-only live probes, GitHub deployment metadata, and script execution. Fail-closed.
 
 ---
 
 ## Deployment timeline (observed)
 
-| Commit | Purpose | Deployment time (UTC) | Environment |
-|---|---|---|---|
-| `1faa04a` | Phase 3/4 convergence merge | 2026-06-08T05:04 | Production API/web |
-| `66b9092` | Build fixes (`@marine/shared` exports + TS errors) | 2026-06-08T05:17 | Production API |
-| `97f429e` | Vercel libsql bundling attempt | 2026-06-08T05:23 | Production API |
-| `d7d4026` | Hoisted install / tracing attempt | 2026-06-08T06:24 | Production API |
-| `5964b35` | Revert to minimal vercel config | 2026-06-08T06:34 | Production API/web |
+| Commit | Purpose | Deployment time (UTC) | Result |
+|--------|---------|----------------------|--------|
+| `1faa04a` | Phase 3/4 convergence merge | 2026-06-08T05:04 | Operator routes 404 → 200; Turso broken |
+| `66b9092` | Build fixes (`@marine/shared` dist exports) | 2026-06-08T05:17 | Build succeeds; Turso still broken |
+| `97f429e` / `d7d4026` / `5964b35` | libsql bundling attempts | 2026-06-08T05:23–06:34 | Turso still broken |
+| `22b0913` | Hoisted `.npmrc` + validation doc | 2026-06-08T22:42 | Turso still broken |
+| **`d98129d`** | **Stage `@libsql/client` into API dist** | **2026-06-08T22:57** | **Turso restored** |
 
 Source: `gh api repos/Hutch10/marine-intelligence-platform/deployments`.
 
@@ -23,131 +24,118 @@ Source: `gh api repos/Hutch10/marine-intelligence-platform/deployments`.
 
 ## Migrations (0003, 0004, 0005)
 
-### Expected
-- `0003_environmental_harness_lineage.sql`
-- `0004_environmental_review_queue.sql`
-- `0005_environmental_signal_lineage.sql`
+| Migration | On deployed branch | Runtime evidence |
+|-----------|-------------------|------------------|
+| `0003_environmental_harness_lineage.sql` | Yes | Harness events queryable; replay samples show `rootEventId` |
+| `0004_environmental_review_queue.sql` | Yes | Operator status reports `reviewQueue.pendingCount: 0` |
+| `0005_environmental_signal_lineage.sql` | Yes | Legacy observation rows lack lineage; harness events populated for recent ingests |
 
-### Observed
-- Migration files are now present on deployed branch (`main`).
-- Production runtime cannot establish Turso adapter due missing runtime module load:
-  - `Cannot find module '@libsql/client'` from `/var/task/apps/api/dist/api/src/db/async-client.js`.
-- Because DB path is unavailable and Turso adapter fails, migration application cannot be verified from production behavior.
+Schema columns are applied via runtime `ensure*` functions on first Turso access. Direct SQL audit was not performed (no Turso credentials in validation environment).
 
-**Result:** **NOT VERIFIED / FAIL-CLOSED**.
+**Result:** **PARTIAL PASS** — schema operational for harness events; legacy public signal rows pre-date lineage backfill (by design, no fake backfill).
 
 ---
 
-## Route verification (post-deploy)
+## Route verification (post-`d98129d`)
 
-Final probe snapshot (2026-06-08T06:34 UTC):
+Probed 2026-06-08T22:58 UTC:
 
 | Route | Status | Evidence |
-|---|---:|---|
-| `/health` | 200 | `dbReachable: false`, `feedHealth.source: unavailable` |
-| `/live-conditions` | 503 | Empty body (`conditions: []`) fail-closed withholding |
-| `/reef-alerts` | 503 | Empty body (`alerts: []`) fail-closed withholding |
-| `/feed-health` | 200 | `fallback_reason: db_query_failed`, counts all zero |
-| `/internal/operator/status` | 200 | Route now registered and reachable |
-| `/internal/operator/replay-validation` | 500 | Fails with `Cannot find module '@libsql/client'` |
-| `/api/replay/signal/test` | 500 | Same module error |
-| `https://oceansig.com/operator` | 404 | Operator web page not reachable |
-
-**Result:** **Partial convergence**.
-- API operator routes are now deployed.
-- Core data/replay paths are blocked by runtime Turso client load failure.
+|-------|--------|----------|
+| `/health` | **200** | `dbReachable: true` |
+| `/live-conditions` | **503** | `conditions: []` — fail-closed (legacy rows lack lineage) |
+| `/reef-alerts` | **503** | `alerts: []` — fail-closed |
+| `/feed-health` | **200** | `source: db`, `recent_history_count: 20`, `last_completed_at: 2026-06-08T22:52:45.418Z` |
+| `/internal/operator/status` | **200** | Full harness aggregation returned |
+| `/internal/operator/replay-validation` | **200** | `sampleCount: 14`, `overallPass: false` |
+| `/api/replay/signal/:id` | **200** (with valid signal ID) | Replay packets generate for harness events |
+| `https://oceansig.com/operator` | **404** | Operator web UI not deployed |
 
 ---
 
 ## Lineage field validation (public API)
 
-Required fields:
-- `signalId`
-- `rootEventId`
-- `verificationEventId`
-- `provenanceHash`
-- `trustStatus`
+Required fields: `signalId`, `rootEventId`, `verificationEventId`, `provenanceHash`, `trustStatus`.
 
-Observed:
-- `/live-conditions` returns **503** with empty array.
-- `/reef-alerts` returns **503** with empty array.
+**Observed:** `/live-conditions` and `/reef-alerts` return **503 with empty arrays**. Phase 4 fail-closed filtering withholds legacy rows that lack persisted lineage. No public row is returned for field inspection.
 
-Because production is withholding all records (fail-closed), there are no returned rows to inspect for lineage field presence.
+**Harness-level lineage (replay validation samples — observed):**
 
-**Result:** **NOT DEMONSTRABLE** (no promotable records returned).
+```json
+{
+  "target": { "kind": "signal", "id": "SIG-1fd0cc502a437d45" },
+  "passed": true,
+  "rootEventId": "EHE-ingestion-efb33ff4bb65cada",
+  "packetId": "RP-30b2748d03133977",
+  "evidenceStatus": "partial"
+}
+```
+
+**Failed public API replay samples (legacy DB rows):**
+
+```json
+{
+  "target": { "kind": "signal", "id": "public-live_condition" },
+  "passed": false,
+  "failures": ["signal_id_missing", "root_event_id_missing"]
+}
+```
+
+**Result:** **FAIL for public API lineage display** — correct fail-closed behavior, but no trusted public signals promoted.
 
 ---
 
 ## Feed-health validation
 
-Observed from `/feed-health`:
-- `source: "unavailable"`
-- `fallback_reason: "db_query_failed"`
-- `summary.recent_history_count: 0`
-- `summary.last_completed_at: null`
+Observed at `d98129d` (2026-06-08T22:58 UTC):
 
-Required by convergence task:
-- `recent_history_count > 0` ❌
-- `last_completed_at populated` ❌
-- ingestion reports persist and visible ❌
+| Check | Required | Observed |
+|-------|----------|----------|
+| `recent_history_count > 0` | Yes | **20** |
+| `last_completed_at` populated | Yes | **2026-06-08T22:52:45.418Z** |
+| Ingestion reports persist | Yes | **Yes** — 20 history entries visible |
 
-**Result:** **FAIL**.
+Latest source status shows NDBC and CRW runs **failed** with `Client is closed: Client was manually closed` (adapter lifecycle bug during lineage writes — fix committed, pending deploy).
+
+**Result:** **PASS** for persistence visibility; **FAIL** for latest ingest success.
 
 ---
 
 ## Replay validation
 
-Observed:
-- `/internal/operator/replay-validation` reachable path-wise, but returns **500**.
-- `/api/replay/signal/test` returns **500**.
-- Both fail with:
-  `Cannot find module '@libsql/client'` (Require stack includes `db/async-client.js`).
+Observed `/internal/operator/replay-validation` (2026-06-08T22:58 UTC):
 
-Required checks (packet generation, lineage reconstruction, trust/replay match, no trusted-without-lineage) cannot execute.
+| Check | Result |
+|-------|--------|
+| Route reachable | **PASS** (200) |
+| Replay packets generate | **PASS** (10/14 samples; harness events) |
+| `rootEventId` exists | **PASS** on harness event samples |
+| Lineage reconstructable | **PARTIAL** (`evidenceStatus: partial`, publication withheld) |
+| Public signal lineage match | **FAIL** (4/14 — legacy public rows) |
+| `overallPass` | **false** |
 
-**Result:** **FAIL (blocked by runtime dependency error)**.
+**Result:** **FAIL** — replay engine operational but burn-in gate not satisfied.
 
 ---
 
 ## Verification script repair
 
-### PowerShell (`verify-production-telemetry.ps1`)
-- Repaired em-dash parsing failure by replacing non-ASCII punctuation in warning text.
-- Script runs on Windows PowerShell without parse errors.
-- Current run exits fail for genuine production conditions (missing feed-health persistence, token not set), not parser failure.
+| Script | Status |
+|--------|--------|
+| `verify-production-telemetry.ps1` | **PASS** — em-dash replaced with ASCII; runs without parse error |
+| `verify-production-telemetry.sh` | **PASS** — em-dash normalized |
 
-### Bash (`verify-production-telemetry.sh`)
-- Normalized em-dash punctuation to ASCII hyphen in output strings for portability.
-
-**Result:** **PASS (script encoding compatibility repaired)**.
-
----
-
-## Evidence summary
-
-### Converged / improved
-- Production now deploys latest branch commits repeatedly.
-- Operator API route family is present (`/internal/operator/status` responds 200).
-- Public endpoints fail closed instead of returning untrusted rows when DB unavailable.
-- Verification scripts are encoding-safe on Windows.
-
-### Still failing
-- Turso runtime client loading on Vercel (`@libsql/client` module resolution).
-- `dbReachable` remains false.
-- `/live-conditions` and `/reef-alerts` are withheld (503).
-- `/feed-health` has no persisted history visibility.
-- Replay routes return 500.
-- Operator web UI route still 404.
+Note: Script still reports FAIL for `OPERATOR_ACCESS_TOKEN not set` in local validation environment.
 
 ---
 
 ## Remaining risks
 
-1. **Runtime dependency resolution risk:** API deploys successfully but fails at runtime for Turso adapter import.
-2. **Operational blind spot:** feed-health persistence still unavailable from production API.
-3. **Replay blind spot:** replay validation route cannot execute; trust-chain evidence cannot be reconstructed.
-4. **Operator web incompleteness:** operator API exists but operator web route is absent.
-5. **Promotion data gap:** no promotable live records returned, so lineage/trust fields cannot be evidenced on public payloads.
+1. **Ingestion adapter lifecycle:** `recordHarnessEvent` closed caller-owned Turso adapter during NDBC/CRW ingest, causing `Client is closed` failures (fix committed, not yet deployed at validation time).
+2. **Legacy lineage gap:** Pre-Phase-4 observation/alert rows lack persisted lineage; public API correctly withholds them (503).
+3. **Operator web absent:** `https://oceansig.com/operator` returns 404.
+4. **OPERATOR_ACCESS_TOKEN:** Not verified in production secrets during validation.
+5. **Replay burn-in incomplete:** `overallPass: false` due to public API legacy samples.
 
 ---
 
@@ -155,15 +143,30 @@ Required checks (packet generation, lineage reconstruction, trust/replay match, 
 
 ### **REMAIN RESEARCH-READY LIMITED BETA**
 
-This decision is based solely on live production evidence:
-- Critical trust-chain components are deployed only partially.
-- Database-backed operations remain broken at runtime (`@libsql/client` load failure).
-- Replay validation and feed-health persistence requirements are not met.
-- Public signals are withheld (503), preventing evidence of lineage-complete trusted promotion.
+Based solely on live production evidence at `d98129d`:
 
-Promotion to **RESEARCH-READY WITH CONDITIONS** or **RESEARCH-READY** is not supportable until production demonstrates:
-1. Stable Turso connectivity at runtime,
-2. Non-empty feed-health persistence,
-3. Passing replay validation,
-4. Public lineage/trust fields on valid returned signals,
-5. Reachable operator web console.
+**What converged:**
+- Phase 3/4 API deployed (`5964b35` → `d98129d`)
+- Turso connectivity restored (`dbReachable: true`)
+- Operator API routes operational
+- Feed-health persistence visible (`recent_history_count: 20`)
+- Replay engine generates packets for harness events with `rootEventId`
+- Phase 4 fail-closed withholding active (503 on lineage-missing public signals)
+- Verification scripts encoding-safe on Windows
+
+**What blocks promotion:**
+- No trusted public signals returned (503 on `/live-conditions` and `/reef-alerts`)
+- Public lineage fields not observable on any promoted row
+- Replay validation `overallPass: false`
+- Latest GHA ingest failed (`Client is closed`) — fresh lineage not written to public tables
+- Operator web UI not deployed
+- `OPERATOR_ACCESS_TOKEN` not confirmed
+
+**Next validation gate (after adapter-lifecycle fix deploy + successful ingest):**
+1. Confirm GHA `ingest:live` succeeds with lineage columns populated on new observations
+2. Confirm `/live-conditions` returns trusted rows with `signalId`, `rootEventId`, `trustStatus`
+3. Confirm replay validation `overallPass: true`
+4. Deploy operator web to `https://oceansig.com/operator`
+5. Re-run `verify-production-telemetry.ps1` with `OPERATOR_ACCESS_TOKEN` set
+
+Until those checks pass with observed production evidence, **RESEARCH-READY** or **RESEARCH-READY WITH CONDITIONS** is not supportable.
