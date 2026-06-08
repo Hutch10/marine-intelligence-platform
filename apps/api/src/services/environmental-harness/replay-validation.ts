@@ -148,6 +148,7 @@ export async function validatePublicEnvironmentalSignal(
 ): Promise<ReplayValidationCheckResult> {
   const failures: string[] = [];
   const markedTrusted = sample.trustedForPromotion === true || sample.trustStatus === "trusted";
+  const replayDeps = dependencies.getAdapter ? { getAdapter: dependencies.getAdapter } : {};
 
   if (!sample.signalId) {
     failures.push("signal_id_missing");
@@ -179,7 +180,17 @@ export async function validatePublicEnvironmentalSignal(
 
     if (markedTrusted && replayResult.rootEventId && sample.rootEventId
       && replayResult.rootEventId !== sample.rootEventId) {
-      failures.push("trust_metadata_root_event_mismatch");
+      const lineageReplay = sample.signalId
+        ? await generateReplayPacketForSignalId(sample.signalId, replayDeps)
+        : null;
+      const lineageContainsSampleRoot = lineageReplay?.status === "available"
+        && lineageReplay.packet.lineage.some((node) => (
+          node.rootEventId === sample.rootEventId || node.eventId === sample.rootEventId
+        ));
+
+      if (!lineageContainsSampleRoot) {
+        failures.push("trust_metadata_root_event_mismatch");
+      }
     }
   } else if (markedTrusted) {
     failures.push("trusted_public_signal_not_replayable");

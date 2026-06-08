@@ -294,6 +294,7 @@ export function createOperationalAlertsService(
               parentEventId: verificationParentEventId,
               rootEventId: ingestionRootEventId ?? undefined,
             },
+            getAdapter: () => adapter,
           });
 
           if (!gate.allowed) {
@@ -350,7 +351,7 @@ export function createOperationalAlertsService(
             detail: action.title,
             parentEventId: gate.validationEventId,
             rootEventId: ingestionRootEventId ?? gate.validationEventId ?? undefined,
-          });
+          }, { getAdapter: () => adapter });
 
           continue;
         }

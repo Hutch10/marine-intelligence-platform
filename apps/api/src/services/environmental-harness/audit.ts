@@ -229,6 +229,7 @@ export async function auditAlertValidation(
     signalId?: string | null;
     alertId?: string | null;
   },
+  dependencies: NonNullable<Parameters<typeof recordHarnessEvent>[1]> = {},
 ): Promise<string | null> {
   return safeRecordHarnessEvent({
     eventKind: "alert_validation",
@@ -241,13 +242,13 @@ export async function auditAlertValidation(
     alertId: lineage?.alertId ?? null,
     outcome: input.outcome,
     payload: input as unknown as Record<string, unknown>,
-  });
+  }, dependencies);
 }
 
 export async function auditPublication(input: PublicationHarnessEvent & {
   parentEventId?: string | null;
   rootEventId?: string | null;
-}): Promise<string | null> {
+}, dependencies: NonNullable<Parameters<typeof recordHarnessEvent>[1]> = {}): Promise<string | null> {
   return safeRecordHarnessEvent({
     eventKind: "publication",
     eventType: "publication",
@@ -259,7 +260,7 @@ export async function auditPublication(input: PublicationHarnessEvent & {
     alertId: input.alertId,
     outcome: input.outcome,
     payload: input as unknown as Record<string, unknown>,
-  });
+  }, dependencies);
 }
 
 export async function auditHumanReview(

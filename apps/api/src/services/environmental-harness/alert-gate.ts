@@ -57,6 +57,7 @@ export async function gateAlertPublish(input: {
     parentEventId?: string | null;
     rootEventId?: string | null;
   };
+  getAdapter?: () => import("../../db/async-client").AsyncDbAdapter;
 }): Promise<{ allowed: boolean; metadata: Record<string, unknown>; validationEventId: string | null }> {
   const { verificationStatus, harnessVerification } = buildAlertVerificationMetadata(input.context);
   const allowed = verificationStatus === "verified";
@@ -91,7 +92,7 @@ export async function gateAlertPublish(input: {
       rootEventId: input.lineage?.rootEventId ?? undefined,
       signalId: input.signalId ?? null,
       alertId: input.alertId ?? null,
-    });
+    }, input.getAdapter ? { getAdapter: input.getAdapter } : {});
   } catch {
     // Harness audit is best-effort when storage is unavailable.
   }

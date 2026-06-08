@@ -1,6 +1,6 @@
 {
-  "installCommand": "pnpm install --frozen-lockfile",
-  "buildCommand": "pnpm run build",
+  "installCommand": "cd ../.. && pnpm install --frozen-lockfile",
+  "buildCommand": "cd ../.. && pnpm --filter @marine/shared run build && pnpm --filter web run build",
   "outputDirectory": ".next",
   "framework": "nextjs"
 }

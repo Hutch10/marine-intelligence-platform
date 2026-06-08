@@ -390,7 +390,18 @@ export async function generateReplayPacketForAlertId(
     ? await readHarnessLineageChain(rootEventId, { getAdapter })
     : eventsResult;
 
-  const events = chainResult.source === "db" ? chainResult.events : eventsResult.events;
+  const chainEvents = chainResult.source === "db" ? chainResult.events : [];
+  const mergedById = new Map<string, HarnessEventRecord>();
+  for (const event of [...chainEvents, ...eventsResult.events]) {
+    mergedById.set(event.id, event);
+  }
+  const events = [...mergedById.values()].sort((left, right) => {
+    if (left.createdAt !== right.createdAt) {
+      return left.createdAt - right.createdAt;
+    }
+    return left.id.localeCompare(right.id);
+  });
+
   const packet = await buildReplayPacketFromEvents(events, { alertId }, dependencies);
   return { status: "available", packet };
 }
