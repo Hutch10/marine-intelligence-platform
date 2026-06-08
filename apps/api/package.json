@@ -7,7 +7,7 @@
     "@marine/shared": "workspace:*"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/stage-libsql.mjs",
     "start": "node dist/api/src/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node scripts/run-tests.mjs",

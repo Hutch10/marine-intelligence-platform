@@ -55,10 +55,19 @@ export function createLocalAdapter(path = resolveDatabasePath(), readOnly = true
 }
 
 // Scaffolded Turso adapter
-export function createTursoAdapter(url: string, authToken?: string): AsyncDbAdapter {
+function loadLibsqlClient(): { createClient: (config: { url: string; authToken?: string }) => { execute: (query: { sql: string; args?: unknown[] }) => Promise<{ rows: unknown[] }>; close: () => void } } {
   const runtimeRequire = eval("require") as NodeRequire;
-  // This will require @libsql/client when installed
-  const { createClient } = runtimeRequire("@libsql/client") as any;
+  const bundledPath = resolve(__dirname, "../../../node_modules/@libsql/client");
+
+  try {
+    return runtimeRequire("@libsql/client");
+  } catch {
+    return runtimeRequire(bundledPath);
+  }
+}
+
+export function createTursoAdapter(url: string, authToken?: string): AsyncDbAdapter {
+  const { createClient } = loadLibsqlClient();
   
   const client = createClient({
     url,

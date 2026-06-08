@@ -8,6 +8,7 @@
       "use": "@vercel/node",
       "config": {
         "includeFiles": [
+          "apps/api/dist/node_modules/@libsql/**",
           "node_modules/@libsql/**"
         ]
       }
