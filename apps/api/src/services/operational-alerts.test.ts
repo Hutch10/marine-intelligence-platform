@@ -5,11 +5,37 @@ import {
   evaluateFeedHealthForAlerts,
   createOperationalAlertsService,
 } from "./operational-alerts";
+import type { AlertPublishVerificationContext } from "./environmental-harness/alert-gate";
 import { InMemoryAlertStore } from "./in-memory-alert-store";
 import { DbAlertStore } from "./db-alert-store";
 import type { LiveIngestionHealthSnapshot, LiveIngestionSourceHealthStatus, LiveIngestionHistoryItem } from "../repositories/live-ingestion-reports";
 import type { AsyncDbAdapter, AsyncDbRow } from "../db/async-client";
 import { CRW_SOURCE } from "../connectors/coral-reef-watch/constants";
+
+function verifiedAlertContextFor(source: string): Record<string, AlertPublishVerificationContext> {
+  return {
+    [source]: {
+      feedHealthGeneratedAt: "2026-03-18T10:00:00.000Z",
+      sourceStatus: {
+        source,
+        workerRunId: "WR-test",
+        workerStatus: "success",
+        status: "success",
+        startedAt: "2026-03-18T10:00:00.000Z",
+        completedAt: "2026-03-18T10:00:30.000Z",
+        durationMs: 30000,
+        insertedCount: 1,
+        rejectedCount: 0,
+        rejectionReasons: {},
+        runId: "ING-test",
+        error: null,
+        stationDiagnostics: [],
+        isStale: false,
+        staleByMs: null,
+      },
+    },
+  };
+}
 
 function createMockHealthSnapshot(
   sourceOverrides?: Array<Partial<LiveIngestionSourceHealthStatus> & {
@@ -209,7 +235,12 @@ test("evaluateFeedHealthForAlerts returns empty for healthy snapshot", () => {
 test("createOperationalAlertsService applyAlertActions creates new alert", async () => {
   const { adapter, captured } = createCapturingAdapter();
   const alertStore = new DbAlertStore(adapter);
-  const service = createOperationalAlertsService({ adapter, now: () => 1234567890000, alertStore });
+  const service = createOperationalAlertsService({
+    adapter,
+    now: () => 1234567890000,
+    alertStore,
+    alertVerificationContextBySource: verifiedAlertContextFor("test_source"),
+  });
 
   // First trigger
   const ids1 = await service.applyAlertActions([
@@ -258,7 +289,12 @@ test("createOperationalAlertsService dedupes same station and escalates repeated
   const { adapter, captured } = createCapturingAdapter();
   const alertStore = new DbAlertStore(adapter);
   let nowMs = 1234567890000;
-  const service = createOperationalAlertsService({ adapter, now: () => nowMs, alertStore });
+  const service = createOperationalAlertsService({
+    adapter,
+    now: () => nowMs,
+    alertStore,
+    alertVerificationContextBySource: verifiedAlertContextFor("test_source"),
+  });
 
   // First trigger
   const ids1 = await service.applyAlertActions([
@@ -317,7 +353,12 @@ test("createOperationalAlertsService dedupes same station and escalates repeated
 test("createOperationalAlertsService keeps separate stations distinct", async () => {
   const { adapter } = createCapturingAdapter();
   const alertStore = new InMemoryAlertStore();
-  const service = createOperationalAlertsService({ adapter, now: () => 1234567890000, alertStore });
+  const service = createOperationalAlertsService({
+    adapter,
+    now: () => 1234567890000,
+    alertStore,
+    alertVerificationContextBySource: verifiedAlertContextFor("test_source"),
+  });
 
   const ids = await service.applyAlertActions([
     {
@@ -396,7 +437,12 @@ test("createOperationalAlertsService listActiveAlerts filters by status", async 
 test("createOperationalAlertsService resolveAlertsForSource updates status to resolved", async () => {
   const { adapter, captured } = createCapturingAdapter();
   const alertStore = new DbAlertStore(adapter);
-  const service = createOperationalAlertsService({ adapter, now: () => 1234567890000, alertStore });
+  const service = createOperationalAlertsService({
+    adapter,
+    now: () => 1234567890000,
+    alertStore,
+    alertVerificationContextBySource: verifiedAlertContextFor("test_source"),
+  });
 
   await service.applyAlertActions([
     {
@@ -433,7 +479,12 @@ test("createOperationalAlertsService reopens a resolved alert within the dedupe 
   const { adapter } = createCapturingAdapter();
   const alertStore = new InMemoryAlertStore();
   let nowMs = 1234567890000;
-  const service = createOperationalAlertsService({ adapter, now: () => nowMs, alertStore });
+  const service = createOperationalAlertsService({
+    adapter,
+    now: () => nowMs,
+    alertStore,
+    alertVerificationContextBySource: verifiedAlertContextFor("test_source"),
+  });
 
   const ids1 = await service.applyAlertActions([
     {

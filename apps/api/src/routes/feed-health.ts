@@ -129,17 +129,27 @@ function parseFeedHealthQuery(query: FeedHealthQuery | undefined): { limit: numb
   };
 }
 
-function readDatabaseFeedHealth(query: FeedHealthQuery | undefined): LiveIngestionHealthSnapshotReadResult {
+async function readDatabaseFeedHealth(
+  query: FeedHealthQuery | undefined,
+): Promise<LiveIngestionHealthSnapshotReadResult> {
   const parsedQuery = parseFeedHealthQuery(query);
 
   try {
     const runtimeRequire = eval("require") as NodeRequire;
     const repository = runtimeRequire("../repositories/live-ingestion-reports") as {
+      getLiveIngestionHealthSnapshotAsync: (options: {
+        limit: number;
+        staleAfterMs: number;
+      }) => Promise<LiveIngestionHealthSnapshotReadResult>;
       getLiveIngestionHealthSnapshot: (options: {
         limit: number;
         staleAfterMs: number;
       }) => LiveIngestionHealthSnapshotReadResult;
     };
+
+    if (typeof repository.getLiveIngestionHealthSnapshotAsync === "function") {
+      return await repository.getLiveIngestionHealthSnapshotAsync(parsedQuery);
+    }
 
     return repository.getLiveIngestionHealthSnapshot(parsedQuery);
   } catch {
@@ -256,7 +266,7 @@ function toStationDiagnosticItem(item: NdbcStationIngestionDiagnostic): FeedHeal
 }
 
 export function buildFeedHealthRouteResponse(
-  readResult = readDatabaseFeedHealth(undefined),
+  readResult: LiveIngestionHealthSnapshotReadResult,
   query?: FeedHealthQuery,
 ): { status: number; json: FeedHealthResponse; telemetry: FeedHealthTelemetry } {
   const parsedQuery = parseFeedHealthQuery(query);
@@ -321,8 +331,8 @@ export function buildFeedHealthRouteResponse(
 export const getFeedHealthRoute: RouteDefinition<FeedHealthResponse, undefined, FeedHealthQuery> = {
   method: "GET",
   path: "/feed-health",
-  handler(request) {
-    const readResult = readDatabaseFeedHealth(request.query);
+  async handler(request) {
+    const readResult = await readDatabaseFeedHealth(request.query);
     return buildFeedHealthRouteResponse(readResult, request.query);
   },
 };

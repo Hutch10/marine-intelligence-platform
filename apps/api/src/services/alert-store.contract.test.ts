@@ -49,8 +49,8 @@ async function ensureStation(store: any, stationId: string) {
   }
 }
 
-function runContractTests(getStore: () => any) {
-  test("create alert", async () => {
+async function runContractTests(t: { test: typeof test }, getStore: () => any) {
+  await t.test("create alert", async () => {
     const store = getStore();
     const alert = { ...baseAlert(), id: "alert-1" };
     await ensureStation(store, alert.stationId);
@@ -62,7 +62,7 @@ function runContractTests(getStore: () => any) {
     }
   });
 
-  test("dedupe by key/station", async () => {
+  await t.test("dedupe by key/station", async () => {
     const store = getStore();
     const alert1 = { ...baseAlert(), id: "alert-1" };
     const alert2 = { ...baseAlert(), id: "alert-2" };
@@ -76,7 +76,7 @@ function runContractTests(getStore: () => any) {
     assert.strictEqual(all[0].id, "alert-2");
   });
 
-  test("repeated trigger escalation", async () => {
+  await t.test("repeated trigger escalation", async () => {
     const store = getStore();
     const alert1 = { ...baseAlert(), id: "alert-1", severity: "warning", occurrenceCount: 1 };
     const alert2 = { ...baseAlert(), id: "alert-2", severity: "critical", occurrenceCount: 2 };
@@ -91,7 +91,7 @@ function runContractTests(getStore: () => any) {
     assert.strictEqual(found.occurrenceCount, 2);
   });
 
-  test("resolve/update flows", async () => {
+  await t.test("resolve/update flows", async () => {
     const store = getStore();
     const alert1 = { ...baseAlert(), id: "alert-1", status: "active" };
     const alert2 = { ...baseAlert(), id: "alert-1", status: "resolved", resolvedAt: 1711877800000, lifecycleStatus: "resolved" };
@@ -108,12 +108,12 @@ function runContractTests(getStore: () => any) {
 }
 
 
-test("AlertStore contract: InMemoryAlertStore", () => {
-  runContractTests(() => new InMemoryAlertStore());
+test("AlertStore contract: InMemoryAlertStore", async (t) => {
+  await runContractTests(t, () => new InMemoryAlertStore());
 });
 
-test("AlertStore contract: DbAlertStore", () => {
-  runContractTests(() => new DbAlertStore(createAsyncTestDatabase()));
+test("AlertStore contract: DbAlertStore", async (t) => {
+  await runContractTests(t, () => new DbAlertStore(createAsyncTestDatabase()));
 });
 
 test("parity: identical outputs for same operations", async () => {

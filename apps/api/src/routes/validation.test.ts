@@ -68,6 +68,15 @@ test("validation outcome route enforces station.view_admin", async () => {
       summary: "Outcome",
       source: "manual",
     },
+    {
+      source: "db",
+      result: {
+        ok: false,
+        reason: "not_found",
+        error: "Evaluation not found",
+        evaluation: null,
+      },
+    },
   );
 
   assert.equal(response.status, 403);

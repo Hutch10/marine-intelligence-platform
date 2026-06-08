@@ -1,9 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createMarineEventFoundationService } from "./marine-intelligence-events";
+import type { AsyncDbAdapter } from "../db/async-client";
+
+const MOCK_ADAPTER: AsyncDbAdapter = {
+  resourceId: "mock-events",
+  execute: async () => [],
+  close: () => {},
+};
+
+const EVENT_DEPS = { getAdapter: () => MOCK_ADAPTER };
 
 test("marine event foundation service rejects unknown ontology terms", async () => {
   const service = createMarineEventFoundationService({
+    ...EVENT_DEPS,
     getOntologyTerm: () => null,
   });
 
@@ -30,6 +40,7 @@ test("marine event foundation service rejects unknown ontology terms", async () 
 
 test("marine event foundation service enforces modeled term and class alignment", async () => {
   const service = createMarineEventFoundationService({
+    ...EVENT_DEPS,
     getOntologyTerm: () => ({
       id: "mdl.trend_signal",
       label: "Trend Signal",
@@ -66,6 +77,7 @@ test("marine event foundation service enforces modeled term and class alignment"
 
 test("marine event foundation service returns repository results for valid input", async () => {
   const service = createMarineEventFoundationService({
+    ...EVENT_DEPS,
     getOntologyTerm: () => ({
       id: "mdl.threshold_alert",
       label: "Threshold Alert",
@@ -127,6 +139,7 @@ test("marine event foundation service returns repository results for valid input
 
 test("marine event foundation service returns empty list on repository unavailability", async () => {
   const service = createMarineEventFoundationService({
+    ...EVENT_DEPS,
     listEvents: async () => ({
       ok: false,
       events: [],

@@ -12,6 +12,8 @@ import {
   attachMarineRiskEvaluationOutcome,
   type MarineRiskEvaluationOutcomeAttachResult,
 } from "../repositories/marine-intelligence-validation";
+import { auditHumanReview } from "../services/environmental-harness/audit";
+import { buildHarnessEventId, stableContentHash } from "../services/environmental-harness/provenance";
 import {
   buildValidationSummary,
 } from "../services/marine-intelligence-validation";
@@ -157,6 +159,30 @@ export async function buildAttachValidationOutcomeRouteResponse(
       status: resolvedAttachResult.result.reason === "not_found" ? 404 : 400,
       json: { message: resolvedAttachResult.result.error },
     };
+  }
+
+  try {
+    await auditHumanReview({
+      eventId: buildHarnessEventId(
+        "human_review",
+        "risk_evaluation",
+        body.evaluationId,
+        stableContentHash({
+          evaluationId: body.evaluationId,
+          action: "attach_outcome",
+          classification: body.classification,
+        }),
+      ),
+      subjectType: "risk_evaluation",
+      subjectId: body.evaluationId,
+      action: "attach_outcome",
+      actor: auth?.actorId ?? null,
+      outcome: "pass",
+      evaluatedAt: new Date().toISOString(),
+      detail: body.classification,
+    });
+  } catch {
+    // Harness audit is best-effort when storage is unavailable.
   }
 
   return {

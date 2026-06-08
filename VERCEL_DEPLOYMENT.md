@@ -304,7 +304,7 @@ If deployment fails:
 1. **Set up Vercel log drains** (Datadog, LogDNA, etc.) for production observability
 2. **Configure custom domains** for marine-api and marine-web
 3. **Set up monitoring alerts** for Turso connection failures, API 5xx errors
-4. **Schedule data ingestion workers** (NDBC, ERDDAP) on cron or separate worker project
+4. **Activate live telemetry** — follow [docs/telemetry-activation/RUNBOOK.md](./docs/telemetry-activation/RUNBOOK.md) (GitHub Actions `ingest:live` cron + Turso secrets)
 5. **Document API endpoints** for external consumers (if applicable)
 6. **Run security scan** on production deployment (OWASP checks, dependency audit)
 

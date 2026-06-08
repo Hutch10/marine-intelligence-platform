@@ -1,0 +1,72 @@
+{
+  "generatedAt": "2026-06-08T04:04:02.104Z",
+  "scenarios": [
+    {
+      "scenario": "NDBC failure",
+      "failClosed": true,
+      "circuitBreakerOpen": true,
+      "feedHealthReflectsFailure": true,
+      "publicWithholdsLive": true,
+      "operatorExposesDiagnostics": true,
+      "notes": [
+        "ingest_status=failed",
+        "breaker=open",
+        "alerts=2",
+        "operator_access=operator"
+      ]
+    },
+    {
+      "scenario": "CRW failure",
+      "failClosed": true,
+      "circuitBreakerOpen": true,
+      "feedHealthReflectsFailure": true,
+      "publicWithholdsLive": true,
+      "operatorExposesDiagnostics": true,
+      "notes": [
+        "ingest_status=failed",
+        "breaker=open",
+        "alerts=2",
+        "operator_access=operator"
+      ]
+    },
+    {
+      "scenario": "IOOS unavailable",
+      "failClosed": true,
+      "circuitBreakerOpen": true,
+      "feedHealthReflectsFailure": true,
+      "publicWithholdsLive": true,
+      "operatorExposesDiagnostics": true,
+      "notes": [
+        "ingest_status=failed",
+        "breaker=open",
+        "alerts=2",
+        "operator_access=operator"
+      ]
+    },
+    {
+      "scenario": "ERDDAP unavailable",
+      "failClosed": true,
+      "circuitBreakerOpen": true,
+      "feedHealthReflectsFailure": true,
+      "publicWithholdsLive": true,
+      "operatorExposesDiagnostics": true,
+      "notes": [
+        "ingest_status=failed",
+        "breaker=open",
+        "alerts=2",
+        "operator_access=operator"
+      ]
+    },
+    {
+      "scenario": "Turso unavailable",
+      "failClosed": true,
+      "circuitBreakerOpen": false,
+      "feedHealthReflectsFailure": true,
+      "publicWithholdsLive": true,
+      "operatorExposesDiagnostics": true,
+      "notes": [
+        "adapter_throws_fail_closed"
+      ]
+    }
+  ]
+}

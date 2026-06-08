@@ -6,6 +6,8 @@ import {
   type SqliteDatabaseLike,
   type SqliteStatementLike,
 } from "../db/client";
+import { getAsyncAdapter, type AsyncDbAdapter } from "../db/async-client";
+import { stableContentHash } from "../services/environmental-harness/provenance";
 import type { LiveFeedIngestionReport, SourceIngestionTelemetry } from "../workers/ingest-live-feeds";
 import type { NdbcStationIngestionDiagnostic } from "../services/ingestion/run-ndbc";
 
@@ -793,6 +795,255 @@ export function listLatestLiveIngestionStatusBySource(
   } finally {
     db.close();
   }
+}
+
+async function ensureLiveIngestionTablesAsync(adapter: AsyncDbAdapter): Promise<void> {
+  await adapter.execute(
+    `CREATE TABLE IF NOT EXISTS live_ingestion_worker_runs (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL,
+      started_at INTEGER NOT NULL,
+      completed_at INTEGER NOT NULL,
+      duration_ms INTEGER NOT NULL,
+      inserted_count INTEGER NOT NULL,
+      rejected_count INTEGER NOT NULL,
+      rejection_reasons_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )`,
+  );
+
+  await adapter.execute(
+    `CREATE TABLE IF NOT EXISTS live_ingestion_reports (
+      id TEXT PRIMARY KEY,
+      worker_run_id TEXT NOT NULL,
+      source TEXT NOT NULL,
+      started_at INTEGER NOT NULL,
+      completed_at INTEGER NOT NULL,
+      duration_ms INTEGER NOT NULL,
+      inserted_count INTEGER NOT NULL,
+      rejected_count INTEGER NOT NULL,
+      rejection_reasons_json TEXT NOT NULL,
+      status TEXT NOT NULL,
+      run_id TEXT,
+      error TEXT,
+      station_diagnostics_json TEXT NOT NULL DEFAULT '[]',
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (worker_run_id) REFERENCES live_ingestion_worker_runs(id)
+    )`,
+  );
+
+  await adapter.execute(
+    "CREATE INDEX IF NOT EXISTS idx_live_ingestion_reports_source_started_at ON live_ingestion_reports (source, started_at)",
+  );
+}
+
+function buildDeterministicWorkerRunId(report: LiveFeedIngestionReport): string {
+  const digest = stableContentHash({
+    started_at: report.started_at,
+    completed_at: report.completed_at,
+    status: report.status,
+    runs: report.runs.map((run) => ({
+      source: run.source,
+      status: run.status,
+      inserted_count: run.inserted_count,
+      rejected_count: run.rejected_count,
+    })),
+  });
+
+  return `LWR-${digest.slice(0, 16)}`;
+}
+
+function buildDeterministicSourceReportId(source: string, startedAtMs: number, status: string): string {
+  const digest = stableContentHash({ source, startedAtMs, status });
+  return `LRP-${source}-${digest.slice(0, 12)}`;
+}
+
+async function readRecentLiveIngestionHistoryFromAdapter(
+  adapter: AsyncDbAdapter,
+  limit = 50,
+): Promise<LiveIngestionHistoryItem[]> {
+  const boundedLimit = Math.min(Math.max(Math.floor(limit), 1), 500);
+  const rows = await adapter.execute(
+    `SELECT r.id,
+            r.worker_run_id,
+            r.source,
+            r.started_at,
+            r.completed_at,
+            r.duration_ms,
+            r.inserted_count,
+            r.rejected_count,
+            r.rejection_reasons_json,
+            r.status,
+            r.run_id,
+            r.error,
+            w.status AS worker_status,
+            r.station_diagnostics_json
+     FROM live_ingestion_reports r
+     INNER JOIN live_ingestion_worker_runs w
+             ON w.id = r.worker_run_id
+     ORDER BY r.started_at DESC
+     LIMIT ?`,
+    [boundedLimit],
+  ) as LiveIngestionReportRow[];
+
+  return rows.map(toHistoryItem);
+}
+
+async function readLatestLiveIngestionStatusBySourceFromAdapter(
+  adapter: AsyncDbAdapter,
+): Promise<LiveIngestionLatestSourceStatus[]> {
+  const rows = await adapter.execute(
+    `SELECT r.source,
+            r.worker_run_id,
+            w.status AS worker_status,
+            r.status,
+            r.started_at,
+            r.completed_at,
+            r.duration_ms,
+            r.inserted_count,
+            r.rejected_count,
+            r.rejection_reasons_json,
+            r.run_id,
+            r.error,
+            r.station_diagnostics_json
+     FROM live_ingestion_reports r
+     INNER JOIN live_ingestion_worker_runs w
+             ON w.id = r.worker_run_id
+     INNER JOIN (
+       SELECT source, MAX(started_at) AS started_at
+       FROM live_ingestion_reports
+       GROUP BY source
+     ) latest
+             ON latest.source = r.source
+            AND latest.started_at = r.started_at
+     ORDER BY r.source ASC`,
+  ) as LiveIngestionLatestRow[];
+
+  return rows.map(toLatestSourceStatus);
+}
+
+async function readLiveIngestionHealthSnapshotFromAdapter(
+  adapter: AsyncDbAdapter,
+  options: LiveIngestionHealthSnapshotReadOptions = {},
+): Promise<LiveIngestionHealthSnapshot> {
+  const now = options.now ?? Date.now;
+  const historyLimit = options.limit ?? DEFAULT_HEALTH_HISTORY_LIMIT;
+  const staleAfterMs = Math.max(0, Math.floor(options.staleAfterMs ?? DEFAULT_STALE_AFTER_MS));
+  const nowMs = now();
+
+  const recentHistory = await readRecentLiveIngestionHistoryFromAdapter(adapter, historyLimit);
+  const latestBySource = (await readLatestLiveIngestionStatusBySourceFromAdapter(adapter)).map((latest) =>
+    toSourceHealthStatus(latest, nowMs, staleAfterMs),
+  );
+
+  return {
+    generatedAt: new Date(nowMs).toISOString(),
+    staleAfterMs,
+    summary: summarizeHealth(latestBySource, recentHistory),
+    latestBySource,
+    recentHistory,
+  };
+}
+
+export async function persistLiveIngestionReportAsync(
+  report: LiveFeedIngestionReport,
+  dependencies: LiveIngestionReportsRepositoryDependencies = {},
+): Promise<LiveIngestionPersistResult> {
+  const now = dependencies.now ?? Date.now;
+  const tursoUrl = process.env.TURSO_DATABASE_URL;
+
+  if (tursoUrl) {
+    const adapter = getAsyncAdapter(false);
+
+    try {
+      await ensureLiveIngestionTablesAsync(adapter);
+      const persistedAt = now();
+      const workerRunId = buildDeterministicWorkerRunId(report);
+
+      await adapter.execute(
+        `INSERT OR IGNORE INTO live_ingestion_worker_runs (
+          id, status, started_at, completed_at, duration_ms,
+          inserted_count, rejected_count, rejection_reasons_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          workerRunId,
+          report.status,
+          toEpochMs(report.started_at),
+          toEpochMs(report.completed_at),
+          report.duration_ms,
+          report.inserted_count,
+          report.rejected_count,
+          JSON.stringify(report.rejection_reasons),
+          persistedAt,
+        ],
+      );
+
+      const sourceReportIds: string[] = [];
+
+      for (const run of report.runs) {
+        const reportId = buildDeterministicSourceReportId(run.source, toEpochMs(run.started_at), run.status);
+
+        await adapter.execute(
+          `INSERT OR IGNORE INTO live_ingestion_reports (
+            id, worker_run_id, source, started_at, completed_at, duration_ms,
+            inserted_count, rejected_count, rejection_reasons_json, status,
+            run_id, error, station_diagnostics_json, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            reportId,
+            workerRunId,
+            run.source,
+            toEpochMs(run.started_at),
+            toEpochMs(run.completed_at),
+            run.duration_ms,
+            run.inserted_count,
+            run.rejected_count,
+            JSON.stringify(run.rejection_reasons),
+            run.status,
+            run.run_id,
+            run.error,
+            JSON.stringify(run.station_diagnostics ?? []),
+            persistedAt,
+          ],
+        );
+
+        sourceReportIds.push(reportId);
+      }
+
+      return { workerRunId, sourceReportIds };
+    } finally {
+      adapter.close();
+    }
+  }
+
+  return persistLiveIngestionReport(report, dependencies);
+}
+
+export async function getLiveIngestionHealthSnapshotAsync(
+  options: LiveIngestionHealthSnapshotReadOptions = {},
+  dependencies: LiveIngestionReportsRepositoryDependencies = {},
+): Promise<LiveIngestionHealthSnapshotReadResult> {
+  const tursoUrl = process.env.TURSO_DATABASE_URL;
+
+  if (tursoUrl) {
+    try {
+      const adapter = getAsyncAdapter(true);
+
+      try {
+        await ensureLiveIngestionTablesAsync(adapter);
+        return {
+          source: "db",
+          snapshot: await readLiveIngestionHealthSnapshotFromAdapter(adapter, options),
+        };
+      } finally {
+        adapter.close();
+      }
+    } catch {
+      return { source: "unavailable", fallbackReason: "db_query_failed" };
+    }
+  }
+
+  return getLiveIngestionHealthSnapshot(options, dependencies);
 }
 
 export function getLiveIngestionHealthSnapshot(

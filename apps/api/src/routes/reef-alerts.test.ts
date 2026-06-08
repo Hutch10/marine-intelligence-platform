@@ -2,21 +2,36 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildReefAlertsRouteResponse } from "./reef-alerts";
 import { CRW_SOURCE } from "../connectors/coral-reef-watch/constants";
+import { classifyCrwFreshness, verificationStatusFromFreshness } from "../services/environmental-harness/freshness-policy";
+import { buildSignalProvenance } from "../services/environmental-harness/provenance";
 
 test("reef-alerts route returns db-backed reef stress alerts", async () => {
+  const now = Date.now();
+  const productDate = new Date(now - 12 * 60 * 60 * 1000).toISOString();
+  const freshnessStatus = classifyCrwFreshness(Date.parse(productDate), now);
   const response = await buildReefAlertsRouteResponse({
     source: "db",
     alerts: [
       {
         region: "Great Barrier Reef",
         stationId: null,
-        timestamp: "2026-03-18T10:00:00.000Z",
+        timestamp: productDate,
         sstAnomalyC: 1.8,
         hotSpotC: 1.4,
         dhw: 6.2,
         stressLevel: "alert_level_1",
         source: CRW_SOURCE,
         outputClass: "derived",
+        ingestedAt: new Date(now).toISOString(),
+        sourceFeed: "https://coralreefwatch.noaa.gov/example",
+        productDate,
+        freshnessStatus,
+        verificationStatus: verificationStatusFromFreshness(freshnessStatus),
+        provenance: buildSignalProvenance({
+          source: CRW_SOURCE,
+          productDate,
+          observedAt: productDate,
+        }),
       },
     ],
   });

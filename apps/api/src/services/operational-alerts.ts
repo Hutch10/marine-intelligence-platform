@@ -7,6 +7,13 @@ import {
   ensureOperationalAlertsTable,
 } from "../repositories/operational-alerts";
 import { recordInvestigationEvent } from "../repositories/investigation-events";
+import {
+  gateAlertPublish,
+  type AlertPublishVerificationContext,
+} from "./environmental-harness/alert-gate";
+import { auditPublication } from "./environmental-harness/audit";
+import { buildSourceScopeSignalId } from "./environmental-harness/lineage";
+import { buildHarnessEventId, stableContentHash } from "./environmental-harness/provenance";
 
 export type OperationalAlertRuleType =
   | "source_failed"
@@ -119,6 +126,7 @@ export function evaluateFeedHealthForAlerts(
 export interface OperationalAlertsServiceDependencies {
   adapter: AsyncDbAdapter;
   now?: () => number;
+  alertVerificationContextBySource?: Record<string, AlertPublishVerificationContext>;
 }
 
 export interface OperationalAlertsService {
@@ -147,10 +155,24 @@ export interface OperationalAlertsService {
 /**
  * Create a new operational alerts service with database composition.
  */
+export function buildAlertVerificationContextMap(
+  snapshot: LiveIngestionHealthSnapshot,
+): Record<string, AlertPublishVerificationContext> {
+  return Object.fromEntries(
+    snapshot.latestBySource.map((sourceStatus) => [
+      sourceStatus.source,
+      {
+        feedHealthGeneratedAt: snapshot.generatedAt,
+        sourceStatus,
+      },
+    ]),
+  );
+}
+
 export function createOperationalAlertsService(
   deps: OperationalAlertsServiceDependencies & { alertStore: AlertStore },
 ): OperationalAlertsService {
-  const { adapter, now = () => Date.now(), alertStore } = deps;
+  const { adapter, now = () => Date.now(), alertStore, alertVerificationContextBySource = {} } = deps;
   const ONE_HOUR_MS = 60 * 60 * 1000;
 
   function normalizeStationId(source: string, stationId?: string | null): string | null {
@@ -242,7 +264,31 @@ export function createOperationalAlertsService(
         }
 
         if (!existing || !shouldUpdateExisting) {
+          const verificationContext = alertVerificationContextBySource[action.source] ?? {};
+          const signalId = buildSourceScopeSignalId(
+            action.source,
+            verificationContext.sourceStatus?.runId ?? null,
+            verificationContext.feedHealthGeneratedAt ?? timestamp,
+          );
           const alertId = `alert-${action.source}-${action.ruleType}-${stationId ?? "_"}-${nowMs}`;
+
+          const gate = await gateAlertPublish({
+            alertKey: key,
+            alertId,
+            source: action.source,
+            ruleType: action.ruleType,
+            signalId,
+            context: verificationContext,
+            lineage: {
+              parentEventId: null,
+              rootEventId: undefined,
+            },
+          });
+
+          if (!gate.allowed) {
+            continue;
+          }
+
           const record: OperationalAlert = {
             id: alertId,
             source: action.source,
@@ -258,6 +304,7 @@ export function createOperationalAlertsService(
               lifecycleStatus: "open",
               occurrenceCount: 1,
               dedupeWindowMs: ONE_HOUR_MS,
+              ...gate.metadata,
             }),
             detectedAt: nowMs,
             resolvedAt: null,
@@ -270,6 +317,30 @@ export function createOperationalAlertsService(
           await alertStore.setAlert(record, key);
           createdIds.push(alertId);
           await linkOperationalAlertToInvestigation(adapter, alertId, investigationId);
+
+          await auditPublication({
+            eventId: buildHarnessEventId(
+              "publication",
+              "operational_alert",
+              alertId,
+              stableContentHash({
+                alertId,
+                alertKey: key,
+                signalId,
+                outcome: "published",
+              }),
+            ),
+            alertId,
+            alertKey: key,
+            signalId,
+            lifecycleStatus: "published",
+            outcome: "published",
+            evaluatedAt: timestamp,
+            detail: action.title,
+            parentEventId: gate.validationEventId,
+            rootEventId: gate.validationEventId ?? undefined,
+          });
+
           continue;
         }
 

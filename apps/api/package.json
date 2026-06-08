@@ -10,7 +10,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/api/src/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test src/security/**/*.test.ts src/connectors/**/*.test.ts src/db/**/*.test.ts src/repositories/**/*.test.ts src/routes/**/*.test.ts src/services/**/*.test.ts src/workers/**/*.test.ts src/vector/**/*.test.ts",
+    "test": "node scripts/run-tests.mjs",
     "seed:datasets": "npx tsx src/db/seed-datasets.ts",
     "ingest:live": "npx tsx src/workers/ingest-live-feeds.ts",
     "ingest:scheduler": "npx tsx src/workers/scheduler.ts"

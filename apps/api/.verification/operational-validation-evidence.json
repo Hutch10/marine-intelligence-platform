@@ -1,0 +1,82 @@
+{
+  "generatedAt": "2026-06-08T04:04:01.993Z",
+  "phase1_analytics": {
+    "eventSchema": {
+      "storageModel": "operational_analytics_daily aggregate counters",
+      "storedFields": [
+        "day_utc",
+        "event_type",
+        "dimension",
+        "count",
+        "updated_at"
+      ],
+      "requestFields": [
+        "eventType",
+        "dimension?",
+        "surface?"
+      ],
+      "forbiddenFields": [
+        "userId",
+        "email",
+        "ip",
+        "sessionId",
+        "investigationId",
+        "recordId",
+        "stationId",
+        "clientId",
+        "fingerprint",
+        "userAgent"
+      ],
+      "retention": {
+        "readLookbackDays": 30,
+        "purgePolicy": "No automatic purge; rows accumulate by UTC day × event_type × coarse dimension only"
+      }
+    },
+    "emissions": [
+      {
+        "sprintLabel": "page_view",
+        "implementedEventType": "page_view",
+        "emissionSurface": "web beacon + /api/operational-analytics",
+        "verified": true
+      },
+      {
+        "sprintLabel": "investigation_open",
+        "implementedEventType": "investigation_open",
+        "emissionSurface": "web investigations/[id] server",
+        "verified": true
+      },
+      {
+        "sprintLabel": "lineage_open",
+        "implementedEventType": "lineage_open",
+        "emissionSurface": "web operator/lineage server",
+        "verified": true
+      },
+      {
+        "sprintLabel": "export_generated",
+        "implementedEventType": "export",
+        "emissionSurface": "api scientific + v1/explorer/export",
+        "verified": true
+      },
+      {
+        "sprintLabel": "operator_view",
+        "implementedEventType": "operator_usage",
+        "emissionSurface": "web operator + operator/lineage + status API",
+        "verified": true
+      }
+    ],
+    "privacy": {
+      "noIdsInStoredRows": true,
+      "forbiddenPayloadRejected": true,
+      "coarseRouteClassification": true,
+      "noIpColumnInSchema": true
+    }
+  },
+  "phase3_failureExercises": {
+    "hostileEvidencePath": "apps/api/.verification/hostile-evidence.json",
+    "hostileScenarioCount": 5,
+    "recoveryEnqueueOnCircuitClose": false,
+    "circuitBreakerStatePersists": false,
+    "scientificExportCallable": true,
+    "lineageCallable": true
+  }
+}

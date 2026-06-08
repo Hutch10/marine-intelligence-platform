@@ -15,7 +15,11 @@ import {
   runErddapIngestion,
   type RunErddapIngestionResult,
 } from "../services/ingestion/run-erddap";
-import { persistLiveIngestionReport } from "../repositories/live-ingestion-reports";
+import {
+  persistLiveIngestionReportAsync,
+  type LiveIngestionPersistResult,
+} from "../repositories/live-ingestion-reports";
+import { auditIngestionReport } from "../services/environmental-harness/audit";
 import { CRW_SOURCE } from "../connectors/coral-reef-watch/constants";
 import { createBiodiversityOrchestrator } from "../services/species-intelligence/biodiversity-orchestrator";
 
@@ -65,7 +69,10 @@ export interface IngestLiveFeedsDependencies {
   runErddap?: () => Promise<RunErddapIngestionResult>;
   ioosEnabled?: boolean;
   erddapEnabled?: boolean;
-  persistReport?: (report: LiveFeedIngestionReport) => void | Promise<void>;
+  persistReport?: (
+    report: LiveFeedIngestionReport,
+  ) => void | LiveIngestionPersistResult | Promise<void | LiveIngestionPersistResult>;
+  auditReport?: boolean;
   onPersistenceFailure?: (error: Error, report: LiveFeedIngestionReport) => void;
   evaluateAlerts?: (snapshot: any) => Promise<void>;
 }
@@ -184,7 +191,8 @@ export async function ingestLiveFeeds(
   const runErddap = dependencies.runErddap ?? runErddapIngestion;
   const ioosEnabled = dependencies.ioosEnabled ?? isIoosEnabled();
   const erddapEnabled = dependencies.erddapEnabled ?? isErddapEnabled();
-  const persistReport = dependencies.persistReport ?? persistLiveIngestionReport;
+  const persistReport = dependencies.persistReport ?? persistLiveIngestionReportAsync;
+  const shouldAuditReport = dependencies.auditReport !== false;
   const onPersistenceFailure = dependencies.onPersistenceFailure;
 
   const startedAtMs = now();
@@ -221,7 +229,63 @@ export async function ingestLiveFeeds(
   };
 
   try {
-    await persistReport(report);
+    const persistResult = await persistReport(report);
+
+    if (shouldAuditReport) {
+      const normalizedPersistResult = persistResult
+        && typeof persistResult === "object"
+        && "workerRunId" in persistResult
+        ? persistResult
+        : undefined;
+      await auditIngestionReport(report, normalizedPersistResult);
+    }
+
+    try {
+      const runtimeRequire = eval("require") as NodeRequire;
+      const { getAsyncAdapter } = runtimeRequire("../db/async-client") as {
+        getAsyncAdapter: (readOnly?: boolean) => { execute: (sql: string, params?: unknown[]) => Promise<unknown[]>; close: () => void };
+      };
+      const { detectAndEnqueueRecoveryFromCircuitTransitions, processRecoveryBackfillQueue } = runtimeRequire("../services/recovery-backfill-queue") as {
+        detectAndEnqueueRecoveryFromCircuitTransitions: (adapter: unknown) => Promise<string[]>;
+        processRecoveryBackfillQueue: (runner: { runSourceIngestion: (source: string) => Promise<void> }, deps?: unknown) => Promise<{ processed: number; failed: number }>;
+      };
+      const { reconcilePendingObservationsToTurso } = runtimeRequire("../services/split-brain-reconciliation") as {
+        reconcilePendingObservationsToTurso: () => Promise<{ reconciled: number; failed: number }>;
+      };
+      const { runNdbcIngestion } = runtimeRequire("../services/ingestion/run-ndbc") as { runNdbcIngestion: () => Promise<unknown> };
+      const { runCrwIngestion } = runtimeRequire("../services/ingestion/run-crw") as { runCrwIngestion: () => Promise<unknown> };
+      const { runIoosIngestion } = runtimeRequire("../services/ingestion/run-ioos") as { runIoosIngestion: () => Promise<unknown> };
+      const { runErddapIngestion } = runtimeRequire("../services/ingestion/run-erddap") as { runErddapIngestion: () => Promise<unknown> };
+
+      const adapter = getAsyncAdapter(false);
+      try {
+        await detectAndEnqueueRecoveryFromCircuitTransitions(adapter);
+        await reconcilePendingObservationsToTurso();
+        await processRecoveryBackfillQueue({
+          async runSourceIngestion(source: string) {
+            if (source === "noaa_ndbc") {
+              await runNdbc();
+              return;
+            }
+            if (source === "noaa_crw" || source === "crw") {
+              await runCrw();
+              return;
+            }
+            if (source === "ioos_regional") {
+              await runIoos();
+              return;
+            }
+            if (source === "ioos_erddap") {
+              await runErddap();
+            }
+          },
+        });
+      } finally {
+        adapter.close();
+      }
+    } catch (recoveryError) {
+      console.warn("[ingest:live] recovery/reconciliation step failed:", recoveryError);
+    }
 
     // Trigger alert evaluation after successful persistence
     if (dependencies.evaluateAlerts) {

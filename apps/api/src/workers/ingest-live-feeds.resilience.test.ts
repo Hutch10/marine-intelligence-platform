@@ -1,43 +1,84 @@
-// Phase 7: Ingestion Chaos/Disorder/Concurrency Resilience Tests
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import { runNdbcIngestion } from '../services/ingestion/run-ndbc';
+// Phase 7: ingestion resilience under hostile upstream failures
+import test from "node:test";
+import assert from "node:assert/strict";
+import { ingestLiveFeeds } from "./ingest-live-feeds";
 
-// Helper: Malformed payloads
-const malformedPayloads = [
-  {}, // empty
-  { stationId: 123, timestamp: 'not-a-date' }, // invalid types
-  { stationId: 'A', value: NaN }, // invalid numeric
-  { stationId: 'A', timestamp: Date.now() }, // missing required fields
-  { stationId: 'A', timestamp: '2020-01-01T00:00:00Z', value: 1, extra: 'drift' }, // schema drift
-  { stationId: 'A', timestamp: '2020-01-01T00:00:00Z', value: 1 }, // valid
-];
+test("ingestLiveFeeds records failed NDBC run without inserting rows", async () => {
+  const report = await ingestLiveFeeds({
+    runNdbc: async () => {
+      throw new Error("NDBC_HOSTILE_FAILURE");
+    },
+    runCrw: async () => ({
+      runId: "CRW-1",
+      status: "completed",
+      insertedRows: 1,
+      rejectedRows: 0,
+      rejectionReasons: {},
+    }),
+    ioosEnabled: false,
+    erddapEnabled: false,
+    persistReport: async () => {},
+  });
 
-test('ingestion rejects malformed payloads and reports honest errors', async () => {
-  for (const payload of malformedPayloads) {
-    try {
-      // Simulate ingestion (replace with actual ingestion call if available)
-      const result = await runNdbcIngestion({ stations: [{ stationId: 'A' }], ...({} as any) });
-      assert(result.rejectedRows > 0 || result.status === 'failed');
-    } catch (e) {
-      assert.match(String(e), /invalid|malformed|missing|drift|error/i);
-    }
-  }
+  const ndbc = report.runs.find((run) => run.source === "noaa_ndbc");
+  assert.ok(ndbc);
+  assert.equal(ndbc.status, "failed");
+  assert.equal(ndbc.inserted_count, 0);
+  assert.match(ndbc.error ?? "", /NDBC_HOSTILE_FAILURE/);
 });
 
-test('ingestion handles out-of-order and duplicate observations honestly', async () => {
-  const base = { stationId: 'A', timestamp: '2020-01-01T00:00:00Z', value: 1 };
-  const outOfOrder = { ...base, timestamp: '2019-12-31T23:59:59Z' };
-  const duplicate = { ...base };
-  const result = await runNdbcIngestion({ stations: [{ stationId: 'A' }], ...({} as any) });
-  assert(result.rejectedRows >= 1 || result.status !== 'completed');
-});
+test("ingestLiveFeeds is race-safe when parallel runs use isolated dependencies", async () => {
+  let counter = 0;
 
-test('ingestion is race-safe under parallel ingestion of same station', async () => {
-  const payload = { stationId: 'A', timestamp: '2020-01-01T00:00:00Z', value: 1 };
-  const results = await Promise.all([
-    runNdbcIngestion({ stations: [{ stationId: 'A' }], ...({} as any) }),
-    runNdbcIngestion({ stations: [{ stationId: 'A' }], ...({} as any) }),
+  const report = await Promise.all([
+    ingestLiveFeeds({
+      runNdbc: async () => {
+        counter += 1;
+        return {
+          runId: `NDBC-${counter}`,
+          status: "completed",
+          insertedRows: 1,
+          rejectedRows: 0,
+          rejectionReasons: {},
+          stationDiagnostics: [],
+        };
+      },
+      runCrw: async () => ({
+        runId: "CRW-1",
+        status: "completed",
+        insertedRows: 1,
+        rejectedRows: 0,
+        rejectionReasons: {},
+      }),
+      ioosEnabled: false,
+      erddapEnabled: false,
+      persistReport: async () => {},
+    }),
+    ingestLiveFeeds({
+      runNdbc: async () => {
+        counter += 1;
+        return {
+          runId: `NDBC-${counter}`,
+          status: "completed",
+          insertedRows: 1,
+          rejectedRows: 0,
+          rejectionReasons: {},
+          stationDiagnostics: [],
+        };
+      },
+      runCrw: async () => ({
+        runId: "CRW-2",
+        status: "completed",
+        insertedRows: 1,
+        rejectedRows: 0,
+        rejectionReasons: {},
+      }),
+      ioosEnabled: false,
+      erddapEnabled: false,
+      persistReport: async () => {},
+    }),
   ]);
-  assert(results.every(r => r.status));
+
+  assert.equal(report.length, 2);
+  assert.ok(report.every((item) => item.runs.length >= 2));
 });

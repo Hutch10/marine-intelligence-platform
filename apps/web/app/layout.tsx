@@ -11,6 +11,7 @@ export const metadata: Metadata = {
 
 import { TacticalModeProvider } from "@/lib/context/tactical-mode";
 import { MarineMapsProvider } from "@/lib/maps-provider";
+import { OperationalAnalyticsBeacon } from "@/components/analytics/operational-analytics-beacon";
 
 export default function RootLayout({
   children,
@@ -22,6 +23,7 @@ export default function RootLayout({
       <body className="antialiased">
         <MarineMapsProvider>
           <TacticalModeProvider>
+            <OperationalAnalyticsBeacon />
             {children}
           </TacticalModeProvider>
         </MarineMapsProvider>

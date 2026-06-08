@@ -263,7 +263,12 @@ export async function evaluateAndApplyAlerts(
   snapshot: LiveIngestionHealthSnapshot,
 ): Promise<string[]> {
   const { DbAlertStore } = require("../services/db-alert-store");
-  const service = createOperationalAlertsService({ adapter, alertStore: new DbAlertStore(adapter) });
+  const { buildAlertVerificationContextMap } = require("../services/operational-alerts");
+  const service = createOperationalAlertsService({
+    adapter,
+    alertStore: new DbAlertStore(adapter),
+    alertVerificationContextBySource: buildAlertVerificationContextMap(snapshot),
+  });
   const actions = evaluateFeedHealthForAlerts(snapshot);
 
   const createdIds = await service.applyAlertActions(

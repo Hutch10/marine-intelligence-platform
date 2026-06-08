@@ -64,4 +64,8 @@ test("mapNdbcRowsToObservations backfills recent SST and wave height gaps from o
 
   assert.equal(mapped[0]?.seaSurfaceTempC, 24.6);
   assert.equal(mapped[0]?.waveHeightM, 2.1);
+  assert.equal(mapped[0]?.seaSurfaceTempBackfilled, true);
+  assert.equal(mapped[0]?.waveHeightBackfilled, true);
+  assert.notEqual(mapped[0]?.seaTempObservedAt, mapped[0]?.observedAt);
+  assert.notEqual(mapped[0]?.waveHeightObservedAt, mapped[0]?.observedAt);
 });

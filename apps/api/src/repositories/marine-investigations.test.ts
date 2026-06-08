@@ -54,7 +54,7 @@ test("createMarineInvestigation issues a MIID and stores investigation", async (
   const db = new MockDatabase();
   const result = await createMarineInvestigation(
     { eventId: "evt-001", title: "Anomalous Pressure Reading" },
-    { getAdapter: () => db.adapter, now: () => 1700000000000 }
+    { hasPath: () => true, getAdapter: () => db.adapter, now: () => 1700000000000 }
   );
 
   assert.equal(result.source, "db");
@@ -76,7 +76,7 @@ test("createMarineInvestigation persists full metadata payload", async () => {
       region: "Southeast Florida",
       detectedAt: "2026-03-18T10:50:00.000Z",
     },
-    { getAdapter: () => db.adapter, now: () => 1700000000001 }
+    { hasPath: () => true, getAdapter: () => db.adapter, now: () => 1700000000001 }
   );
 
   assert.equal(result.source, "db");
@@ -98,7 +98,7 @@ test("createMarineInvestigation persists partial metadata without filling missin
       sourceType: "anomaly",
       detectedAt: "2026-03-20T03:21:00.000Z",
     },
-    { getAdapter: () => db.adapter, now: () => 1700000000002 }
+    { hasPath: () => true, getAdapter: () => db.adapter, now: () => 1700000000002 }
   );
 
   assert.equal(result.source, "db");
@@ -118,7 +118,7 @@ test("createMarineInvestigation leaves optional metadata null when omitted", asy
       eventId: "evt-missing",
       title: "Missing metadata case",
     },
-    { getAdapter: () => db.adapter, now: () => 1700000000003 }
+    { hasPath: () => true, getAdapter: () => db.adapter, now: () => 1700000000003 }
   );
 
   assert.equal(result.source, "db");
@@ -135,13 +135,13 @@ test("getMarineInvestigation retrieves an existing record", async () => {
   const db = new MockDatabase();
   const createResult = await createMarineInvestigation(
     { eventId: "evt-002", title: "Cavitation Event" },
-    { getAdapter: () => db.adapter, now: () => 1700000000000 }
+    { hasPath: () => true, getAdapter: () => db.adapter, now: () => 1700000000000 }
   );
 
   assert.equal(createResult.source, "db");
   if (createResult.source === "db" && createResult.result.ok && createResult.result.investigation) {
     const id = createResult.result.investigation.id;
-    const getResult = await getMarineInvestigation(id, { getAdapter: () => db.adapter });
+    const getResult = await getMarineInvestigation(id, { hasPath: () => true, getAdapter: () => db.adapter });
     assert.equal(getResult.source, "db");
     if (getResult.source === "db") {
       assert.ok(getResult.result.ok);
@@ -152,10 +152,10 @@ test("getMarineInvestigation retrieves an existing record", async () => {
 
 test("listMarineInvestigations supports filtering by eventId", async () => {
   const db = new MockDatabase();
-  await createMarineInvestigation({ eventId: "E1", title: "T1" }, { getAdapter: () => db.adapter });
-  await createMarineInvestigation({ eventId: "E2", title: "T2" }, { getAdapter: () => db.adapter });
+  await createMarineInvestigation({ eventId: "E1", title: "T1" }, { hasPath: () => true, getAdapter: () => db.adapter });
+  await createMarineInvestigation({ eventId: "E2", title: "T2" }, { hasPath: () => true, getAdapter: () => db.adapter });
 
-  const result = await listMarineInvestigations({ eventId: "E1" }, { getAdapter: () => db.adapter });
+  const result = await listMarineInvestigations({ eventId: "E1" }, { hasPath: () => true, getAdapter: () => db.adapter });
   assert.equal(result.source, "db");
   if (result.source === "db") {
     assert.equal(result.result.investigations.length, 1);
@@ -167,7 +167,7 @@ test("transitionMarineInvestigation follows status lifecycle", async () => {
   const db = new MockDatabase();
   const createResult = await createMarineInvestigation(
     { eventId: "evt-003", title: "Structural Fatigue" },
-    { getAdapter: () => db.adapter }
+    { hasPath: () => true, getAdapter: () => db.adapter }
   );
 
   assert.equal(createResult.source, "db");
@@ -175,7 +175,7 @@ test("transitionMarineInvestigation follows status lifecycle", async () => {
     const id = createResult.result.investigation.id;
 
     // Open -> Acknowledged
-    const trans1 = await transitionMarineInvestigation(id, "acknowledge", "Acknowledged by Ops", { getAdapter: () => db.adapter });
+    const trans1 = await transitionMarineInvestigation(id, "acknowledge", "Acknowledged by Ops", { hasPath: () => true, getAdapter: () => db.adapter });
     assert.equal(trans1.source, "db");
     if (trans1.source === "db") {
       assert.ok(trans1.result.ok);
@@ -183,7 +183,7 @@ test("transitionMarineInvestigation follows status lifecycle", async () => {
     }
 
     // Acknowledged -> In Review
-    const trans2 = await transitionMarineInvestigation(id, "start_review", null, { getAdapter: () => db.adapter });
+    const trans2 = await transitionMarineInvestigation(id, "start_review", null, { hasPath: () => true, getAdapter: () => db.adapter });
     assert.equal(trans2.source, "db");
     if (trans2.source === "db") {
       assert.ok(trans2.result.ok);
@@ -196,7 +196,7 @@ test("transitionMarineInvestigation rejects invalid transitions", async () => {
   const db = new MockDatabase();
   const createResult = await createMarineInvestigation(
     { eventId: "evt-004", title: "Ghost Signal" },
-    { getAdapter: () => db.adapter }
+    { hasPath: () => true, getAdapter: () => db.adapter }
   );
 
   assert.equal(createResult.source, "db");
@@ -204,7 +204,7 @@ test("transitionMarineInvestigation rejects invalid transitions", async () => {
     const id = createResult.result.investigation.id;
 
     // Open -> Resolve (Invalid, must go through In Review)
-    const result = await transitionMarineInvestigation(id, "resolve", null, { getAdapter: () => db.adapter });
+    const result = await transitionMarineInvestigation(id, "resolve", null, { hasPath: () => true, getAdapter: () => db.adapter });
     assert.equal(result.source, "db");
     if (result.source === "db") {
       assert.equal(result.result.ok, false);

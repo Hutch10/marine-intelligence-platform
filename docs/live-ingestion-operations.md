@@ -2,6 +2,8 @@
 
 This runbook defines deployment-time environment configuration and the minimum staging verification path for unified live ingestion.
 
+**Production telemetry activation** (scheduled worker, Turso credentials, verification): see [telemetry-activation/RUNBOOK.md](./telemetry-activation/RUNBOOK.md).
+
 ## Environment Template
 
 Use `apps/api/.env.example` as the baseline template for API runtime configuration.

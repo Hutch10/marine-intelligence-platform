@@ -6,6 +6,7 @@ import { fetchNdbcRealtimeText } from "../../connectors/ndbc/fetch";
 import { parseNdbcStationData } from "../../connectors/ndbc/parse";
 import {
   mapNdbcRowsToObservations,
+  metricsAreConcurrent,
   type NdbcMappedObservation,
 } from "../../connectors/ndbc/map";
 import type { NdbcParsedRow } from "../../connectors/ndbc/parse";
@@ -15,11 +16,13 @@ import {
   finalizeIngestionRun,
 } from "../../repositories/ingestion-runs";
 import {
+  buildObservationId,
   ensureObservationsTable,
   insertObservation,
   observationExists,
   readRecentObservationHistoryFromDb,
 } from "../../repositories/observations";
+import { writeObservationWithReplication } from "../split-brain-reconciliation";
 import {
   ensureStationRiskThresholdTables,
   resolveStationRiskThresholds,
@@ -33,6 +36,10 @@ import {
   ensureOperationalAlertsTable,
 } from "../../repositories/operational-alerts";
 import { createOperationalAlertsService } from "../operational-alerts";
+import {
+  buildNdbcSignalLineageInput,
+  persistSignalIngestionLineage,
+} from "../environmental-harness/signal-lineage";
 import { evaluateNdbcAnomalies } from "./ndbc-alert-evaluator";
 
 const DEFAULT_STALE_AFTER_MS = 8 * 60 * 60 * 1000;
@@ -364,7 +371,33 @@ export async function runNdbcIngestion(
   await ensureStationRiskThresholdTables(adapter);
 
   const { DbAlertStore } = require("../db-alert-store");
-  const alertsService = createOperationalAlertsService({ adapter, alertStore: new DbAlertStore(adapter) });
+  const ingestVerifiedAt = new Date(startedAt).toISOString();
+  const alertsService = createOperationalAlertsService({
+    adapter,
+    alertStore: new DbAlertStore(adapter),
+    alertVerificationContextBySource: {
+      noaa_ndbc: {
+        feedHealthGeneratedAt: ingestVerifiedAt,
+        sourceStatus: {
+          source: "noaa_ndbc",
+          workerRunId: runId,
+          workerStatus: "success",
+          status: "success",
+          startedAt: ingestVerifiedAt,
+          completedAt: ingestVerifiedAt,
+          durationMs: 0,
+          insertedCount: 0,
+          rejectedCount: 0,
+          rejectionReasons: {},
+          runId,
+          error: null,
+          stationDiagnostics: [],
+          isStale: false,
+          staleByMs: null,
+        },
+      },
+    },
+  });
 
   const runId = await createIngestionRun(adapter, {
     source: "noaa_ndbc",
@@ -467,22 +500,13 @@ export async function runNdbcIngestion(
         continue;
       }
 
-      const observationId = await insertObservation(adapter, {
-        stationId: latest.stationId,
+      const observationId = buildObservationId({
         source: latest.source,
+        stationId: latest.stationId,
         observedAt: latest.observedAt,
-        seaSurfaceTempC: latest.seaSurfaceTempC,
-        waveHeightM: latest.waveHeightM,
-        windSpeedMps: latest.windSpeedMps,
-        pressureHpa: latest.pressureHpa,
-        ingestionRunId: runId,
-        sourceTimestamp: latest.sourceTimestamp,
-        sourceReference: latest.sourceFeed,
-        rawLine: latest.rawLine,
-        createdAt: now,
       });
 
-      await insertProvenanceRecord(adapter, {
+      const provenanceId = await insertProvenanceRecord(adapter, {
         ingestionRunId: runId,
         source: latest.source,
         sourceStationId: latest.stationId,
@@ -492,11 +516,73 @@ export async function runNdbcIngestion(
         recordId: observationId,
         payload: {
           stationId: latest.stationId,
-          observedAt: latest.sourceTimestamp,
+          anchorObservedAt: latest.sourceTimestamp,
+          seaTempObservedAt: latest.seaTempObservedAt
+            ? new Date(latest.seaTempObservedAt).toISOString()
+            : null,
+          waveHeightObservedAt: latest.waveHeightObservedAt
+            ? new Date(latest.waveHeightObservedAt).toISOString()
+            : null,
+          windObservedAt: latest.windObservedAt
+            ? new Date(latest.windObservedAt).toISOString()
+            : null,
+          pressureObservedAt: latest.pressureObservedAt
+            ? new Date(latest.pressureObservedAt).toISOString()
+            : null,
+          metricsConcurrent: metricsAreConcurrent(latest),
+          backfillIndicators: {
+            seaSurfaceTemp: latest.seaSurfaceTempBackfilled,
+            waveHeight: latest.waveHeightBackfilled,
+          },
           sourceLine: latest.rawLine,
         },
         createdAt: now,
       });
+
+      const signalLineage = await persistSignalIngestionLineage(
+        buildNdbcSignalLineageInput({
+          source: latest.source,
+          runId,
+          stationId: latest.stationId,
+          observedAt: latest.observedAt,
+          sourceTimestamp: latest.sourceTimestamp,
+          provenanceId,
+          rawLine: latest.rawLine,
+          sourceFeed: latest.sourceFeed,
+        }),
+        { getAdapter: () => adapter },
+      );
+
+      await writeObservationWithReplication(
+        adapter,
+        {
+          stationId: latest.stationId,
+          source: latest.source,
+          observedAt: latest.observedAt,
+          seaSurfaceTempC: latest.seaSurfaceTempC,
+          waveHeightM: latest.waveHeightM,
+          windSpeedMps: latest.windSpeedMps,
+          pressureHpa: latest.pressureHpa,
+          seaTempObservedAt: latest.seaTempObservedAt,
+          waveHeightObservedAt: latest.waveHeightObservedAt,
+          windObservedAt: latest.windObservedAt,
+          pressureObservedAt: latest.pressureObservedAt,
+          seaSurfaceTempBackfilled: latest.seaSurfaceTempBackfilled,
+          waveHeightBackfilled: latest.waveHeightBackfilled,
+          provenanceId,
+          signalId: signalLineage.signalId,
+          rootEventId: signalLineage.rootEventId,
+          sourceIngestionEventId: signalLineage.sourceIngestionEventId,
+          verificationEventId: signalLineage.verificationEventId,
+          provenanceHash: signalLineage.provenanceHash,
+          ingestionRunId: runId,
+          sourceTimestamp: latest.sourceTimestamp,
+          sourceReference: latest.sourceFeed,
+          rawLine: latest.rawLine,
+          createdAt: now,
+        },
+        insertObservation,
+      );
 
       // Evaluate anomaly thresholds and raise operational alerts for any exceeded values.
       const anomalyActions = await evaluateAnomalies(latest, {

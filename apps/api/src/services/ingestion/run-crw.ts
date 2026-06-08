@@ -29,6 +29,10 @@ import {
   reefStressSnapshotExists,
 } from "../../repositories/reef-stress";
 import { CRW_SOURCE } from "../../connectors/coral-reef-watch/constants";
+import {
+  buildCrwSignalLineageInput,
+  persistSignalIngestionLineage,
+} from "../environmental-harness/signal-lineage";
 
 const DEFAULT_STALE_AFTER_MS = 72 * 60 * 60 * 1000;
 const REQUIRED_SCHEMA_FIELD_GROUPS = [
@@ -254,6 +258,25 @@ export async function runCrwIngestion(
 
       const mapped = mapData([record]);
 
+      let regionLineage: Awaited<ReturnType<typeof persistSignalIngestionLineage>> | null = null;
+
+      for (const signal of mapped.signals) {
+        const derivedSignalRecordId = `DRS-${signal.region}-${signal.observedAt}-pending`;
+        regionLineage = await persistSignalIngestionLineage(
+          buildCrwSignalLineageInput({
+            runId,
+            regionKey: signal.region,
+            stationId: signal.stationId,
+            observedAt: signal.observedAt,
+            sourceTimestamp: signal.sourceTimestamp,
+            recordId: derivedSignalRecordId,
+            sourceReference: fetched.sourceUrl,
+            signalLabel: signal.signalLabel,
+          }),
+          { getAdapter: () => adapter },
+        );
+      }
+
       for (const metric of mapped.metrics) {
         const metricId = await insertStationMetric(adapter, {
           stationId: metric.stationId,
@@ -267,6 +290,11 @@ export async function runCrwIngestion(
           sourceTimestamp: metric.sourceTimestamp,
           sourceReference: fetched.sourceUrl,
           createdAt: now,
+          signalId: regionLineage?.signalId ?? null,
+          rootEventId: regionLineage?.rootEventId ?? null,
+          sourceIngestionEventId: regionLineage?.sourceIngestionEventId ?? null,
+          verificationEventId: regionLineage?.verificationEventId ?? null,
+          provenanceHash: regionLineage?.provenanceHash ?? null,
         });
 
         await insertProvenanceRecord(adapter, {
@@ -302,6 +330,11 @@ export async function runCrwIngestion(
           sourceTimestamp: signal.sourceTimestamp,
           sourceReference: fetched.sourceUrl,
           createdAt: now,
+          signalId: regionLineage?.signalId ?? null,
+          rootEventId: regionLineage?.rootEventId ?? null,
+          sourceIngestionEventId: regionLineage?.sourceIngestionEventId ?? null,
+          verificationEventId: regionLineage?.verificationEventId ?? null,
+          provenanceHash: regionLineage?.provenanceHash ?? null,
         });
 
         await insertProvenanceRecord(adapter, {

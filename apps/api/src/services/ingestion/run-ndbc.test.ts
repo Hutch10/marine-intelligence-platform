@@ -169,6 +169,7 @@ test("runNdbcIngestion resolves thresholds once per observation and passes them 
     },
     getAdapter: () => {
       return {
+        resourceId: "test-sqlite-async",
         async execute(sql: string, params: unknown[] = []) {
           if (sql.includes("FROM observations") && Date.now() % 2 === 0) { // dummy condition
             // In the real test we might want to check params

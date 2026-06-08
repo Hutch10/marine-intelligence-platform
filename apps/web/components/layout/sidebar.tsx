@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   SearchCode,
   AlertTriangle,
+  Gauge,
   ChevronLeft,
   ChevronRight,
   Waves,
@@ -24,6 +25,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
   { label: "Investigations", href: "/investigations", icon: SearchCode },
   { label: "Operational Alerts", href: "/operational-alerts", icon: AlertTriangle },
+  { label: "Operator", href: "/operator", icon: Gauge },
 ];
 
 export function Sidebar() {

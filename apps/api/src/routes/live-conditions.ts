@@ -5,6 +5,8 @@ import type {
   RouteDefinition,
 } from "../types";
 import type { LiveConditionsReadResult } from "../repositories/observations";
+import { isProductionHarnessMode } from "../services/environmental-harness/freshness-policy";
+import { filterTrustedLiveConditions } from "../services/environmental-harness/lineage-presentation";
 
 async function readDatabaseLiveConditions(): Promise<LiveConditionsReadResult> {
   try {
@@ -25,15 +27,47 @@ export async function buildLiveConditionsRouteResponse(
   const actualReadResult = readResult ?? await readDatabaseLiveConditions();
 
   if (actualReadResult.source === "db") {
+    const trusted = filterTrustedLiveConditions(actualReadResult.conditions);
+
+    if (trusted.length === 0 && actualReadResult.conditions.length > 0) {
+      return {
+        status: isProductionHarnessMode() ? 503 : 200,
+        json: {
+          conditions: isProductionHarnessMode() ? [] : trusted,
+        },
+        telemetry: {
+          route: "GET /live-conditions",
+          source: isProductionHarnessMode() ? "withheld" : "db",
+          conditionCount: trusted.length,
+          fallbackReason: isProductionHarnessMode() ? "stale_or_unverifiable_withheld" : undefined,
+        },
+      };
+    }
+
     return {
       status: 200,
       json: {
-        conditions: actualReadResult.conditions,
+        conditions: trusted,
       },
       telemetry: {
         route: "GET /live-conditions",
         source: "db",
-        conditionCount: actualReadResult.conditions.length,
+        conditionCount: trusted.length,
+      },
+    };
+  }
+
+  if (isProductionHarnessMode()) {
+    return {
+      status: 503,
+      json: {
+        conditions: [],
+      },
+      telemetry: {
+        route: "GET /live-conditions",
+        source: "withheld",
+        conditionCount: 0,
+        fallbackReason: actualReadResult.fallbackReason ?? "mock_withheld",
       },
     };
   }

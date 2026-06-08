@@ -6,6 +6,15 @@ import type {
   MarineInvestigationRecord,
 } from "../marine-intelligence-types";
 import { createMarineIntelligenceWorkflowService } from "./marine-intelligence-workflow";
+import type { AsyncDbAdapter } from "../db/async-client";
+
+const MOCK_ADAPTER: AsyncDbAdapter = {
+  resourceId: "mock-workflow",
+  execute: async () => [],
+  close: () => {},
+};
+
+const WORKFLOW_DEPS = { getAdapter: () => MOCK_ADAPTER };
 
 const EVENT_A: MarineEventRecord = {
   id: "MEV-002",
@@ -125,6 +134,7 @@ const ALERT_B: MarineAlertRecord = {
 
 test("marine intelligence workflow service sorts and filters events deterministically", async () => {
   const service = createMarineIntelligenceWorkflowService({
+    ...WORKFLOW_DEPS,
     async listMarineEvents(_adapter, filters) {
       const events = [EVENT_A, EVENT_B].filter((event) => {
         if (filters?.id && event.id !== filters.id) return false;
@@ -155,6 +165,7 @@ test("marine intelligence workflow service sorts and filters events deterministi
 
 test("marine intelligence workflow service filters investigations by linked event station and enriches event metadata", async () => {
   const service = createMarineIntelligenceWorkflowService({
+    ...WORKFLOW_DEPS,
     async listMarineEvents(_adapter, filters) {
       const events = [EVENT_A, EVENT_B].filter((event) => {
         if (filters?.stationId && event.stationId !== filters.stationId) return false;
@@ -183,6 +194,7 @@ test("marine intelligence workflow service filters investigations by linked even
 
 test("marine intelligence workflow service rejects investigation creation when linked event is missing", async () => {
   const service = createMarineIntelligenceWorkflowService({
+    ...WORKFLOW_DEPS,
     async listMarineEvents() {
       return { ok: true, events: [] };
     },
@@ -218,6 +230,7 @@ test("marine intelligence workflow service creates investigations and enriches t
   };
 
   const service = createMarineIntelligenceWorkflowService({
+    ...WORKFLOW_DEPS,
     async listMarineEvents(_adapter, filters) {
       const events = [EVENT_A, EVENT_B].filter((event) => !filters?.id || event.id === filters.id);
       return { ok: true, events };
@@ -247,6 +260,7 @@ test("marine intelligence workflow service creates investigations and enriches t
 
 test("marine intelligence workflow service filters alerts by linked station and sorts them deterministically", async () => {
   const service = createMarineIntelligenceWorkflowService({
+    ...WORKFLOW_DEPS,
     async listMarineEvents(_adapter, filters) {
       const events = [EVENT_A, EVENT_B].filter((event) => {
         if (filters?.stationId && event.stationId !== filters.stationId) return false;
@@ -292,6 +306,7 @@ test("marine intelligence workflow service acknowledges and resolves alerts with
   };
 
   const service = createMarineIntelligenceWorkflowService({
+    ...WORKFLOW_DEPS,
     async listMarineEvents(_adapter, filters) {
       const events = [EVENT_A].filter((event) => !filters?.id || event.id === filters.id);
       return { ok: true, events };

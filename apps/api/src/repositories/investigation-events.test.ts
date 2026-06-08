@@ -100,6 +100,7 @@ test("investigation events repository returns timeline ordered by created_at des
   await seedTimeline(db, investigationId);
 
   const result = await getInvestigationTimeline(investigationId, {}, {
+    hasPath: () => true,
     getAdapter: () => db.adapter,
     now: () => 3000,
   });
@@ -119,6 +120,7 @@ test("investigation events repository supports event type filtering", async () =
   await seedTimeline(db, investigationId);
 
   const result = await getInvestigationTimeline(investigationId, { eventType: "signal_linked" }, {
+    hasPath: () => true,
     getAdapter: () => db.adapter,
     now: () => 3000,
   });
@@ -142,6 +144,7 @@ test("recordInvestigationEvent creates a timeline event", async () => {
     summary: "Promoted evidence",
     detail: "High confidence correlation",
   }, {
+    hasPath: () => true,
     getAdapter: () => db.adapter,
     now: () => 4000,
   });
@@ -176,6 +179,7 @@ test("recordInvestigationEvent returns not_found for unknown investigation", asy
     source: "test",
     summary: "test",
   }, {
+    hasPath: () => true,
     getAdapter: () => db.adapter,
     now: () => 4000,
   });

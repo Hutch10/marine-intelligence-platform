@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { AppShell } from "@/components/layout/app-shell";
 import { getInvestigationById } from "@/lib/server/investigations";
 import { InvestigationOutcomeEditor } from "@/components/ui/InvestigationOutcomeEditor";
+import { recordOperationalAnalytics } from "@/lib/server/record-operational-analytics";
 
 
 interface InvestigationDetailPageProps {
@@ -35,6 +36,8 @@ export default async function InvestigationDetailPage({ params }: InvestigationD
   if (!investigation) {
     notFound();
   }
+
+  await recordOperationalAnalytics({ eventType: "investigation_open" });
 
   // Use real signals and lastUpdated from the investigation object
   const signals = investigation.signals ?? [];

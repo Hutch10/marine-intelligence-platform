@@ -33,6 +33,29 @@ import v1ExplorerHandler from "./routes/v1-explorer";
 import v1ExplorerExportHandler from "./routes/v1-explorer-export";
 import { getValidationSummaryRoute } from "./routes/validation";
 import { getFeedHealthRoute } from "./routes/feed-health";
+import { getOperationalAlertsRoute } from "./routes/operational-alerts";
+import { getOperatorStatusRoute } from "./routes/operator-status";
+import { getDataLineageRoute } from "./routes/data-lineage";
+import {
+  getReplayAlertRoute,
+  getReplayEventRoute,
+  getReplaySignalRoute,
+} from "./routes/replay";
+import {
+  getOperatorReviewQueueRoute,
+  postOperatorReviewQueueActionRoute,
+  postOperatorReviewQueueEnqueueRoute,
+} from "./routes/operator-review-queue";
+import {
+  getReplayValidationRoute,
+  postReplayValidationRoute,
+} from "./routes/replay-validation";
+import { getScientificExportRoute } from "./routes/scientific-export";
+import {
+  buildOperationalAnalyticsRecordRouteResponse,
+  buildOperationalAnalyticsSummaryRouteResponse,
+  trackOperationalAnalyticsFromApi,
+} from "./routes/operational-analytics";
 import { hasDatabasePath, openReadOnlyDatabase } from "./db/client";
 import type { RouteResponse } from "./types";
 import type { SignalSeverity, SignalStatus, SignalType } from "@marine/shared";
@@ -46,7 +69,34 @@ interface ServerRoute {
     body: unknown;
     query?: Record<string, string | undefined>;
     params?: Record<string, string>;
-  }) => { status: number; json?: unknown; text?: string; headers?: Record<string, string> } | Promise<{ status: number; json?: unknown; text?: string; headers?: Record<string, string> }>;
+    headers?: Record<string, string | undefined>;
+  }) => {
+    status: number;
+    json?: unknown;
+    text?: string;
+    headers?: Record<string, string>;
+  } | Promise<{
+    status: number;
+    json?: unknown;
+    text?: string;
+    headers?: Record<string, string>;
+  }>;
+}
+
+function requireOperatorAccess(query: Record<string, string | undefined>): { status: number; json?: unknown } | null {
+  const configuredToken = process.env.OPERATOR_ACCESS_TOKEN?.trim();
+  const providedToken = query?.token?.trim();
+
+  if (configuredToken) {
+    if (!providedToken || providedToken !== configuredToken) {
+      return {
+        status: 403,
+        json: { message: "Operator access required" },
+      };
+    }
+  }
+
+  return null;
 }
 
 const SERVER_STARTED_AT = Date.now();
@@ -141,6 +191,21 @@ const serverRoutes: ServerRoute[] = [
           end() { ended = true; },
         };
         await (v1ExplorerExportHandler as any)(req, res);
+        if (status >= 200 && status < 300) {
+          const dataset = (body as { dataset?: string; format?: string } | undefined)?.dataset;
+          const format = (body as { format?: string } | undefined)?.format;
+          if (dataset === "observations") {
+            trackOperationalAnalyticsFromApi(
+              "export",
+              format === "csv" ? "scientific_csv" : "scientific_json",
+            );
+          } else {
+            trackOperationalAnalyticsFromApi(
+              "export",
+              format === "csv" ? "explorer_csv" : "explorer_json",
+            );
+          }
+        }
         if (headers["Content-Type"] === "text/csv" && text !== undefined) {
           return { status, text, headers };
         }
@@ -217,6 +282,194 @@ const serverRoutes: ServerRoute[] = [
         since: query?.since,
       },
     }),
+  },
+
+  {
+    method: "GET",
+    path: "/feed-health",
+    handler: ({ query }) => getFeedHealthRoute.handler({
+      body: undefined,
+      query: {
+        limit: query?.limit,
+        staleAfterMs: query?.staleAfterMs,
+      },
+    }),
+  },
+  {
+    method: "GET",
+    path: "/operational-alerts",
+    handler: ({ query }) => getOperationalAlertsRoute.handler({
+      body: undefined,
+      query: {
+        status: query?.status,
+        source: query?.source,
+        ruleType: query?.ruleType,
+        limit: query?.limit,
+        historyLimit: query?.historyLimit,
+      },
+    }),
+  },
+  {
+    method: "GET",
+    path: "/internal/operator/status",
+    handler: async ({ query }) => {
+      const denied = requireOperatorAccess(query ?? {});
+      if (denied) {
+        return denied;
+      }
+
+      trackOperationalAnalyticsFromApi("operator_usage", "status_fetch");
+      return await getOperatorStatusRoute.handler({ body: undefined });
+    },
+  },
+  {
+    method: "GET",
+    path: "/internal/lineage/:recordId",
+    handler: async ({ query, params }) => {
+      const denied = requireOperatorAccess(query ?? {});
+      if (denied) {
+        return denied;
+      }
+
+      return await getDataLineageRoute.handler({ body: undefined, params });
+    },
+  },
+  {
+    method: "GET",
+    path: "/api/replay/signal/:id",
+    handler: async ({ query, params }) => {
+      const denied = requireOperatorAccess(query ?? {});
+      if (denied) {
+        return denied;
+      }
+
+      return await getReplaySignalRoute.handler({ body: undefined, params });
+    },
+  },
+  {
+    method: "GET",
+    path: "/api/replay/alert/:id",
+    handler: async ({ query, params }) => {
+      const denied = requireOperatorAccess(query ?? {});
+      if (denied) {
+        return denied;
+      }
+
+      return await getReplayAlertRoute.handler({ body: undefined, params });
+    },
+  },
+  {
+    method: "GET",
+    path: "/api/replay/event/:id",
+    handler: async ({ query, params }) => {
+      const denied = requireOperatorAccess(query ?? {});
+      if (denied) {
+        return denied;
+      }
+
+      return await getReplayEventRoute.handler({ body: undefined, params });
+    },
+  },
+  {
+    method: "GET",
+    path: "/internal/operator/replay-validation",
+    handler: async ({ query }) => {
+      const denied = requireOperatorAccess(query ?? {});
+      if (denied) {
+        return denied;
+      }
+
+      return await getReplayValidationRoute.handler({ body: undefined });
+    },
+  },
+  {
+    method: "POST",
+    path: "/internal/operator/replay-validation/run",
+    handler: async ({ query, body }) => {
+      const denied = requireOperatorAccess(query ?? {});
+      if (denied) {
+        return denied;
+      }
+
+      return await postReplayValidationRoute.handler({ body: body ?? {} });
+    },
+  },
+  {
+    method: "GET",
+    path: "/internal/operator/review-queue",
+    handler: async ({ query }) => {
+      const denied = requireOperatorAccess(query ?? {});
+      if (denied) {
+        return denied;
+      }
+
+      return await getOperatorReviewQueueRoute.handler({ body: undefined, query });
+    },
+  },
+  {
+    method: "POST",
+    path: "/internal/operator/review-queue/action",
+    handler: async ({ query, body }) => {
+      const denied = requireOperatorAccess(query ?? {});
+      if (denied) {
+        return denied;
+      }
+
+      return await postOperatorReviewQueueActionRoute.handler({ body: body ?? {} });
+    },
+  },
+  {
+    method: "POST",
+    path: "/internal/operator/review-queue/enqueue",
+    handler: async ({ query, body }) => {
+      const denied = requireOperatorAccess(query ?? {});
+      if (denied) {
+        return denied;
+      }
+
+      return await postOperatorReviewQueueEnqueueRoute.handler({ body: body ?? {} });
+    },
+  },
+  {
+    method: "GET",
+    path: "/internal/scientific/export",
+    handler: async ({ query }) => {
+      const denied = requireOperatorAccess(query ?? {});
+      if (denied) {
+        return denied;
+      }
+
+      const response = await getScientificExportRoute.handler({ body: undefined, query });
+      if (response.status === 200) {
+        trackOperationalAnalyticsFromApi(
+          "export",
+          query?.format === "csv" ? "scientific_csv" : "scientific_json",
+        );
+      }
+      return response;
+    },
+  },
+  {
+    method: "POST",
+    path: "/internal/operational-analytics/record",
+    handler: async ({ body, headers }) => {
+      return await buildOperationalAnalyticsRecordRouteResponse(
+        (body ?? {}) as Record<string, unknown>,
+        headers ?? {},
+      );
+    },
+  },
+  {
+    method: "GET",
+    path: "/internal/operator/analytics",
+    handler: async ({ query }) => {
+      const denied = requireOperatorAccess(query ?? {});
+      if (denied) {
+        return denied;
+      }
+
+      return await buildOperationalAnalyticsSummaryRouteResponse();
+    },
   },
 
   // ── Health ────────────────────────────────────────────────────────────────
@@ -405,7 +658,23 @@ export async function handleRequest(request: IncomingMessage, response: ServerRe
       body: parsedBody,
       query,
       params: match.params,
+      headers: Object.fromEntries(
+        Object.entries(request.headers).map(([key, value]) => [
+          key,
+          Array.isArray(value) ? value[0] : value,
+        ]),
+      ),
     });
+
+    if (typeof routeResponse.text === "string") {
+      const body = routeResponse.text;
+      response.writeHead(routeResponse.status, {
+        "Content-Length": Buffer.byteLength(body).toString(),
+        ...routeResponse.headers,
+      });
+      response.end(body);
+      return;
+    }
 
     sendJson(response, routeResponse.status, routeResponse.json, routeResponse.headers);
   } catch (error) {

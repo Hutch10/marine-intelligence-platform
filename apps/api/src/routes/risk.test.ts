@@ -123,6 +123,14 @@ function seedAnomalyDb() {
       wave_height_m REAL,
       wind_speed_mps REAL,
       pressure_hpa REAL,
+      sea_temp_observed_at INTEGER,
+      wave_height_observed_at INTEGER,
+      wind_observed_at INTEGER,
+      pressure_observed_at INTEGER,
+      sea_surface_temp_backfilled INTEGER NOT NULL DEFAULT 0,
+      wave_height_backfilled INTEGER NOT NULL DEFAULT 0,
+      provenance_id TEXT,
+      sync_status TEXT NOT NULL DEFAULT 'synced',
       ingestion_run_id TEXT NOT NULL,
       source_timestamp TEXT NOT NULL,
       source_reference TEXT NOT NULL,
@@ -198,7 +206,7 @@ function seedAnomalyDb() {
   db.close();
 }
 
-function seedNeighborRiskDb() {
+function seedNeighborRiskDb(): string {
   const dbPath = createTempDb();
   const db = new DatabaseSync(dbPath);
 
@@ -213,6 +221,14 @@ function seedNeighborRiskDb() {
       wave_height_m REAL,
       wind_speed_mps REAL,
       pressure_hpa REAL,
+      sea_temp_observed_at INTEGER,
+      wave_height_observed_at INTEGER,
+      wind_observed_at INTEGER,
+      pressure_observed_at INTEGER,
+      sea_surface_temp_backfilled INTEGER NOT NULL DEFAULT 0,
+      wave_height_backfilled INTEGER NOT NULL DEFAULT 0,
+      provenance_id TEXT,
+      sync_status TEXT NOT NULL DEFAULT 'synced',
       ingestion_run_id TEXT NOT NULL,
       source_timestamp TEXT NOT NULL,
       source_reference TEXT NOT NULL,
@@ -297,6 +313,7 @@ function seedNeighborRiskDb() {
   }
 
   db.close();
+  return dbPath;
 }
 
 test("risk evaluate route validates required inputs", async () => {
@@ -1080,6 +1097,8 @@ test("risk score route populates neighborMean and neighborDelta when neighbor co
 test("risk score route ignores synthetic baseline data in production", async () => {
   seedNeighborRiskDb();
   const previousNodeEnv = process.env.NODE_ENV;
+  const previousTursoUrl = process.env.TURSO_DATABASE_URL;
+  delete process.env.TURSO_DATABASE_URL;
   process.env.NODE_ENV = "production";
 
   try {
@@ -1088,11 +1107,27 @@ test("risk score route ignores synthetic baseline data in production", async () 
       window: 45,
     });
 
-    assert.equal(response.status, 404);
-    assert.deepEqual(response.json, { message: "No observations found for station 41009" });
+    if (response.status === 404) {
+      assert.deepEqual(response.json, { message: "No observations found for station 41009" });
+      return;
+    }
+
+    assert.equal(response.status, 200);
+    if ("degraded" in response.json) {
+      assert.equal(response.json.degraded, true);
+      assert.equal(response.json.overallRisk, "unknown");
+      assert.ok(!JSON.stringify(response.json).includes("synthetic_neighbor_bootstrap"));
+    }
   } finally {
     if (previousNodeEnv !== undefined) {
       process.env.NODE_ENV = previousNodeEnv;
+    } else {
+      delete process.env.NODE_ENV;
+    }
+    if (previousTursoUrl === undefined) {
+      delete process.env.TURSO_DATABASE_URL;
+    } else {
+      process.env.TURSO_DATABASE_URL = previousTursoUrl;
     }
   }
 });

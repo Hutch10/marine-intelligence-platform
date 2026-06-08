@@ -7,6 +7,13 @@ import {
 import { CRW_SOURCE } from "../connectors/coral-reef-watch/constants";
 import type { ReefAlertsFallbackReason } from "../types";
 import type { ReefStressWatchItem } from "@marine/shared";
+import {
+  classifyCrwFreshness,
+  verificationStatusFromFreshness,
+} from "../services/environmental-harness/freshness-policy";
+import { buildSignalProvenance } from "../services/environmental-harness/provenance";
+import { annotateReefAlertTrust } from "../services/environmental-harness/lineage-presentation";
+import type { EnvironmentalSignalLineageInsert } from "./observations";
 
 interface StationMetricRow {
   metric_type: string;
@@ -20,6 +27,13 @@ interface DerivedSignalRow {
   signal_value: number | string | null;
   observed_at: number | string;
   source_timestamp: string;
+  source_reference?: string | null;
+  created_at?: number | string | null;
+  harness_signal_id?: string | null;
+  root_event_id?: string | null;
+  source_ingestion_event_id?: string | null;
+  verification_event_id?: string | null;
+  provenance_hash?: string | null;
 }
 
 export interface CrwRiskHistoryItem {
@@ -33,7 +47,7 @@ export interface CrwRiskHistoryItem {
   stressLevel: string | null;
 }
 
-export interface StationMetricInsertInput {
+export interface StationMetricInsertInput extends EnvironmentalSignalLineageInsert {
   stationId: string | null;
   regionKey: string;
   metricType: "sst_anomaly_c" | "hotspot_c" | "dhw";
@@ -47,7 +61,7 @@ export interface StationMetricInsertInput {
   createdAt: number;
 }
 
-export interface DerivedSignalInsertInput {
+export interface DerivedSignalInsertInput extends EnvironmentalSignalLineageInsert {
   stationId: string | null;
   regionKey: string;
   signalType: "reef_bleaching_alert_level";
@@ -120,6 +134,29 @@ function signalKey(stationId: string | null, regionKey: string): string {
   return `${stationId ?? "region"}:${regionKey}`;
 }
 
+export async function ensureReefStressLineageColumns(adapter: AsyncDbAdapter): Promise<void> {
+  const migrations = [
+    "ALTER TABLE derived_signals ADD COLUMN harness_signal_id TEXT",
+    "ALTER TABLE derived_signals ADD COLUMN root_event_id TEXT",
+    "ALTER TABLE derived_signals ADD COLUMN source_ingestion_event_id TEXT",
+    "ALTER TABLE derived_signals ADD COLUMN verification_event_id TEXT",
+    "ALTER TABLE derived_signals ADD COLUMN provenance_hash TEXT",
+    "ALTER TABLE station_metrics ADD COLUMN harness_signal_id TEXT",
+    "ALTER TABLE station_metrics ADD COLUMN root_event_id TEXT",
+    "ALTER TABLE station_metrics ADD COLUMN source_ingestion_event_id TEXT",
+    "ALTER TABLE station_metrics ADD COLUMN verification_event_id TEXT",
+    "ALTER TABLE station_metrics ADD COLUMN provenance_hash TEXT",
+  ];
+
+  for (const sql of migrations) {
+    try {
+      await adapter.execute(sql);
+    } catch {
+      // Column already exists.
+    }
+  }
+}
+
 export async function ensureStationMetricsTable(adapter: AsyncDbAdapter): Promise<void> {
   await adapter.execute(
     `CREATE TABLE IF NOT EXISTS station_metrics (
@@ -137,6 +174,8 @@ export async function ensureStationMetricsTable(adapter: AsyncDbAdapter): Promis
       created_at INTEGER NOT NULL
     )`
   );
+
+  await ensureReefStressLineageColumns(adapter);
 }
 
 export async function ensureDerivedSignalsTable(adapter: AsyncDbAdapter): Promise<void> {
@@ -157,6 +196,8 @@ export async function ensureDerivedSignalsTable(adapter: AsyncDbAdapter): Promis
       created_at INTEGER NOT NULL
     )`
   );
+
+  await ensureReefStressLineageColumns(adapter);
 }
 
 export async function reefStressSnapshotExists(
@@ -197,8 +238,13 @@ export async function insertStationMetric(adapter: AsyncDbAdapter, input: Statio
       ingestion_run_id,
       source_timestamp,
       source_reference,
-      created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      created_at,
+      harness_signal_id,
+      root_event_id,
+      source_ingestion_event_id,
+      verification_event_id,
+      provenance_hash
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       input.stationId,
@@ -212,6 +258,11 @@ export async function insertStationMetric(adapter: AsyncDbAdapter, input: Statio
       input.sourceTimestamp,
       input.sourceReference,
       input.createdAt,
+      input.signalId ?? null,
+      input.rootEventId ?? null,
+      input.sourceIngestionEventId ?? null,
+      input.verificationEventId ?? null,
+      input.provenanceHash ?? null,
     ]
   );
 
@@ -235,8 +286,13 @@ export async function insertDerivedSignal(adapter: AsyncDbAdapter, input: Derive
       ingestion_run_id,
       source_timestamp,
       source_reference,
-      created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      created_at,
+      harness_signal_id,
+      root_event_id,
+      source_ingestion_event_id,
+      verification_event_id,
+      provenance_hash
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       input.stationId,
@@ -251,6 +307,11 @@ export async function insertDerivedSignal(adapter: AsyncDbAdapter, input: Derive
       input.sourceTimestamp,
       input.sourceReference,
       input.createdAt,
+      input.signalId ?? null,
+      input.rootEventId ?? null,
+      input.sourceIngestionEventId ?? null,
+      input.verificationEventId ?? null,
+      input.provenanceHash ?? null,
     ]
   );
 
@@ -288,7 +349,9 @@ export async function readLatestReefStressFromDb(
   limit = 20,
 ): Promise<ReefStressWatchItem[]> {
   const rows = await adapter.execute(
-    `SELECT station_id, region_key, signal_label, signal_value, observed_at, source_timestamp
+    `SELECT station_id, region_key, signal_label, signal_value, observed_at, source_timestamp,
+            source_reference, created_at, harness_signal_id, root_event_id,
+            source_ingestion_event_id, verification_event_id, provenance_hash
      FROM derived_signals
      WHERE source = ?
        AND signal_type = 'reef_bleaching_alert_level'
@@ -311,6 +374,24 @@ export async function readLatestReefStressFromDb(
 
   return Promise.all(snapshots.map(async (row) => {
     const observedAt = toTimestamp(row.observed_at);
+    const createdAtMs = row.created_at != null ? toTimestamp(row.created_at) : null;
+    const productDateMs = row.source_timestamp
+      ? toTimestamp(row.source_timestamp)
+      : observedAt;
+    const productDateIso = new Date(productDateMs).toISOString();
+    const ingestedAtIso = createdAtMs !== null ? new Date(createdAtMs).toISOString() : undefined;
+    const freshnessStatus = classifyCrwFreshness(
+      Number.isFinite(productDateMs) ? productDateMs : observedAt,
+    );
+    const verificationStatus = verificationStatusFromFreshness(freshnessStatus);
+    const provenance = buildSignalProvenance({
+      source: CRW_SOURCE,
+      sourceFeed: row.source_reference ?? null,
+      productDate: productDateIso,
+      ingestedAt: ingestedAtIso ?? null,
+      stationId: row.station_id,
+      observedAt: new Date(observedAt).toISOString(),
+    });
     const metrics = await readMetricsForSnapshot(
       adapter,
       CRW_SOURCE,
@@ -319,7 +400,7 @@ export async function readLatestReefStressFromDb(
       observedAt,
     );
 
-    return {
+    return annotateReefAlertTrust({
       region: row.region_key,
       stationId: row.station_id,
       timestamp: new Date(observedAt).toISOString(),
@@ -329,7 +410,18 @@ export async function readLatestReefStressFromDb(
       stressLevel: row.signal_label,
       source: CRW_SOURCE,
       outputClass: "derived" as const,
-    };
+      ingestedAt: ingestedAtIso,
+      sourceFeed: row.source_reference ?? null,
+      productDate: productDateIso,
+      freshnessStatus,
+      verificationStatus,
+      provenance,
+      signalId: row.harness_signal_id ?? null,
+      rootEventId: row.root_event_id ?? null,
+      sourceIngestionEventId: row.source_ingestion_event_id ?? null,
+      verificationEventId: row.verification_event_id ?? null,
+      provenanceHash: row.provenance_hash ?? provenance.contentHash ?? null,
+    });
   }));
 }
 
@@ -410,11 +502,18 @@ export async function listLatestReefStress(
   const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const databasePath = resolvePath();
 
-  if (!hasPath(databasePath)) {
+  const isTurso = !!process.env.TURSO_DATABASE_URL;
+  if (!isTurso && !hasPath(databasePath)) {
     return { source: "mock", fallbackReason: "db_path_missing" };
   }
 
-  const adapter = getAdapter(false);
+  let adapter: AsyncDbAdapter;
+
+  try {
+    adapter = getAdapter(true);
+  } catch {
+    return { source: "mock", fallbackReason: "db_open_failed" };
+  }
 
   try {
     return {
