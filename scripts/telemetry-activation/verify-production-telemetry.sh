@@ -50,7 +50,7 @@ note_warn() {
 
 
 
-echo "Marine telemetry verification — ${API_BASE}"
+echo "Marine telemetry verification - ${API_BASE}"
 
 echo "UTC now: $(date -u -Iseconds)"
 
@@ -136,7 +136,7 @@ if echo "${REEF}" | jq -e '.alerts | length > 0' >/dev/null 2>&1; then
 
   elif (( AGE_H > 48 )); then
 
-    note_warn "Latest reef alert older than 48 hours (CRW warn — daily NOAA product cadence)"
+    note_warn "Latest reef alert older than 48 hours (CRW warn - daily NOAA product cadence)"
 
   fi
 
@@ -236,13 +236,13 @@ if [[ -n "${OPERATOR_ACCESS_TOKEN:-}" ]]; then
 
   elif [[ "${REPLAY_OVERALL}" != "true" ]]; then
 
-    note_fail "Replay validation burn-in failed — incomplete or unreplayable production evidence"
+    note_fail "Replay validation burn-in failed - incomplete or unreplayable production evidence"
 
   fi
 
 else
 
-  note_fail "OPERATOR_ACCESS_TOKEN not set — cannot verify replay validation gate"
+  note_fail "OPERATOR_ACCESS_TOKEN not set - cannot verify replay validation gate"
 
 fi
 
@@ -274,13 +274,13 @@ if (( FAIL == 0 )); then
 
   if (( WARN == 1 )); then
 
-    echo "PASS — production telemetry within thresholds (CRW warning only)."
+    echo "PASS - production telemetry within thresholds (CRW warning only)."
 
     exit 0
 
   fi
 
-  echo "PASS — production telemetry within thresholds."
+  echo "PASS - production telemetry within thresholds."
 
   exit 0
 
