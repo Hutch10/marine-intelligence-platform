@@ -181,9 +181,27 @@ async function readOperationalAlertsRows(
 }
 
 /**
+ * Ensure the investigations table exists for alert-linked case records.
+ */
+export async function ensureInvestigationsTable(adapter: AsyncDbAdapter) {
+  await adapter.execute(`
+    CREATE TABLE IF NOT EXISTS investigations (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      summary TEXT,
+      state TEXT NOT NULL,
+      confidence INTEGER,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `);
+}
+
+/**
  * Ensure the operational_alerts table exists.
  */
 export async function ensureOperationalAlertsTable(adapter: AsyncDbAdapter) {
+  await ensureInvestigationsTable(adapter);
   await adapter.execute(`
     CREATE TABLE IF NOT EXISTS operational_alerts (
       id TEXT PRIMARY KEY,

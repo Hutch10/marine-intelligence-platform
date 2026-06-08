@@ -244,7 +244,7 @@ export async function insertStationMetric(adapter: AsyncDbAdapter, input: Statio
       source_ingestion_event_id,
       verification_event_id,
       provenance_hash
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       input.stationId,
@@ -292,7 +292,7 @@ export async function insertDerivedSignal(adapter: AsyncDbAdapter, input: Derive
       source_ingestion_event_id,
       verification_event_id,
       provenance_hash
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       input.stationId,
