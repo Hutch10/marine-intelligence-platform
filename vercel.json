@@ -1,19 +1,9 @@
 {
   "version": 2,
-  "installCommand": "pnpm install --frozen-lockfile --config.node-linker=hoisted",
-  "buildCommand": "pnpm --filter @marine/shared run build && pnpm --filter api run build",
-  "outputFileTracingRoot": ".",
   "builds": [
     {
       "src": "apps/api/api/index.ts",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": [
-          "node_modules/@libsql/**",
-          "node_modules/@libsql/**/*",
-          "node_modules/.pnpm/@libsql+client@*/node_modules/@libsql/**"
-        ]
-      }
+      "use": "@vercel/node"
     }
   ],
   "routes": [
