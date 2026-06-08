@@ -1,6 +1,11 @@
 {
   "installCommand": "cd ../.. && pnpm install --frozen-lockfile",
   "buildCommand": "cd ../.. && pnpm --filter @marine/shared run build && pnpm --filter api run build",
+  "functions": {
+    "api/index.ts": {
+      "includeFiles": "node_modules/@libsql/**"
+    }
+  },
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/(.*)", "destination": "/api/index" }
