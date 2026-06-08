@@ -94,6 +94,11 @@ export async function validateReplaySample(
     if (!publicationReconstructable) {
       failures.push("publication_not_reconstructable");
     }
+  } else if (target.kind === "alert") {
+    publicationReconstructable = packet.publicationOutcome.status === "available";
+    if (!publicationReconstructable) {
+      failures.push("publication_not_reconstructable");
+    }
   }
 
   return {

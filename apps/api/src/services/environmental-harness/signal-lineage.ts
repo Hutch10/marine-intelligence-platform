@@ -49,6 +49,7 @@ export async function persistSignalIngestionLineage(
   const ingestionPayload: IngestionEvent & {
     signalId: string;
     provenanceHash: string;
+    provenanceId?: string | null;
     stationId?: string | null;
     regionKey?: string | null;
   } = {
@@ -63,8 +64,10 @@ export async function persistSignalIngestionLineage(
     outcome,
     signalId,
     provenanceHash,
+    provenanceId: input.provenanceId ?? null,
     stationId: input.stationId ?? null,
     regionKey: input.regionKey ?? null,
+    ...input.provenancePayload,
   };
 
   const sourceIngestionEventId = await recordHarnessEvent({

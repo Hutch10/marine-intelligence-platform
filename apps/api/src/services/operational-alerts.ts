@@ -29,6 +29,13 @@ export type OperationalAlertSeverity = "critical" | "warning" | "info";
 
 export type OperationalAlertStatus = "active" | "resolved";
 
+export interface OperationalAlertHarnessLineage {
+  signalId: string;
+  rootEventId: string;
+  verificationEventId: string;
+  provenanceHash?: string | null;
+}
+
 export interface OperationalAlertAction {
   type: "create" | "resolve";
   source: string;
@@ -37,6 +44,7 @@ export interface OperationalAlertAction {
   title: string;
   detail?: string;
   stationId?: string | null;
+  harnessLineage?: OperationalAlertHarnessLineage;
 }
 
 export interface OperationalAlert {
@@ -265,12 +273,15 @@ export function createOperationalAlertsService(
 
         if (!existing || !shouldUpdateExisting) {
           const verificationContext = alertVerificationContextBySource[action.source] ?? {};
-          const signalId = buildSourceScopeSignalId(
-            action.source,
-            verificationContext.sourceStatus?.runId ?? null,
-            verificationContext.feedHealthGeneratedAt ?? timestamp,
-          );
+          const signalId = action.harnessLineage?.signalId
+            ?? buildSourceScopeSignalId(
+              action.source,
+              verificationContext.sourceStatus?.runId ?? null,
+              verificationContext.feedHealthGeneratedAt ?? timestamp,
+            );
           const alertId = `alert-${action.source}-${action.ruleType}-${stationId ?? "_"}-${nowMs}`;
+          const ingestionRootEventId = action.harnessLineage?.rootEventId ?? null;
+          const verificationParentEventId = action.harnessLineage?.verificationEventId ?? null;
 
           const gate = await gateAlertPublish({
             alertKey: key,
@@ -280,8 +291,8 @@ export function createOperationalAlertsService(
             signalId,
             context: verificationContext,
             lineage: {
-              parentEventId: null,
-              rootEventId: undefined,
+              parentEventId: verificationParentEventId,
+              rootEventId: ingestionRootEventId ?? undefined,
             },
           });
 
@@ -338,7 +349,7 @@ export function createOperationalAlertsService(
             evaluatedAt: timestamp,
             detail: action.title,
             parentEventId: gate.validationEventId,
-            rootEventId: gate.validationEventId ?? undefined,
+            rootEventId: ingestionRootEventId ?? gate.validationEventId ?? undefined,
           });
 
           continue;

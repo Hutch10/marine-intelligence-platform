@@ -17,8 +17,12 @@ export interface HarnessPresentationInput {
   provenance?: EnvironmentalSignalProvenance | null;
   provenanceId?: string | null;
   rootEventId?: string | null;
+  sourceIngestionEventId?: string | null;
+  verificationEventId?: string | null;
   replayEvidenceStatus?: PublicTrustMetadata["evidenceStatus"];
   requireReplayLineage?: boolean;
+  /** Observations may promote on ingestion+verification partial replay; alerts require publication. */
+  promotionKind?: "observation" | "alert";
 }
 
 export function hasRequiredProvenance(input: HarnessPresentationInput): boolean {
@@ -41,11 +45,28 @@ export function hasReconstructableLineage(input: HarnessPresentationInput): bool
   return Boolean(input.rootEventId && input.rootEventId.trim().length > 0);
 }
 
+export function inferReplayEvidenceFromPersistedLineage(
+  input: Pick<HarnessPresentationInput, "rootEventId" | "sourceIngestionEventId" | "verificationEventId">,
+): PublicTrustMetadata["evidenceStatus"] | undefined {
+  if (
+    input.rootEventId?.trim()
+    && input.sourceIngestionEventId?.trim()
+    && input.verificationEventId?.trim()
+  ) {
+    return "partial";
+  }
+
+  return undefined;
+}
+
 export function resolvePublicTrustMetadata(input: HarnessPresentationInput): PublicTrustMetadata {
   const promotable = canPromoteEnvironmentalSignal(input);
   const lineageOk = hasReconstructableLineage(input);
+  const replayEvidenceStatus = input.replayEvidenceStatus
+    ?? inferReplayEvidenceFromPersistedLineage(input)
+    ?? "unavailable";
 
-  let evidenceStatus: PublicTrustMetadata["evidenceStatus"] = input.replayEvidenceStatus ?? "unavailable";
+  let evidenceStatus: PublicTrustMetadata["evidenceStatus"] = replayEvidenceStatus;
 
   if (evidenceStatus === "complete" && !lineageOk) {
     evidenceStatus = "partial";
@@ -64,6 +85,19 @@ export function resolvePublicTrustMetadata(input: HarnessPresentationInput): Pub
       trustedForPromotion: false,
       evidenceStatus,
       replayCompleteness: "unavailable",
+    };
+  }
+
+  if (
+    input.promotionKind === "observation"
+    && evidenceStatus === "partial"
+    && input.sourceIngestionEventId
+    && input.verificationEventId
+  ) {
+    return {
+      trustedForPromotion: true,
+      evidenceStatus: "partial",
+      replayCompleteness: "partial",
     };
   }
 

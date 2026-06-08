@@ -394,7 +394,9 @@ export async function readRecentReplaySampleTargets(
     const signalRows = await adapter.execute(
       `SELECT DISTINCT signal_id
        FROM environmental_harness_events
-       WHERE signal_id IS NOT NULL AND signal_id != ''
+       WHERE signal_id IS NOT NULL
+         AND signal_id != ''
+         AND event_kind = 'ingestion'
        ORDER BY created_at DESC
        LIMIT ?`,
       [boundedLimit],
@@ -403,7 +405,9 @@ export async function readRecentReplaySampleTargets(
     const alertRows = await adapter.execute(
       `SELECT DISTINCT alert_id
        FROM environmental_harness_events
-       WHERE alert_id IS NOT NULL AND alert_id != ''
+       WHERE alert_id IS NOT NULL
+         AND alert_id != ''
+         AND root_event_id LIKE 'EHE-ingestion-%'
        ORDER BY created_at DESC
        LIMIT ?`,
       [boundedLimit],

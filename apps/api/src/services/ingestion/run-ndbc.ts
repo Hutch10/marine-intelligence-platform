@@ -591,7 +591,12 @@ export async function runNdbcIngestion(
         thresholds: resolvedThresholds,
       });
       if (anomalyActions.length > 0) {
-        await alertsService.applyAlertActions(anomalyActions);
+        await alertsService.applyAlertActions(
+          anomalyActions.map((anomalyAction) => ({
+            ...anomalyAction,
+            harnessLineage: signalLineage,
+          })),
+        );
       }
 
       logDiagnostic(

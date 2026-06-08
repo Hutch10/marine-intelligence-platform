@@ -340,9 +340,9 @@ test("production presentation gate requires replay lineage by default", () => {
       freshnessClassification: "live",
       provenance: { source: "noaa_ndbc", provenanceId: "PRV-1" },
       rootEventId: "EHE-ingestion-abc",
+      sourceIngestionEventId: "EHE-ingestion-abc",
+      verificationEventId: "EHE-verification-abc",
       signalId: "SIG-abc",
-      trustStatus: "trusted",
-      trustedForPromotion: true,
     }]);
 
     assert.equal(trusted.length, 1);

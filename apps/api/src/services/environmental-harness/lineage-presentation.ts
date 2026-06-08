@@ -7,8 +7,8 @@ import type {
 import { isProductionHarnessMode } from "./freshness-policy";
 import type { HarnessPresentationInput } from "./presentation-gate";
 import {
-  canPromoteEnvironmentalSignal,
   hasReconstructableLineage,
+  inferReplayEvidenceFromPersistedLineage,
   resolvePublicTrustMetadata,
 } from "./presentation-gate";
 
@@ -35,6 +35,10 @@ export function resolveEnvironmentalSignalTrustStatus(
     return "unverified_lineage";
   }
 
+  if (trust.evidenceStatus === "partial" && input.promotionKind === "observation") {
+    return "partial";
+  }
+
   if (trust.evidenceStatus === "partial") {
     return "partial";
   }
@@ -44,7 +48,7 @@ export function resolveEnvironmentalSignalTrustStatus(
 
 function annotateLineageTrust<T extends HarnessPresentationInput>(
   item: T,
-  options: { requireReplayLineage?: boolean } = {},
+  options: { requireReplayLineage?: boolean; promotionKind?: "observation" | "alert" } = {},
 ): T & PublicTrustMetadata & {
   trustStatus: EnvironmentalSignalTrustStatus;
 } {
@@ -52,10 +56,15 @@ function annotateLineageTrust<T extends HarnessPresentationInput>(
   const trustMetadata = resolvePublicTrustMetadata({
     ...item,
     requireReplayLineage,
+    promotionKind: options.promotionKind ?? item.promotionKind,
+    replayEvidenceStatus: item.replayEvidenceStatus
+      ?? inferReplayEvidenceFromPersistedLineage(item),
   });
   const trustStatus = resolveEnvironmentalSignalTrustStatus({
     ...item,
     requireReplayLineage,
+    promotionKind: options.promotionKind ?? item.promotionKind,
+    replayEvidenceStatus: trustMetadata.evidenceStatus,
   });
 
   return {
@@ -74,7 +83,8 @@ export function annotateLiveConditionTrust(
     freshnessClassification: condition.freshnessClassification,
     replayEvidenceStatus: condition.evidenceStatus,
     requireReplayLineage: options.requireReplayLineage,
-  });
+    promotionKind: "observation",
+  }) as LiveMarineCondition;
 }
 
 export function annotateReefAlertTrust(
@@ -86,7 +96,8 @@ export function annotateReefAlertTrust(
     freshnessClassification: alert.freshnessStatus?.classification,
     replayEvidenceStatus: alert.evidenceStatus,
     requireReplayLineage: options.requireReplayLineage,
-  });
+    promotionKind: "observation",
+  }) as ReefStressWatchItem;
 }
 
 export function filterTrustedLiveConditions(
@@ -97,17 +108,7 @@ export function filterTrustedLiveConditions(
 
   return conditions
     .map((condition) => annotateLiveConditionTrust(condition, { requireReplayLineage }))
-    .filter((condition) => canPromoteEnvironmentalSignal({
-      source: condition.source,
-      verificationStatus: condition.verificationStatus,
-      freshnessStatus: condition.freshnessStatus,
-      freshnessClassification: condition.freshnessClassification,
-      provenance: condition.provenance,
-      provenanceId: condition.provenanceId,
-      rootEventId: condition.rootEventId,
-      replayEvidenceStatus: condition.evidenceStatus,
-      requireReplayLineage,
-    }));
+    .filter((condition) => condition.trustedForPromotion === true);
 }
 
 export function filterTrustedReefAlerts(
@@ -118,16 +119,7 @@ export function filterTrustedReefAlerts(
 
   return alerts
     .map((alert) => annotateReefAlertTrust(alert, { requireReplayLineage }))
-    .filter((alert) => canPromoteEnvironmentalSignal({
-      source: alert.source,
-      verificationStatus: alert.verificationStatus,
-      freshnessStatus: alert.freshnessStatus,
-      freshnessClassification: alert.freshnessStatus?.classification,
-      provenance: alert.provenance,
-      rootEventId: alert.rootEventId,
-      replayEvidenceStatus: alert.evidenceStatus,
-      requireReplayLineage,
-    }));
+    .filter((alert) => alert.trustedForPromotion === true);
 }
 
 export function annotateUntrustedLiveConditions(
