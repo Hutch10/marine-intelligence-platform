@@ -7,7 +7,7 @@ $apiDir = Join-Path $repoRoot "apps\api"
 $envFile = Join-Path $apiDir ".env.ingest-worker.local"
 
 if (-not (Test-Path $envFile)) {
-  Write-Error "Missing $envFile — copy apps/api/.env.ingest-worker.example and fill Turso credentials."
+  Write-Error "Missing $envFile - copy apps/api/.env.ingest-worker.example and fill Turso credentials."
 }
 
 Get-Content $envFile | ForEach-Object {

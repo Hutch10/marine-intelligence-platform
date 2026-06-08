@@ -99,12 +99,12 @@ Or bash:
 
 | Signal | Metric | Warn | Hard fail | Notes |
 |--------|--------|------|-----------|-------|
-| **NDBC** (`/live-conditions`) | Latest observation age | — | **> 6 h** | Real-time station telemetry |
+| **NDBC** (`/live-conditions`) | Latest observation age | - | **> 6 h** | Real-time station telemetry |
 | **CRW** (`/reef-alerts`) | Latest product date age | **> 48 h** | **> 72 h** | Daily NOAA virtual-station product |
-| GHA ingest | Consecutive failures | — | **≥ 2** | Page operator |
-| `ingest:live` | Exit code | — | `1` / `2` | Ingest or persistence failure |
+| GHA ingest | Consecutive failures | - | **>= 2** | Page operator |
+| `ingest:live` | Exit code | - | `1` / `2` | Ingest or persistence failure |
 
-**CRW freshness policy:** NOAA Coral Reef Watch virtual-station files publish **one row per calendar day**. The API `timestamp` is the **product date at midnight UTC**, not ingest time. Between NOAA publishing cycles, reef alert age commonly exceeds 48 h while data remains the latest available product. Verification scripts (`verify-production-telemetry.ps1` / `.sh`) emit **WARN** when CRW age is 48–72 h and **FAIL** only above 72 h — aligned with ingest `staleAfterMs` (72 h) in `run-crw.ts`. Do not treat CRW WARN alone as platform failure when NDBC is fresh.
+**CRW freshness policy:** NOAA Coral Reef Watch virtual-station files publish **one row per calendar day**. The API `timestamp` is the **product date at midnight UTC**, not ingest time. Between NOAA publishing cycles, reef alert age commonly exceeds 48 h while data remains the latest available product. Verification scripts (`verify-production-telemetry.ps1` / `.sh`) emit **WARN** when CRW age is 48-72 h and **FAIL** only above 72 h - aligned with ingest `staleAfterMs` (72 h) in `run-crw.ts`. Do not treat CRW WARN alone as platform failure when NDBC is fresh.
 
 ---
 
