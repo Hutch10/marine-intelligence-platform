@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
-import { getFeedHealth } from "@/lib/feed-health";
-import { FeedHealthBanner } from "@/components/layout/feed-health-banner";
+import { Suspense } from "react";
+import { FeedHealthBannerLoader } from "@/components/layout/feed-health-banner-loader";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -43,13 +43,13 @@ export function AppShell({
   className,
 }: AppShellProps) {
 
-  const feedHealth = getFeedHealth();
-
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-ocean-950 text-slate-200">
       <TopBar title={pageTitle} subtitle={pageSubtitle} />
 
-      <FeedHealthBanner feedHealth={feedHealth} />
+      <Suspense fallback={null}>
+        <FeedHealthBannerLoader />
+      </Suspense>
 
       <div className="flex flex-1 overflow-hidden">
         <Sidebar />

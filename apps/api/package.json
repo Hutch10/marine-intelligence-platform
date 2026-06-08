@@ -12,6 +12,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --test src/security/**/*.test.ts src/connectors/**/*.test.ts src/db/**/*.test.ts src/repositories/**/*.test.ts src/routes/**/*.test.ts src/services/**/*.test.ts src/workers/**/*.test.ts src/vector/**/*.test.ts",
     "seed:datasets": "npx tsx src/db/seed-datasets.ts",
+    "ingest:env-check": "npx tsx src/workers/ingest-env-check.ts",
     "ingest:live": "npx tsx src/workers/ingest-live-feeds.ts",
     "ingest:scheduler": "npx tsx src/workers/scheduler.ts"
   },

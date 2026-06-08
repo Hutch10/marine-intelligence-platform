@@ -129,7 +129,7 @@ function parseFeedHealthQuery(query: FeedHealthQuery | undefined): { limit: numb
   };
 }
 
-function readDatabaseFeedHealth(query: FeedHealthQuery | undefined): LiveIngestionHealthSnapshotReadResult {
+async function readDatabaseFeedHealth(query: FeedHealthQuery | undefined): Promise<LiveIngestionHealthSnapshotReadResult> {
   const parsedQuery = parseFeedHealthQuery(query);
 
   try {
@@ -138,10 +138,10 @@ function readDatabaseFeedHealth(query: FeedHealthQuery | undefined): LiveIngesti
       getLiveIngestionHealthSnapshot: (options: {
         limit: number;
         staleAfterMs: number;
-      }) => LiveIngestionHealthSnapshotReadResult;
+      }) => Promise<LiveIngestionHealthSnapshotReadResult>;
     };
 
-    return repository.getLiveIngestionHealthSnapshot(parsedQuery);
+    return await repository.getLiveIngestionHealthSnapshot(parsedQuery);
   } catch {
     return {
       source: "unavailable",
@@ -255,10 +255,11 @@ function toStationDiagnosticItem(item: NdbcStationIngestionDiagnostic): FeedHeal
   };
 }
 
-export function buildFeedHealthRouteResponse(
-  readResult = readDatabaseFeedHealth(undefined),
+export async function buildFeedHealthRouteResponse(
+  readResultPromise: Promise<LiveIngestionHealthSnapshotReadResult> | LiveIngestionHealthSnapshotReadResult = readDatabaseFeedHealth(undefined),
   query?: FeedHealthQuery,
-): { status: number; json: FeedHealthResponse; telemetry: FeedHealthTelemetry } {
+): Promise<{ status: number; json: FeedHealthResponse; telemetry: FeedHealthTelemetry }> {
+  const readResult = await readResultPromise;
   const parsedQuery = parseFeedHealthQuery(query);
 
   if (readResult.source === "db") {
@@ -321,8 +322,8 @@ export function buildFeedHealthRouteResponse(
 export const getFeedHealthRoute: RouteDefinition<FeedHealthResponse, undefined, FeedHealthQuery> = {
   method: "GET",
   path: "/feed-health",
-  handler(request) {
-    const readResult = readDatabaseFeedHealth(request.query);
-    return buildFeedHealthRouteResponse(readResult, request.query);
+  async handler(request) {
+    const readResult = await readDatabaseFeedHealth(request.query);
+    return await buildFeedHealthRouteResponse(readResult, request.query);
   },
 };

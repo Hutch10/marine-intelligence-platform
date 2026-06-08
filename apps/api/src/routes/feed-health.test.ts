@@ -143,8 +143,8 @@ const DB_READ_RESULT: LiveIngestionHealthSnapshotReadResult = {
   },
 };
 
-test("feed-health route exposes latest status per source", () => {
-  const response = buildFeedHealthRouteResponse(DB_READ_RESULT);
+test("feed-health route exposes latest status per source", async () => {
+  const response = await buildFeedHealthRouteResponse(DB_READ_RESULT);
 
   assert.equal(response.status, 200);
   assert.equal(response.json.source, "db");
@@ -163,8 +163,8 @@ test("feed-health route exposes latest status per source", () => {
   assert.equal(response.json.latest_status_by_source[1]?.station_diagnostics[0]?.missing_field_rates.wave_height_m, 0.2);
 });
 
-test("feed-health route exposes recent history list", () => {
-  const response = buildFeedHealthRouteResponse(DB_READ_RESULT);
+test("feed-health route exposes recent history list", async () => {
+  const response = await buildFeedHealthRouteResponse(DB_READ_RESULT);
 
   assert.equal(response.json.recent_history.length, 2);
   assert.equal(response.json.recent_history[0]?.source, "noaa_ndbc");
@@ -174,8 +174,8 @@ test("feed-health route exposes recent history list", () => {
   assert.equal(response.telemetry.historyCount, 2);
 });
 
-test("feed-health route returns safe empty state for db source with no rows", () => {
-  const response = buildFeedHealthRouteResponse({
+test("feed-health route returns safe empty state for db source with no rows", async () => {
+  const response = await buildFeedHealthRouteResponse({
     source: "db",
     snapshot: {
       generatedAt: "2026-03-18T12:10:00.000Z",
@@ -204,8 +204,8 @@ test("feed-health route returns safe empty state for db source with no rows", ()
   assert.equal(response.json.summary.last_completed_at, null);
 });
 
-test("feed-health route returns unavailable fallback metadata with empty payload", () => {
-  const response = buildFeedHealthRouteResponse({
+test("feed-health route returns unavailable fallback metadata with empty payload", async () => {
+  const response = await buildFeedHealthRouteResponse({
     source: "unavailable",
     fallbackReason: "db_path_missing",
   });
@@ -219,9 +219,9 @@ test("feed-health route returns unavailable fallback metadata with empty payload
   assert.equal(response.telemetry.fallbackReason, "db_path_missing");
 });
 
-test("feed-health route contract shape remains stable across db and unavailable states", () => {
-  const dbResponse = buildFeedHealthRouteResponse(DB_READ_RESULT);
-  const unavailableResponse = buildFeedHealthRouteResponse({
+test("feed-health route contract shape remains stable across db and unavailable states", async () => {
+  const dbResponse = await buildFeedHealthRouteResponse(DB_READ_RESULT);
+  const unavailableResponse = await buildFeedHealthRouteResponse({
     source: "unavailable",
     fallbackReason: "db_query_failed",
   });

@@ -6,6 +6,7 @@ import {
   type SqliteDatabaseLike,
   type SqliteStatementLike,
 } from "../db/client";
+import { getAsyncAdapter, usesTursoDatabase, type AsyncDbAdapter } from "../db/async-client";
 import type { LiveFeedIngestionReport, SourceIngestionTelemetry } from "../workers/ingest-live-feeds";
 import type { NdbcStationIngestionDiagnostic } from "../services/ingestion/run-ndbc";
 
@@ -114,6 +115,7 @@ interface LiveIngestionReportsRepositoryDependencies {
   hasPath?: typeof hasDatabasePath;
   openReadOnly?: typeof openReadOnlyDatabase;
   openWritable?: typeof openWritableDatabase;
+  getAdapter?: typeof getAsyncAdapter;
   now?: () => number;
 }
 
@@ -512,6 +514,213 @@ export function insertLiveIngestionSourceReport(
   return input.reportId;
 }
 
+async function ensureLiveIngestionWorkerRunsTableAsync(adapter: AsyncDbAdapter) {
+  await adapter.execute(
+    `CREATE TABLE IF NOT EXISTS live_ingestion_worker_runs (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL,
+      started_at INTEGER NOT NULL,
+      completed_at INTEGER NOT NULL,
+      duration_ms INTEGER NOT NULL,
+      inserted_count INTEGER NOT NULL,
+      rejected_count INTEGER NOT NULL,
+      rejection_reasons_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )`,
+  );
+}
+
+async function ensureLiveIngestionReportsTableAsync(adapter: AsyncDbAdapter) {
+  await adapter.execute(
+    `CREATE TABLE IF NOT EXISTS live_ingestion_reports (
+      id TEXT PRIMARY KEY,
+      worker_run_id TEXT NOT NULL,
+      source TEXT NOT NULL,
+      started_at INTEGER NOT NULL,
+      completed_at INTEGER NOT NULL,
+      duration_ms INTEGER NOT NULL,
+      inserted_count INTEGER NOT NULL,
+      rejected_count INTEGER NOT NULL,
+      rejection_reasons_json TEXT NOT NULL,
+      status TEXT NOT NULL,
+      run_id TEXT,
+      error TEXT,
+      station_diagnostics_json TEXT NOT NULL DEFAULT '[]',
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (worker_run_id) REFERENCES live_ingestion_worker_runs(id)
+    )`,
+  );
+
+  await adapter.execute(
+    "CREATE INDEX IF NOT EXISTS idx_live_ingestion_reports_source_started_at ON live_ingestion_reports (source, started_at)",
+  );
+
+  await adapter.execute(
+    "CREATE INDEX IF NOT EXISTS idx_live_ingestion_reports_worker_run_id ON live_ingestion_reports (worker_run_id)",
+  );
+}
+
+async function insertLiveIngestionWorkerRunAsync(
+  adapter: AsyncDbAdapter,
+  input: WorkerRunInsertInput,
+): Promise<string> {
+  await adapter.execute(
+    `INSERT INTO live_ingestion_worker_runs (
+      id,
+      status,
+      started_at,
+      completed_at,
+      duration_ms,
+      inserted_count,
+      rejected_count,
+      rejection_reasons_json,
+      created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      input.workerRunId,
+      input.status,
+      input.startedAt,
+      input.completedAt,
+      input.durationMs,
+      input.insertedCount,
+      input.rejectedCount,
+      input.rejectionReasonsJson,
+      input.createdAt,
+    ],
+  );
+
+  return input.workerRunId;
+}
+
+async function insertLiveIngestionSourceReportAsync(
+  adapter: AsyncDbAdapter,
+  input: SourceReportInsertInput,
+): Promise<string> {
+  await adapter.execute(
+    `INSERT INTO live_ingestion_reports (
+      id,
+      worker_run_id,
+      source,
+      started_at,
+      completed_at,
+      duration_ms,
+      inserted_count,
+      rejected_count,
+      rejection_reasons_json,
+      status,
+      run_id,
+      error,
+      station_diagnostics_json,
+      created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      input.reportId,
+      input.workerRunId,
+      input.source,
+      input.startedAt,
+      input.completedAt,
+      input.durationMs,
+      input.insertedCount,
+      input.rejectedCount,
+      input.rejectionReasonsJson,
+      input.status,
+      input.runId,
+      input.error,
+      input.stationDiagnosticsJson,
+      input.createdAt,
+    ],
+  );
+
+  return input.reportId;
+}
+
+async function readRecentLiveIngestionHistoryFromAdapter(
+  adapter: AsyncDbAdapter,
+  limit = 50,
+): Promise<LiveIngestionHistoryItem[]> {
+  const boundedLimit = Math.min(Math.max(Math.floor(limit), 1), 500);
+  const rows = await adapter.execute(
+    `SELECT r.id,
+            r.worker_run_id,
+            r.source,
+            r.started_at,
+            r.completed_at,
+            r.duration_ms,
+            r.inserted_count,
+            r.rejected_count,
+            r.rejection_reasons_json,
+            r.status,
+            r.run_id,
+            r.error,
+            w.status AS worker_status,
+            r.station_diagnostics_json
+     FROM live_ingestion_reports r
+     INNER JOIN live_ingestion_worker_runs w
+             ON w.id = r.worker_run_id
+     ORDER BY r.started_at DESC
+     LIMIT ?`,
+    [boundedLimit],
+  ) as LiveIngestionReportRow[];
+
+  return rows.map(toHistoryItem);
+}
+
+async function readLatestLiveIngestionStatusBySourceFromAdapter(
+  adapter: AsyncDbAdapter,
+): Promise<LiveIngestionLatestSourceStatus[]> {
+  const rows = await adapter.execute(
+    `SELECT r.source,
+            r.worker_run_id,
+            w.status AS worker_status,
+            r.status,
+            r.started_at,
+            r.completed_at,
+            r.duration_ms,
+            r.inserted_count,
+            r.rejected_count,
+            r.rejection_reasons_json,
+            r.run_id,
+            r.error,
+            r.station_diagnostics_json
+     FROM live_ingestion_reports r
+     INNER JOIN live_ingestion_worker_runs w
+             ON w.id = r.worker_run_id
+     INNER JOIN (
+       SELECT source, MAX(started_at) AS started_at
+       FROM live_ingestion_reports
+       GROUP BY source
+     ) latest
+             ON latest.source = r.source
+            AND latest.started_at = r.started_at
+     ORDER BY r.source ASC`,
+  ) as LiveIngestionLatestRow[];
+
+  return rows.map(toLatestSourceStatus);
+}
+
+async function readLiveIngestionHealthSnapshotFromAdapter(
+  adapter: AsyncDbAdapter,
+  options: LiveIngestionHealthSnapshotReadOptions = {},
+): Promise<LiveIngestionHealthSnapshot> {
+  const now = options.now ?? Date.now;
+  const historyLimit = options.limit ?? DEFAULT_HEALTH_HISTORY_LIMIT;
+  const staleAfterMs = Math.max(0, Math.floor(options.staleAfterMs ?? DEFAULT_STALE_AFTER_MS));
+  const nowMs = now();
+
+  const recentHistory = await readRecentLiveIngestionHistoryFromAdapter(adapter, historyLimit);
+  const latestBySource = (await readLatestLiveIngestionStatusBySourceFromAdapter(adapter)).map((latest) =>
+    toSourceHealthStatus(latest, nowMs, staleAfterMs),
+  );
+
+  return {
+    generatedAt: new Date(nowMs).toISOString(),
+    staleAfterMs,
+    summary: summarizeHealth(latestBySource, recentHistory),
+    latestBySource,
+    recentHistory,
+  };
+}
+
 function buildWorkerRunId(now: number): string {
   return `LWR-${now}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 }
@@ -520,13 +729,71 @@ function buildSourceReportId(source: string, startedAtMs: number): string {
   return `LRP-${source}-${startedAtMs}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 }
 
-export function persistLiveIngestionReport(
+export async function persistLiveIngestionReport(
   report: LiveFeedIngestionReport,
   dependencies: LiveIngestionReportsRepositoryDependencies = {},
-): LiveIngestionPersistResult {
+): Promise<LiveIngestionPersistResult> {
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
+  const now = dependencies.now ?? Date.now;
+
+  if (usesTursoDatabase()) {
+    const adapter = getAdapter(false);
+
+    try {
+      await ensureLiveIngestionWorkerRunsTableAsync(adapter);
+      await ensureLiveIngestionReportsTableAsync(adapter);
+
+      const persistedAt = now();
+      const workerRunId = buildWorkerRunId(persistedAt);
+
+      await insertLiveIngestionWorkerRunAsync(adapter, {
+        workerRunId,
+        status: report.status,
+        startedAt: toEpochMs(report.started_at),
+        completedAt: toEpochMs(report.completed_at),
+        durationMs: report.duration_ms,
+        insertedCount: report.inserted_count,
+        rejectedCount: report.rejected_count,
+        rejectionReasonsJson: JSON.stringify(report.rejection_reasons),
+        createdAt: persistedAt,
+      });
+
+      const sourceReportIds = await Promise.all(
+        report.runs.map(async (run: SourceIngestionTelemetry) => {
+          const reportId = buildSourceReportId(run.source, toEpochMs(run.started_at));
+
+          await insertLiveIngestionSourceReportAsync(adapter, {
+            reportId,
+            workerRunId,
+            source: run.source,
+            startedAt: toEpochMs(run.started_at),
+            completedAt: toEpochMs(run.completed_at),
+            durationMs: run.duration_ms,
+            insertedCount: run.inserted_count,
+            rejectedCount: run.rejected_count,
+            rejectionReasonsJson: JSON.stringify(run.rejection_reasons),
+            status: run.status,
+            runId: run.run_id,
+            error: run.error,
+            stationDiagnosticsJson: JSON.stringify(run.station_diagnostics ?? []),
+            createdAt: persistedAt,
+          });
+
+          return reportId;
+        }),
+      );
+
+      return {
+        workerRunId,
+        sourceReportIds,
+      };
+    } finally {
+      adapter.close();
+    }
+  }
+
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const openWritable = dependencies.openWritable ?? openWritableDatabase;
-  const now = dependencies.now ?? Date.now;
   const dbPath = resolvePath();
 
   const db = openWritable(dbPath);
@@ -739,8 +1006,12 @@ export function listRecentLiveIngestionHistory(
   const openReadOnly = dependencies.openReadOnly ?? openReadOnlyDatabase;
   const dbPath = resolvePath();
 
-  if (!hasPath(dbPath)) {
+  if (!usesTursoDatabase() && !hasPath(dbPath)) {
     return { source: "unavailable", fallbackReason: "db_path_missing" };
+  }
+
+  if (usesTursoDatabase()) {
+    return { source: "unavailable", fallbackReason: "db_query_failed" };
   }
 
   let db: SqliteDatabaseLike;
@@ -771,8 +1042,12 @@ export function listLatestLiveIngestionStatusBySource(
   const openReadOnly = dependencies.openReadOnly ?? openReadOnlyDatabase;
   const dbPath = resolvePath();
 
-  if (!hasPath(dbPath)) {
+  if (!usesTursoDatabase() && !hasPath(dbPath)) {
     return { source: "unavailable", fallbackReason: "db_path_missing" };
+  }
+
+  if (usesTursoDatabase()) {
+    return { source: "unavailable", fallbackReason: "db_query_failed" };
   }
 
   let db: SqliteDatabaseLike;
@@ -795,17 +1070,39 @@ export function listLatestLiveIngestionStatusBySource(
   }
 }
 
-export function getLiveIngestionHealthSnapshot(
+export async function getLiveIngestionHealthSnapshot(
   options: LiveIngestionHealthSnapshotReadOptions = {},
   dependencies: LiveIngestionReportsRepositoryDependencies = {},
-): LiveIngestionHealthSnapshotReadResult {
+): Promise<LiveIngestionHealthSnapshotReadResult> {
   const resolvePath = dependencies.resolvePath ?? resolveDatabasePath;
   const hasPath = dependencies.hasPath ?? hasDatabasePath;
   const openReadOnly = dependencies.openReadOnly ?? openReadOnlyDatabase;
+  const getAdapter = dependencies.getAdapter ?? getAsyncAdapter;
   const dbPath = resolvePath();
 
-  if (!hasPath(dbPath)) {
+  if (!usesTursoDatabase() && !hasPath(dbPath)) {
     return { source: "unavailable", fallbackReason: "db_path_missing" };
+  }
+
+  if (usesTursoDatabase()) {
+    let adapter: AsyncDbAdapter;
+
+    try {
+      adapter = getAdapter(true);
+    } catch {
+      return { source: "unavailable", fallbackReason: "db_open_failed" };
+    }
+
+    try {
+      return {
+        source: "db",
+        snapshot: await readLiveIngestionHealthSnapshotFromAdapter(adapter, options),
+      };
+    } catch {
+      return { source: "unavailable", fallbackReason: "db_query_failed" };
+    } finally {
+      adapter.close();
+    }
   }
 
   let db: SqliteDatabaseLike;

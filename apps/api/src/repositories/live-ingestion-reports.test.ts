@@ -120,10 +120,10 @@ function createReadDatabase(
   };
 }
 
-test("persistLiveIngestionReport writes worker and source report rows", () => {
+test("persistLiveIngestionReport writes worker and source report rows", async () => {
   const captured: Array<{ sql: string; params: unknown[] }> = [];
 
-  const result = persistLiveIngestionReport(SAMPLE_REPORT, {
+  const result = await persistLiveIngestionReport(SAMPLE_REPORT, {
     resolvePath: () => "marine.sqlite",
     openWritable: () => createWritableCaptureDatabase(captured),
     now: () => Date.parse("2026-03-18T10:02:01.000Z"),
@@ -331,8 +331,8 @@ test("readLiveIngestionHealthSnapshotFromDb returns summary and stale-source ind
   assert.ok((staleSource?.staleByMs ?? 0) > 0);
 });
 
-test("getLiveIngestionHealthSnapshot returns unavailable when db open fails", () => {
-  const result = getLiveIngestionHealthSnapshot(
+test("getLiveIngestionHealthSnapshot returns unavailable when db open fails", async () => {
+  const result = await getLiveIngestionHealthSnapshot(
     {},
     {
       resolvePath: () => "marine.sqlite",

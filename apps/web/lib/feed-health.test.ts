@@ -114,10 +114,10 @@ beforeEach(() => {
 });
 
 describe("getFeedHealth — DB unavailable", () => {
-  test("returns unknown for both sources when DB is not available", () => {
-    mockBuildFeedHealthRouteResponse.mockReturnValue(makeUnavailableResponse());
+  test("returns unknown for both sources when DB is not available", async () => {
+    mockBuildFeedHealthRouteResponse.mockResolvedValue(makeUnavailableResponse());
 
-    const result = getFeedHealth();
+    const result = await getFeedHealth();
 
     expect(result.dbAvailable).toBe(false);
     expect(result.ndbc.status).toBe("unknown");
@@ -133,8 +133,8 @@ describe("getFeedHealth — DB unavailable", () => {
 });
 
 describe("getFeedHealth — live status", () => {
-  test("returns live when all sources completed within 8 hours", () => {
-    mockBuildFeedHealthRouteResponse.mockReturnValue(
+  test("returns live when all sources completed within 8 hours", async () => {
+    mockBuildFeedHealthRouteResponse.mockResolvedValue(
       makeDbResponse([
         makeSourceEntry("noaa_ndbc", makeTimestamp(1)),
         makeSourceEntry("crw", makeTimestamp(3)),
@@ -143,7 +143,7 @@ describe("getFeedHealth — live status", () => {
       ]),
     );
 
-    const result = getFeedHealth();
+    const result = await getFeedHealth();
 
     expect(result.ndbc.status).toBe("live");
     expect(result.crw.status).toBe("live");
@@ -156,9 +156,9 @@ describe("getFeedHealth — live status", () => {
     expect(result.erddap.ageLabel).toBe("4h ago");
   });
 
-  test("returns live at exactly the boundary (7h 59m)", () => {
+  test("returns live at exactly the boundary (7h 59m)", async () => {
     const almostStale = new Date(NOW - (8 * HOUR_MS - 60 * 1000)).toISOString();
-    mockBuildFeedHealthRouteResponse.mockReturnValue(
+    mockBuildFeedHealthRouteResponse.mockResolvedValue(
       makeDbResponse([
         makeSourceEntry("noaa_ndbc", almostStale),
         makeSourceEntry("crw", almostStale),
@@ -167,7 +167,7 @@ describe("getFeedHealth — live status", () => {
       ]),
     );
 
-    const result = getFeedHealth();
+    const result = await getFeedHealth();
     expect(result.ndbc.status).toBe("live");
     expect(result.crw.status).toBe("live");
     expect(result.ioos.status).toBe("live");
@@ -176,8 +176,8 @@ describe("getFeedHealth — live status", () => {
 });
 
 describe("getFeedHealth — stale status", () => {
-  test("returns stale when ERDDAP source is 8–24 hours old", () => {
-    mockBuildFeedHealthRouteResponse.mockReturnValue(
+  test("returns stale when ERDDAP source is 8–24 hours old", async () => {
+    mockBuildFeedHealthRouteResponse.mockResolvedValue(
       makeDbResponse([
         makeSourceEntry("noaa_ndbc", makeTimestamp(1)),
         makeSourceEntry("crw", makeTimestamp(3)),
@@ -186,7 +186,7 @@ describe("getFeedHealth — stale status", () => {
       ]),
     );
 
-    const result = getFeedHealth();
+    const result = await getFeedHealth();
 
     expect(result.erddap.status).toBe("stale");
     expect(result.ndbc.status).toBe("live");
@@ -198,8 +198,8 @@ describe("getFeedHealth — stale status", () => {
 });
 
 describe("getFeedHealth — failed status", () => {
-  test("returns failed when IOOS source is older than 24 hours", () => {
-    mockBuildFeedHealthRouteResponse.mockReturnValue(
+  test("returns failed when IOOS source is older than 24 hours", async () => {
+    mockBuildFeedHealthRouteResponse.mockResolvedValue(
       makeDbResponse([
         makeSourceEntry("noaa_ndbc", makeTimestamp(1)),
         makeSourceEntry("crw", makeTimestamp(3)),
@@ -208,7 +208,7 @@ describe("getFeedHealth — failed status", () => {
       ]),
     );
 
-    const result = getFeedHealth();
+    const result = await getFeedHealth();
 
     expect(result.ioos.status).toBe("failed");
     expect(result.crw.status).toBe("live");
@@ -217,8 +217,8 @@ describe("getFeedHealth — failed status", () => {
     expect(result.overallStatus).toBe("failed");
   });
 
-  test("returns failed when run status is 'failed' regardless of timestamp age", () => {
-    mockBuildFeedHealthRouteResponse.mockReturnValue(
+  test("returns failed when run status is 'failed' regardless of timestamp age", async () => {
+    mockBuildFeedHealthRouteResponse.mockResolvedValue(
       makeDbResponse([
         makeSourceEntry("noaa_ndbc", makeTimestamp(1), "failed"),
         makeSourceEntry("crw", makeTimestamp(1)),
@@ -227,14 +227,14 @@ describe("getFeedHealth — failed status", () => {
       ]),
     );
 
-    const result = getFeedHealth();
+    const result = await getFeedHealth();
 
     expect(result.ndbc.status).toBe("failed");
     expect(result.crw.status).toBe("live");
   });
 
-  test("returns failed when error field is non-null regardless of timestamp age", () => {
-    mockBuildFeedHealthRouteResponse.mockReturnValue(
+  test("returns failed when error field is non-null regardless of timestamp age", async () => {
+    mockBuildFeedHealthRouteResponse.mockResolvedValue(
       makeDbResponse([
         makeSourceEntry("noaa_ndbc", makeTimestamp(1), "success", "fetch timeout"),
         makeSourceEntry("crw", makeTimestamp(1)),
@@ -243,7 +243,7 @@ describe("getFeedHealth — failed status", () => {
       ]),
     );
 
-    const result = getFeedHealth();
+    const result = await getFeedHealth();
 
     expect(result.ndbc.status).toBe("failed");
     expect(result.crw.status).toBe("live");
@@ -251,8 +251,8 @@ describe("getFeedHealth — failed status", () => {
 });
 
 describe("getFeedHealth — missing source entries", () => {
-  test("returns unknown for a source with no ingestion history when DB is available", () => {
-    mockBuildFeedHealthRouteResponse.mockReturnValue(
+  test("returns unknown for a source with no ingestion history when DB is available", async () => {
+    mockBuildFeedHealthRouteResponse.mockResolvedValue(
       makeDbResponse([
         makeSourceEntry("noaa_ndbc", makeTimestamp(2)),
         makeSourceEntry("crw", makeTimestamp(2)),
@@ -260,7 +260,7 @@ describe("getFeedHealth — missing source entries", () => {
       ]),
     );
 
-    const result = getFeedHealth();
+    const result = await getFeedHealth();
 
     expect(result.dbAvailable).toBe(true);
     expect(result.ndbc.status).toBe("live");
@@ -270,10 +270,10 @@ describe("getFeedHealth — missing source entries", () => {
     expect(result.overallStatus).toBe("unknown");
   });
 
-  test("returns unknown for both sources when latest_status_by_source is empty", () => {
-    mockBuildFeedHealthRouteResponse.mockReturnValue(makeDbResponse([]));
+  test("returns unknown for both sources when latest_status_by_source is empty", async () => {
+    mockBuildFeedHealthRouteResponse.mockResolvedValue(makeDbResponse([]));
 
-    const result = getFeedHealth();
+    const result = await getFeedHealth();
 
     expect(result.dbAvailable).toBe(true);
     expect(result.ndbc.status).toBe("unknown");
@@ -285,8 +285,8 @@ describe("getFeedHealth — missing source entries", () => {
 });
 
 describe("getFeedHealth — never-ran source", () => {
-  test("returns honest no-data-yet state for ERDDAP when never run", () => {
-    mockBuildFeedHealthRouteResponse.mockReturnValue(
+  test("returns honest no-data-yet state for ERDDAP when never run", async () => {
+    mockBuildFeedHealthRouteResponse.mockResolvedValue(
       makeDbResponse([
         makeSourceEntry("noaa_ndbc", makeTimestamp(1)),
         makeSourceEntry("crw", makeTimestamp(1)),
@@ -294,7 +294,7 @@ describe("getFeedHealth — never-ran source", () => {
       ]),
     );
 
-    const result = getFeedHealth();
+    const result = await getFeedHealth();
 
     expect(result.erddap.status).toBe("unknown");
     expect(result.erddap.lastIngestedAt).toBeNull();
@@ -303,8 +303,8 @@ describe("getFeedHealth — never-ran source", () => {
 });
 
 describe("getFeedHealth — overallStatus worst-case propagation", () => {
-  test("overallStatus is failed when one source failed and other is live", () => {
-    mockBuildFeedHealthRouteResponse.mockReturnValue(
+  test("overallStatus is failed when one source failed and other is live", async () => {
+    mockBuildFeedHealthRouteResponse.mockResolvedValue(
       makeDbResponse([
         makeSourceEntry("noaa_ndbc", makeTimestamp(30)),
         makeSourceEntry("crw", makeTimestamp(2)),
@@ -313,12 +313,12 @@ describe("getFeedHealth — overallStatus worst-case propagation", () => {
       ]),
     );
 
-    const result = getFeedHealth();
+    const result = await getFeedHealth();
     expect(result.overallStatus).toBe("failed");
   });
 
-  test("overallStatus is unknown when one source is unknown and other is live", () => {
-    mockBuildFeedHealthRouteResponse.mockReturnValue(
+  test("overallStatus is unknown when one source is unknown and other is live", async () => {
+    mockBuildFeedHealthRouteResponse.mockResolvedValue(
       makeDbResponse([
         makeSourceEntry("noaa_ndbc", makeTimestamp(2)),
         makeSourceEntry("crw", makeTimestamp(2)),
@@ -326,22 +326,22 @@ describe("getFeedHealth — overallStatus worst-case propagation", () => {
       ]),
     );
 
-    const result = getFeedHealth();
+    const result = await getFeedHealth();
     expect(result.overallStatus).toBe("unknown");
   });
 });
 
 describe("getFeedHealthDiagnostics", () => {
-  test("returns empty diagnostics when feed-health source is unavailable", () => {
-    mockBuildFeedHealthRouteResponse.mockReturnValue(makeUnavailableResponse());
+  test("returns empty diagnostics when feed-health source is unavailable", async () => {
+    mockBuildFeedHealthRouteResponse.mockResolvedValue(makeUnavailableResponse());
 
-    const result = getFeedHealthDiagnostics();
+    const result = await getFeedHealthDiagnostics();
 
     expect(result).toEqual([]);
   });
 
-  test("maps per-station rejection reasons into failure counts and reason category", () => {
-    mockBuildFeedHealthRouteResponse.mockReturnValue(
+  test("maps per-station rejection reasons into failure counts and reason category", async () => {
+    mockBuildFeedHealthRouteResponse.mockResolvedValue(
       makeDbResponse([
         {
           ...makeSourceEntry("noaa_ndbc", makeTimestamp(2)),
@@ -374,7 +374,7 @@ describe("getFeedHealthDiagnostics", () => {
       ]),
     );
 
-    const result = getFeedHealthDiagnostics();
+    const result = await getFeedHealthDiagnostics();
 
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({
@@ -389,8 +389,8 @@ describe("getFeedHealthDiagnostics", () => {
     });
   });
 
-  test("does not emit diagnostics rows when there are no station rejection counts", () => {
-    mockBuildFeedHealthRouteResponse.mockReturnValue(
+  test("does not emit diagnostics rows when there are no station rejection counts", async () => {
+    mockBuildFeedHealthRouteResponse.mockResolvedValue(
       makeDbResponse([
         {
           ...makeSourceEntry("ioos_regional", makeTimestamp(1)),
@@ -420,7 +420,7 @@ describe("getFeedHealthDiagnostics", () => {
       ]),
     );
 
-    const result = getFeedHealthDiagnostics();
+    const result = await getFeedHealthDiagnostics();
 
     expect(result).toEqual([]);
   });
