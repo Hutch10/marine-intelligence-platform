@@ -391,7 +391,9 @@ const serverRoutes: ServerRoute[] = [
         return denied;
       }
 
-      return await postReplayValidationRoute.handler({ body: body ?? {} });
+      return await postReplayValidationRoute.handler({
+        body: (body ?? {}) as Parameters<typeof postReplayValidationRoute.handler>[0]["body"],
+      });
     },
   },
   {
@@ -415,7 +417,9 @@ const serverRoutes: ServerRoute[] = [
         return denied;
       }
 
-      return await postOperatorReviewQueueActionRoute.handler({ body: body ?? {} });
+      return await postOperatorReviewQueueActionRoute.handler({
+        body: (body ?? {}) as Parameters<typeof postOperatorReviewQueueActionRoute.handler>[0]["body"],
+      });
     },
   },
   {
@@ -427,7 +431,9 @@ const serverRoutes: ServerRoute[] = [
         return denied;
       }
 
-      return await postOperatorReviewQueueEnqueueRoute.handler({ body: body ?? {} });
+      return await postOperatorReviewQueueEnqueueRoute.handler({
+        body: (body ?? {}) as Parameters<typeof postOperatorReviewQueueEnqueueRoute.handler>[0]["body"],
+      });
     },
   },
   {

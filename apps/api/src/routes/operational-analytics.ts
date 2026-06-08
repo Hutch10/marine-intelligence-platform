@@ -71,7 +71,9 @@ export const postOperationalAnalyticsRecordRoute: RouteDefinition<
   },
 };
 
-export const getOperationalAnalyticsSummaryRoute: RouteDefinition<OperationalAnalyticsSummary> = {
+export const getOperationalAnalyticsSummaryRoute: RouteDefinition<
+  OperationalAnalyticsSummary | { message: string }
+> = {
   method: "GET",
   path: "/internal/operator/analytics",
   async handler() {

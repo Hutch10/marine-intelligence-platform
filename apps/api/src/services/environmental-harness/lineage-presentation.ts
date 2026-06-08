@@ -70,16 +70,10 @@ export function annotateLiveConditionTrust(
   options: { requireReplayLineage?: boolean } = {},
 ): LiveMarineCondition {
   return annotateLineageTrust({
-    source: condition.source,
-    verificationStatus: condition.verificationStatus,
-    freshnessStatus: condition.freshnessStatus,
+    ...condition,
     freshnessClassification: condition.freshnessClassification,
-    provenance: condition.provenance,
-    provenanceId: condition.provenanceId,
-    rootEventId: condition.rootEventId,
     replayEvidenceStatus: condition.evidenceStatus,
     requireReplayLineage: options.requireReplayLineage,
-    ...condition,
   });
 }
 
@@ -88,15 +82,10 @@ export function annotateReefAlertTrust(
   options: { requireReplayLineage?: boolean } = {},
 ): ReefStressWatchItem {
   return annotateLineageTrust({
-    source: alert.source,
-    verificationStatus: alert.verificationStatus,
-    freshnessStatus: alert.freshnessStatus,
+    ...alert,
     freshnessClassification: alert.freshnessStatus?.classification,
-    provenance: alert.provenance,
-    rootEventId: alert.rootEventId,
     replayEvidenceStatus: alert.evidenceStatus,
     requireReplayLineage: options.requireReplayLineage,
-    ...alert,
   });
 }
 

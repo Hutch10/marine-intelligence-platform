@@ -96,6 +96,37 @@ interface AnomaliesQuery {
   limit?: number | string;
 }
 
+function snapshotToNdbcMapped(input: {
+  stationId: string;
+  observedAt: number;
+  seaSurfaceTempC: number | null;
+  waveHeightM: number | null;
+  windSpeedMps: number | null;
+  pressureHpa: number | null;
+  sourceFeed: string;
+  sourceTimestamp: string;
+  rawLine?: string;
+}): NdbcMappedObservation {
+  return {
+    stationId: input.stationId,
+    observedAt: input.observedAt,
+    seaSurfaceTempC: input.seaSurfaceTempC,
+    waveHeightM: input.waveHeightM,
+    windSpeedMps: input.windSpeedMps,
+    pressureHpa: input.pressureHpa,
+    seaTempObservedAt: input.observedAt,
+    waveHeightObservedAt: input.observedAt,
+    windObservedAt: input.observedAt,
+    pressureObservedAt: input.observedAt,
+    seaSurfaceTempBackfilled: false,
+    waveHeightBackfilled: false,
+    source: "noaa_ndbc",
+    sourceFeed: input.sourceFeed,
+    sourceTimestamp: input.sourceTimestamp,
+    rawLine: input.rawLine ?? "",
+  };
+}
+
 interface ReadObservationHistoryResultSuccess {
   ok: true;
   current: NdbcMappedObservation;
@@ -989,18 +1020,16 @@ export async function readObservationHistory(
       `station ${stationId} loaded ${history.length} historical observations within ${lookbackDays} days for baseline analysis.`,
     );
     logRiskDiagnostic(
-      `station ${stationId} latest observation fields: ${formatObservationFieldPresence({
+      `station ${stationId} latest observation fields: ${formatObservationFieldPresence(snapshotToNdbcMapped({
         stationId: preferredCurrent.stationId,
         observedAt: preferredCurrent.observedAt,
         seaSurfaceTempC: preferredCurrent.seaSurfaceTempC,
         waveHeightM: preferredCurrent.waveHeightM,
         windSpeedMps: preferredCurrent.windSpeedMps,
         pressureHpa: preferredCurrent.pressureHpa,
-        source: "noaa_ndbc",
         sourceFeed: "observations",
         sourceTimestamp: preferredCurrent.sourceTimestamp,
-        rawLine: "",
-      })}`,
+      }))}`,
     );
     logRiskDiagnostic(
       `station ${stationId} loaded ${crwHistory.length} CRW contextual records within ${lookbackDays} days for auxiliary baseline analysis.`,
@@ -1034,18 +1063,16 @@ export async function readObservationHistory(
 
     return {
       ok: true,
-      current: {
+      current: snapshotToNdbcMapped({
         stationId: preferredCurrent.stationId,
         observedAt: preferredCurrent.observedAt,
         seaSurfaceTempC: preferredCurrent.seaSurfaceTempC,
         waveHeightM: preferredCurrent.waveHeightM,
         windSpeedMps: preferredCurrent.windSpeedMps,
         pressureHpa: preferredCurrent.pressureHpa,
-        source: "noaa_ndbc",
         sourceFeed: "observations",
         sourceTimestamp: preferredCurrent.sourceTimestamp,
-        rawLine: "",
-      },
+      }),
       history: history.map(toBaselineInput),
       crwContext: {
         current: crwHistory[0] ? toCrwBaselineInput(crwHistory[0]) : null,
@@ -1060,18 +1087,16 @@ export async function readObservationHistory(
         dissolvedOxygen: erddapDissolvedOxygen,
       },
       sourceAgreement: assessObservationSourceAgreement(
-        {
+        snapshotToNdbcMapped({
           stationId: preferredCurrent.stationId,
           observedAt: preferredCurrent.observedAt,
           seaSurfaceTempC: preferredCurrent.seaSurfaceTempC,
           waveHeightM: preferredCurrent.waveHeightM,
           windSpeedMps: preferredCurrent.windSpeedMps,
           pressureHpa: preferredCurrent.pressureHpa,
-          source: "noaa_ndbc",
           sourceFeed: "observations",
           sourceTimestamp: preferredCurrent.sourceTimestamp,
-          rawLine: "",
-        },
+        }),
         history.map(toBaselineInput),
       ),
     };
@@ -1161,18 +1186,16 @@ function mapRiskEvaluateBodyToObservation(
 
   return {
     ok: true,
-    observation: {
+    observation: snapshotToNdbcMapped({
       stationId,
       observedAt,
       seaSurfaceTempC,
       waveHeightM,
       windSpeedMps,
       pressureHpa,
-      source: "noaa_ndbc",
       sourceFeed: "api",
       sourceTimestamp: new Date(observedAt).toISOString(),
-      rawLine: "",
-    },
+    }),
     history: history as BaselineObservationInput[] | null,
   };
 }

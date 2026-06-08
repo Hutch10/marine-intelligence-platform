@@ -15,7 +15,7 @@ import { buildSourceScopeSignalId } from "./lineage";
 
 async function safeRecordHarnessEvent(
   input: Parameters<typeof recordHarnessEvent>[0],
-  dependencies: { getAdapter?: Parameters<typeof recordHarnessEvent>[1]["getAdapter"]; now?: () => number } = {},
+  dependencies: NonNullable<Parameters<typeof recordHarnessEvent>[1]> = {},
 ): Promise<string | null> {
   try {
     return await recordHarnessEvent(input, dependencies);
@@ -124,7 +124,7 @@ export async function auditVerificationForIngestion(
     completedAt: string;
     outcome: VerificationEvent["outcome"];
   },
-  dependencies: { getAdapter?: Parameters<typeof recordHarnessEvent>[1]["getAdapter"] } = {},
+  dependencies: NonNullable<Parameters<typeof recordHarnessEvent>[1]> = {},
 ): Promise<string | null> {
   const payload: VerificationEvent = {
     eventId: buildHarnessEventId(
@@ -270,7 +270,7 @@ export async function auditHumanReview(
     signalId?: string | null;
     alertId?: string | null;
   },
-  dependencies: { getAdapter?: Parameters<typeof recordHarnessEvent>[1]["getAdapter"]; now?: () => number } = {},
+  dependencies: NonNullable<Parameters<typeof recordHarnessEvent>[1]> = {},
 ): Promise<string | null> {
   return safeRecordHarnessEvent({
     eventKind: "human_review",

@@ -49,6 +49,19 @@ export const getScientificExportRoute: RouteDefinition<ScientificExportResponse,
   method: "GET",
   path: "/internal/scientific/export",
   async handler({ query }) {
-    return await buildScientificExportRouteResponse(query ?? {});
+    const result = await buildScientificExportRouteResponse(query ?? {});
+    if (result.text) {
+      return {
+        status: result.status,
+        text: result.text,
+        headers: result.headers,
+        json: { source: "db", rows: [] },
+      };
+    }
+
+    return {
+      status: result.status,
+      json: result.json ?? { source: "unavailable", rows: [] },
+    };
   },
 };

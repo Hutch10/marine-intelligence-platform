@@ -370,6 +370,12 @@ export async function runNdbcIngestion(
   await ensureOperationalAlertsTable(adapter);
   await ensureStationRiskThresholdTables(adapter);
 
+  const runId = await createIngestionRun(adapter, {
+    source: "noaa_ndbc",
+    startedAt,
+    stationCount: stations.length,
+  });
+
   const { DbAlertStore } = require("../db-alert-store");
   const ingestVerifiedAt = new Date(startedAt).toISOString();
   const alertsService = createOperationalAlertsService({
@@ -397,12 +403,6 @@ export async function runNdbcIngestion(
         },
       },
     },
-  });
-
-  const runId = await createIngestionRun(adapter, {
-    source: "noaa_ndbc",
-    startedAt,
-    stationCount: stations.length,
   });
 
   let insertedRows = 0;
