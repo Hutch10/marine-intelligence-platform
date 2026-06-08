@@ -7,6 +7,10 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@libsql/client':
+        specifier: ^0.17.3
+        version: 0.17.3
     devDependencies:
       turbo:
         specifier: ^2.0.0

@@ -485,7 +485,13 @@ const serverRoutes: ServerRoute[] = [
     handler: async () => {
       let dbReachable = false;
       try {
-        if (hasDatabasePath()) {
+        if (process.env.TURSO_DATABASE_URL) {
+          const { getAsyncAdapter } = await import("./db/async-client");
+          const adapter = getAsyncAdapter(true);
+          await adapter.execute("SELECT 1");
+          adapter.close();
+          dbReachable = true;
+        } else if (hasDatabasePath()) {
           const db = openReadOnlyDatabase();
           db.prepare("SELECT 1").all();
           db.close();
