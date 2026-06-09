@@ -12,6 +12,29 @@
  */
 
 import { buildFeedHealthRouteResponse } from "../../api/src/routes/feed-health";
+import type { LiveIngestionHealthSnapshotReadResult } from "../../api/src/repositories/live-ingestion-reports";
+
+function readFeedHealthSnapshot(): LiveIngestionHealthSnapshotReadResult {
+  try {
+    const runtimeRequire = eval("require") as NodeRequire;
+    const repository = runtimeRequire("../../api/src/repositories/live-ingestion-reports") as {
+      getLiveIngestionHealthSnapshot: (options: {
+        limit: number;
+        staleAfterMs: number;
+      }) => LiveIngestionHealthSnapshotReadResult;
+    };
+
+    return repository.getLiveIngestionHealthSnapshot({
+      limit: 40,
+      staleAfterMs: 6 * 60 * 60 * 1000,
+    });
+  } catch {
+    return {
+      source: "unavailable",
+      fallbackReason: "db_query_failed",
+    };
+  }
+}
 
 export type FeedSourceStatus = "live" | "stale" | "failed" | "unknown";
 export type FeedSourceKey = "ndbc" | "crw" | "ioos" | "erddap";
@@ -215,7 +238,7 @@ function toFailureCategory(parseFailureCount: number, validationFailureCount: nu
 }
 
 export function getFeedHealthDiagnostics(): FeedStationDiagnostics[] {
-  const response = buildFeedHealthRouteResponse();
+  const response = buildFeedHealthRouteResponse(readFeedHealthSnapshot());
 
   if (response.json.source !== "db") {
     return [];
@@ -263,7 +286,7 @@ export function getFeedHealthDiagnostics(): FeedStationDiagnostics[] {
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export function getFeedHealth(): FeedHealthStatus {
-  const response = buildFeedHealthRouteResponse();
+  const response = buildFeedHealthRouteResponse(readFeedHealthSnapshot());
 
   if (response.json.source !== "db") {
     return {

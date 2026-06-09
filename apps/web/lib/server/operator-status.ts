@@ -1,4 +1,27 @@
 import { buildFeedHealthRouteResponse } from "../../../api/src/routes/feed-health";
+import type { LiveIngestionHealthSnapshotReadResult } from "../../../api/src/repositories/live-ingestion-reports";
+
+function readFeedHealthSnapshot(): LiveIngestionHealthSnapshotReadResult {
+  try {
+    const runtimeRequire = eval("require") as NodeRequire;
+    const repository = runtimeRequire("../../../api/src/repositories/live-ingestion-reports") as {
+      getLiveIngestionHealthSnapshot: (options: {
+        limit: number;
+        staleAfterMs: number;
+      }) => LiveIngestionHealthSnapshotReadResult;
+    };
+
+    return repository.getLiveIngestionHealthSnapshot({
+      limit: 40,
+      staleAfterMs: 6 * 60 * 60 * 1000,
+    });
+  } catch {
+    return {
+      source: "unavailable",
+      fallbackReason: "db_query_failed",
+    };
+  }
+}
 import { buildOperatorStatusRouteResponse } from "../../../api/src/routes/operator-status";
 import type { OperatorStatusResponse } from "../../../api/src/routes/operator-status";
 
@@ -21,7 +44,7 @@ function operatorToken(): string | null {
 }
 
 function buildUnavailableOperatorStatus(): OperatorStatusResponse {
-  const feedHealth = buildFeedHealthRouteResponse();
+  const feedHealth = buildFeedHealthRouteResponse(readFeedHealthSnapshot());
   const generatedAt = new Date().toISOString();
 
   return {

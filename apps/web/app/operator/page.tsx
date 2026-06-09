@@ -9,6 +9,8 @@ import {
 } from "@/lib/server/record-operational-analytics";
 import type { OperationalAnalyticsSummary } from "@marine/shared";
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "Operator Console",
   robots: { index: false, follow: false },
