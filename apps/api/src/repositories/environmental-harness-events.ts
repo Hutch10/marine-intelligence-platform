@@ -407,7 +407,7 @@ export async function readRecentReplaySampleTargets(
        FROM environmental_harness_events
        WHERE alert_id IS NOT NULL
          AND alert_id != ''
-         AND root_event_id LIKE 'EHE-ingestion-%'
+         AND event_kind = 'publication'
        ORDER BY created_at DESC
        LIMIT ?`,
       [boundedLimit],

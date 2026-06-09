@@ -225,6 +225,22 @@ export function createOperationalAlertsService(
     return rank[next] > rank[current] ? next : current;
   }
 
+  function resolveVerificationContextForAction(
+    action: OperationalAlertAction,
+  ): AlertPublishVerificationContext {
+    const direct = alertVerificationContextBySource[action.source];
+    if (direct) {
+      return direct;
+    }
+
+    const baseSource = action.source.split(":")[0]?.trim();
+    if (baseSource) {
+      return alertVerificationContextBySource[baseSource] ?? {};
+    }
+
+    return {};
+  }
+
   async function applyAlertActions(actions: OperationalAlertAction[]): Promise<string[]> {
     const createdIds: string[] = [];
     const timestamp = new Date(now()).toISOString();
@@ -272,7 +288,7 @@ export function createOperationalAlertsService(
         }
 
         if (!existing || !shouldUpdateExisting) {
-          const verificationContext = alertVerificationContextBySource[action.source] ?? {};
+          const verificationContext = resolveVerificationContextForAction(action);
           const signalId = action.harnessLineage?.signalId
             ?? buildSourceScopeSignalId(
               action.source,
