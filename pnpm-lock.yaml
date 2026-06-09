@@ -53,7 +53,7 @@ importers:
         specifier: ^0.395.0
         version: 0.395.0(react@18.3.1)
       next:
-        specifier: ^14.2.0
+        specifier: 14.2.35
         version: 14.2.35(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       react:
         specifier: ^18.3.0
