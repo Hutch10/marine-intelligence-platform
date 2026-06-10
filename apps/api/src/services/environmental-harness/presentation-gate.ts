@@ -1,29 +1,13 @@
 import type {
-  EnvironmentalSignalProvenance,
-  FreshnessClassification,
-  FreshnessStatus,
   LiveMarineCondition,
   PublicTrustMetadata,
   ReefStressWatchItem,
-  VerificationStatus,
+  SignalTrustFields,
+  TrustEvidenceStatus,
 } from "@marine/shared";
 import { isSyntheticSource } from "./freshness-policy";
 
-export interface HarnessPresentationInput {
-  source?: string | null;
-  verificationStatus?: VerificationStatus;
-  freshnessStatus?: FreshnessStatus;
-  freshnessClassification?: FreshnessClassification;
-  provenance?: EnvironmentalSignalProvenance | null;
-  provenanceId?: string | null;
-  rootEventId?: string | null;
-  sourceIngestionEventId?: string | null;
-  verificationEventId?: string | null;
-  replayEvidenceStatus?: PublicTrustMetadata["evidenceStatus"];
-  requireReplayLineage?: boolean;
-  /** Observations may promote on ingestion+verification partial replay; alerts require publication. */
-  promotionKind?: "observation" | "alert";
-}
+export type HarnessPresentationInput = SignalTrustFields;
 
 export function hasRequiredProvenance(input: HarnessPresentationInput): boolean {
   if (input.provenance?.source) {
@@ -47,7 +31,7 @@ export function hasReconstructableLineage(input: HarnessPresentationInput): bool
 
 export function inferReplayEvidenceFromPersistedLineage(
   input: Pick<HarnessPresentationInput, "rootEventId" | "sourceIngestionEventId" | "verificationEventId">,
-): PublicTrustMetadata["evidenceStatus"] | undefined {
+): TrustEvidenceStatus | undefined {
   if (
     input.rootEventId?.trim()
     && input.sourceIngestionEventId?.trim()
@@ -66,7 +50,7 @@ export function resolvePublicTrustMetadata(input: HarnessPresentationInput): Pub
     ?? inferReplayEvidenceFromPersistedLineage(input)
     ?? "unavailable";
 
-  let evidenceStatus: PublicTrustMetadata["evidenceStatus"] = replayEvidenceStatus;
+  let evidenceStatus: TrustEvidenceStatus = replayEvidenceStatus;
 
   if (evidenceStatus === "complete" && !lineageOk) {
     evidenceStatus = "partial";
@@ -167,8 +151,8 @@ export function filterPromotableLiveConditions(
     freshnessClassification: condition.freshnessClassification,
     provenance: condition.provenance,
     provenanceId: condition.provenanceId,
-    rootEventId: (condition as LiveMarineCondition & { rootEventId?: string }).rootEventId,
-    replayEvidenceStatus: (condition as LiveMarineCondition & { evidenceStatus?: PublicTrustMetadata["evidenceStatus"] }).evidenceStatus,
+    rootEventId: condition.rootEventId,
+    replayEvidenceStatus: condition.evidenceStatus,
     requireReplayLineage: options.requireReplayLineage,
   }));
 }
@@ -183,8 +167,8 @@ export function filterPromotableReefAlerts(
     freshnessStatus: alert.freshnessStatus,
     freshnessClassification: alert.freshnessStatus?.classification,
     provenance: alert.provenance,
-    rootEventId: (alert as ReefStressWatchItem & { rootEventId?: string }).rootEventId,
-    replayEvidenceStatus: (alert as ReefStressWatchItem & { evidenceStatus?: PublicTrustMetadata["evidenceStatus"] }).evidenceStatus,
+    rootEventId: alert.rootEventId,
+    replayEvidenceStatus: alert.evidenceStatus,
     requireReplayLineage: options.requireReplayLineage,
   }));
 }

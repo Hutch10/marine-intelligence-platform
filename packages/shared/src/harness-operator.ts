@@ -1,5 +1,13 @@
 // HutchStack Phase 3 — operator console, review queue, replay validation burn-in
 
+import type {
+  ReplayLineageReference,
+  ReplayValidationReference,
+  TrustEvidenceStatus,
+} from "./harness-trust-types";
+
+export type { TrustMetadata as PublicTrustMetadata } from "./harness-trust-types";
+
 export type ReviewQueueStatus =
   | "pending_review"
   | "approved"
@@ -30,15 +38,14 @@ export interface ReplayValidationSampleTarget {
   id: string;
 }
 
-export interface ReplayValidationCheckResult {
+export interface ReplayValidationCheckResult
+  extends Pick<ReplayLineageReference, "rootEventId">,
+    Pick<ReplayValidationReference, "packetId" | "publicationReconstructable"> {
   target: ReplayValidationSampleTarget;
   passed: boolean;
   failures: string[];
-  evidenceStatus: "complete" | "partial" | "withheld" | "unavailable";
+  evidenceStatus: TrustEvidenceStatus;
   withheldSections: string[];
-  packetId: string | null;
-  rootEventId: string | null;
-  publicationReconstructable: boolean | null;
 }
 
 export interface ReplayValidationJobResult {
@@ -50,34 +57,32 @@ export interface ReplayValidationJobResult {
   samples: ReplayValidationCheckResult[];
 }
 
-export interface OperatorReplayCompletenessItem {
+export interface OperatorReplayCompletenessItem
+  extends Pick<ReplayLineageReference, "rootEventId">,
+    Pick<ReplayValidationReference, "packetId"> {
   targetKind: "signal" | "alert";
   targetId: string;
-  rootEventId: string | null;
-  evidenceStatus: "complete" | "partial" | "withheld" | "unavailable";
+  evidenceStatus: TrustEvidenceStatus;
   withheldSections: string[];
-  packetId: string | null;
   replayAvailable: boolean;
 }
 
-export interface OperatorPublicationDecisionItem {
+export interface OperatorPublicationDecisionItem
+  extends Pick<ReplayLineageReference, "signalId" | "rootEventId">,
+    Pick<ReplayValidationReference, "publicationReconstructable"> {
   alertId: string;
-  signalId: string | null;
-  rootEventId: string | null;
   lifecycleStatus: string;
   outcome: string;
   evaluatedAt: string;
-  publicationReconstructable: boolean;
 }
 
-export interface OperatorHumanReviewItem {
+export interface OperatorHumanReviewItem extends Pick<ReplayLineageReference, "rootEventId"> {
   eventId: string;
   subjectType: string;
   subjectId: string;
   action: string;
   outcome: string;
   evaluatedAt: string;
-  rootEventId: string | null;
 }
 
 export interface OperatorConsoleHarnessSection {
@@ -108,10 +113,4 @@ export interface OperatorConsoleHarnessSection {
     active: Array<{ id: string; source: string; ruleType: string; severity: string; title: string }>;
     suppressed: Array<{ alertKey: string; source: string; ruleType: string; reason: string; evaluatedAt: string }>;
   };
-}
-
-export interface PublicTrustMetadata {
-  trustedForPromotion: boolean;
-  evidenceStatus: "complete" | "partial" | "withheld" | "unavailable";
-  replayCompleteness: "reconstructable" | "partial" | "unavailable";
 }

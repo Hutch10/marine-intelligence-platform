@@ -122,11 +122,21 @@ import type {
   EnvironmentalSignalProvenance,
   EnvironmentalSignalTrustStatus,
   FreshnessStatus,
-  VerificationStatus,
 } from "./harness";
-import type { PublicTrustMetadata } from "./harness-operator";
+import type {
+  ReplayLineageReference,
+  ReplayValidationReference,
+  TrustMetadata,
+  VerificationReference,
+} from "./harness-trust-types";
 
-export interface LiveMarineCondition {
+/** Optional trust projection fields on public marine signal rows. */
+export interface PublicSignalTrustProjection extends Partial<TrustMetadata> {
+  trustStatus?: EnvironmentalSignalTrustStatus;
+}
+
+export interface LiveMarineCondition
+  extends ReplayLineageReference, VerificationReference, PublicSignalTrustProjection, ReplayValidationReference {
   stationId: string;
   /** Anchor row timestamp — not implied concurrent across metrics. */
   timestamp: string;
@@ -155,20 +165,11 @@ export interface LiveMarineCondition {
   freshnessClassification?: "live" | "stale" | "withheld" | "unknown";
   /** Normalized freshness envelope (harness) */
   freshnessStatus?: FreshnessStatus;
-  verificationStatus?: VerificationStatus;
   provenance?: EnvironmentalSignalProvenance;
-  signalId?: string | null;
-  rootEventId?: string | null;
-  sourceIngestionEventId?: string | null;
-  verificationEventId?: string | null;
-  provenanceHash?: string | null;
-  trustStatus?: EnvironmentalSignalTrustStatus;
-  trustedForPromotion?: boolean;
-  evidenceStatus?: PublicTrustMetadata["evidenceStatus"];
-  replayCompleteness?: PublicTrustMetadata["replayCompleteness"];
 }
 
-export interface ReefStressWatchItem {
+export interface ReefStressWatchItem
+  extends ReplayLineageReference, VerificationReference, PublicSignalTrustProjection, ReplayValidationReference {
   region: string;
   stationId: string | null;
   timestamp: string;
@@ -185,17 +186,7 @@ export interface ReefStressWatchItem {
   /** NOAA CRW product date (ISO) */
   productDate?: string | null;
   freshnessStatus?: FreshnessStatus;
-  verificationStatus?: VerificationStatus;
   provenance?: EnvironmentalSignalProvenance;
-  signalId?: string | null;
-  rootEventId?: string | null;
-  sourceIngestionEventId?: string | null;
-  verificationEventId?: string | null;
-  provenanceHash?: string | null;
-  trustStatus?: EnvironmentalSignalTrustStatus;
-  trustedForPromotion?: boolean;
-  evidenceStatus?: PublicTrustMetadata["evidenceStatus"];
-  replayCompleteness?: PublicTrustMetadata["replayCompleteness"];
 }
 
 // ─── Public Marine API ───────────────────────────────────────────────────────
