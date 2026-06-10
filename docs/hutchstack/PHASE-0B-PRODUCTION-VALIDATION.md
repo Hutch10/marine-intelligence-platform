@@ -33,8 +33,10 @@
 | **Vercel status** | Ready |
 | **Git HEAD at deploy** | `f376ae8e21e5aa23fa6a212cfb800c4e499101ad` |
 | **Deploy source** | Local working tree with uncommitted Phase 0B primitive extraction atop `f376ae8` |
+| **Git reconciled commit** | `e3d15e574e5f9d92dc49ce19e93701df56c19c61` — `Phase 0B: extract harness primitives to shared` |
+| **Reconciled (UTC)** | `2026-06-10` (pushed to `origin/main`) |
 
-**Traceability note:** Phase 0B code was deployed from the local workspace before commit. The deployed artifact contains `packages/shared/src/harness-primitives.ts` and repository import changes documented in Phase 0B. Recommend committing Phase 0B files to `main` for git-level traceability.
+**Traceability:** Production deployment `dpl_A4ZVqkSsx2A7C2ZpckKdSfSHtEKc` was made from uncommitted workspace atop `f376ae8`. Git reconciliation commit `e3d15e574e5f9d92dc49ce19e93701df56c19c61` records the exact Phase 0B primitive extraction and validation docs now on `main`.
 
 ### Deploy command
 
@@ -284,3 +286,28 @@ npx vercel deploy --prod --yes --project marine-intelligence-platform-api
 - Burn-in protocol, thresholds, and T0 unchanged
 
 No production regression detected. Phase 0C is authorized when ready.
+
+---
+
+## 9. Git reconciliation
+
+| Field | Value |
+|-------|-------|
+| **Reconciled commit** | `e3d15e574e5f9d92dc49ce19e93701df56c19c61` |
+| **Parent** | `f376ae8e21e5aa23fa6a212cfb800c4e499101ad` |
+| **Branch** | `main` |
+| **Files committed** | 10 (primitives, shims, repo import, Phase 0 docs, verify script) |
+| **Files excluded** | `.verification/*.json`, `H72-REPLAY-AWARE-BURN-IN-REPORT.md`, `packages/shared/dist/types.d.ts` |
+
+### Excluded from reconciliation commit (intentional)
+
+| File | Reason |
+|------|--------|
+| `apps/api/.verification/hostile-evidence.json` | Test-run artifact timestamp only |
+| `apps/api/.verification/operational-validation-evidence.json` | Test-run artifact timestamp only |
+| `docs/hutchstack/H72-REPLAY-AWARE-BURN-IN-REPORT.md` | Burn-in checkpoint updates — separate workstream |
+| `packages/shared/dist/types.d.ts` | Build artifact (`dist/` gitignored; not Phase 0B source) |
+
+### Git reconciliation verdict
+
+# **PHASE 0B GIT RECONCILED**
