@@ -3,9 +3,12 @@ import type {
   HarnessLineageEventType,
   HarnessOutcome,
 } from "@marine/shared";
+import {
+  buildHarnessEventId,
+  lineageEventTypeFromKind,
+  stableContentHash,
+} from "@marine/shared";
 import { getAsyncAdapter, type AsyncDbAdapter } from "../db/async-client";
-import { buildHarnessEventId, stableContentHash } from "../services/environmental-harness/provenance";
-import { lineageEventTypeFromKind } from "../services/environmental-harness/lineage";
 
 export interface HarnessEventRecord {
   id: string;
