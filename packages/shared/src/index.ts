@@ -1,7 +1,6 @@
 export * from "./types";
 export * from "./harness";
 export * from "./harness-replay";
-export * from "./harness-primitives";
 export * from "./harness-trust-types";
 export * from "./harness-operator";
 export * from "./operational-analytics";

@@ -1,7 +1,7 @@
 import type { EnvironmentalSignalProvenance } from "@marine/shared";
-import { stableContentHash } from "@marine/shared";
+import { stableContentHash } from "@marine/shared/server";
 
-export { buildHarnessEventId, stableContentHash } from "@marine/shared";
+export { buildHarnessEventId, stableContentHash } from "@marine/shared/server";
 
 export function buildSignalProvenance(input: {
   source: string;

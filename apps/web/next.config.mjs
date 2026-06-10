@@ -22,7 +22,7 @@ const nextConfig = {
     if (isServer) {
       config.resolve.alias["@marine/shared/server"] = path.resolve(
         __dirname,
-        "../../packages/shared/src/server/index.ts"
+        "../../packages/shared/src/server.ts"
       );
     }
     config.resolve.alias["@marine/shared"] = path.resolve(

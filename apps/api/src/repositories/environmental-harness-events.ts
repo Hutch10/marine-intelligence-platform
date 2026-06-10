@@ -7,7 +7,7 @@ import {
   buildHarnessEventId,
   lineageEventTypeFromKind,
   stableContentHash,
-} from "@marine/shared";
+} from "@marine/shared/server";
 import { getAsyncAdapter, type AsyncDbAdapter } from "../db/async-client";
 
 export interface HarnessEventRecord {

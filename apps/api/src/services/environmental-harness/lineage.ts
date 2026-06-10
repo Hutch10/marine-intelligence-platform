@@ -4,4 +4,4 @@ export {
   buildReplayPacketId,
   buildSourceScopeSignalId,
   lineageEventTypeFromKind,
-} from "@marine/shared";
+} from "@marine/shared/server";
