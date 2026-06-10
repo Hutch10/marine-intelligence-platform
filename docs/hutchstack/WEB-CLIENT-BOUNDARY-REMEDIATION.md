@@ -162,7 +162,7 @@ Cryptographic primitives belong on the server/API ingest and harness persistence
 
 **Reconciled (UTC):** 2026-06-10  
 **Branch:** `main`  
-**Commit:** *(recorded after push — see below)*
+**Commit:** `3508416c1e4cd3d4d8a41190b00d41f4e01f1d89`
 
 ### Scope confirmed
 
@@ -213,6 +213,8 @@ Client bundle no longer transitively imports `node:crypto`. Server/API hash and 
 
 ### Reconciliation verdict
 
-*(Updated after commit/push)*
+# **WEB BOUNDARY FIX RECONCILED**
+
+Pushed to `origin/main` at commit `3508416c1e4cd3d4d8a41190b00d41f4e01f1d89`. Production deploy **held** until H+72 unless web deploy required for stakeholder testing.
 
 **Not deployed** (by instruction).
