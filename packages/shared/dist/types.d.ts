@@ -95,21 +95,44 @@ export interface InvestigationOntologyNetworkContext {
     alerts: OntologyAlertNode[];
     resolvedAt: string;
 }
-export interface LiveMarineCondition {
+import type { EnvironmentalSignalProvenance, EnvironmentalSignalTrustStatus, FreshnessStatus } from "./harness";
+import type { ReplayLineageReference, ReplayValidationReference, TrustMetadata, VerificationReference } from "./harness-trust-types";
+/** Optional trust projection fields on public marine signal rows. */
+export interface PublicSignalTrustProjection extends Partial<TrustMetadata> {
+    trustStatus?: EnvironmentalSignalTrustStatus;
+}
+export interface LiveMarineCondition extends ReplayLineageReference, VerificationReference, PublicSignalTrustProjection, ReplayValidationReference {
     stationId: string;
+    /** Anchor row timestamp — not implied concurrent across metrics. */
     timestamp: string;
     sstC: number | null;
     waveHeightM: number | null;
     windSpeedMps: number | null;
     pressureHpa: number | null;
+    /** Per-metric source observation times (ISO). */
+    seaTempObservedAt?: string | null;
+    waveHeightObservedAt?: string | null;
+    windObservedAt?: string | null;
+    pressureObservedAt?: string | null;
+    /** False when metrics were measured at different times (e.g. NDBC backfill). */
+    metricsConcurrent?: boolean;
+    backfillIndicators?: {
+        seaSurfaceTemp?: boolean;
+        waveHeight?: boolean;
+    };
+    provenanceId?: string | null;
     /** Data source identifier, e.g. "noaa_ndbc" */
     source?: string;
     /** Feed URL or reference the observation was ingested from */
     sourceFeed?: string;
     /** ISO timestamp of when this observation was ingested */
     ingestedAt?: string;
+    freshnessClassification?: "live" | "stale" | "withheld" | "unknown";
+    /** Normalized freshness envelope (harness) */
+    freshnessStatus?: FreshnessStatus;
+    provenance?: EnvironmentalSignalProvenance;
 }
-export interface ReefStressWatchItem {
+export interface ReefStressWatchItem extends ReplayLineageReference, VerificationReference, PublicSignalTrustProjection, ReplayValidationReference {
     region: string;
     stationId: string | null;
     timestamp: string;
@@ -119,6 +142,14 @@ export interface ReefStressWatchItem {
     stressLevel: string | null;
     source: string;
     outputClass: "observed" | "derived" | "inferred";
+    /** ISO ingest time from derived_signals.created_at */
+    ingestedAt?: string;
+    /** Feed URL or reference */
+    sourceFeed?: string | null;
+    /** NOAA CRW product date (ISO) */
+    productDate?: string | null;
+    freshnessStatus?: FreshnessStatus;
+    provenance?: EnvironmentalSignalProvenance;
 }
 export interface ApiKeyRecord {
     id: string;
@@ -2454,25 +2485,25 @@ export interface DashboardTelemetry {
     speciesActivitySource?: "db" | "unavailable";
     fallbackReason?: DashboardFallbackReason;
 }
-export type LiveConditionsFallbackReason = "db_path_missing" | "db_open_failed" | "db_query_failed";
+export type LiveConditionsFallbackReason = "db_path_missing" | "db_open_failed" | "db_query_failed" | "mock_withheld" | "stale_or_unverifiable_withheld";
 export interface LiveConditionsResponse {
     conditions: LiveMarineCondition[];
 }
 export interface LiveConditionsTelemetry {
     route: "GET /live-conditions";
-    source: "db" | "mock";
+    source: "db" | "mock" | "withheld";
     conditionCount: number;
-    fallbackReason?: LiveConditionsFallbackReason;
+    fallbackReason?: LiveConditionsFallbackReason | "mock_withheld";
 }
-export type ReefAlertsFallbackReason = "db_path_missing" | "db_open_failed" | "db_query_failed";
+export type ReefAlertsFallbackReason = "db_path_missing" | "db_open_failed" | "db_query_failed" | "mock_withheld" | "stale_or_unverifiable_withheld";
 export interface ReefAlertsResponse {
     alerts: ReefStressWatchItem[];
 }
 export interface ReefAlertsTelemetry {
     route: "GET /reef-alerts";
-    source: "db" | "mock";
+    source: "db" | "mock" | "withheld";
     alertCount: number;
-    fallbackReason?: ReefAlertsFallbackReason;
+    fallbackReason?: ReefAlertsFallbackReason | "mock_withheld";
 }
 export interface StationAdminLoginRequest {
     actorId: string;

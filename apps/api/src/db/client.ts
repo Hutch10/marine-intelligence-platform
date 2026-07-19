@@ -42,7 +42,8 @@ export function openReadOnlyDatabase(path = resolveDatabasePath()): SqliteDataba
     ) => SqliteDatabaseLike;
   };
 
-  return new DatabaseSync(path, { open: true, readOnly: true });
+  const db = new DatabaseSync(path, { open: true, readOnly: true });
+  return db;
 }
 
 export function openWritableDatabase(path = resolveDatabasePath()): SqliteDatabaseLike {

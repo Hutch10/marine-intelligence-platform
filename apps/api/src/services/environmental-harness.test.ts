@@ -8,6 +8,7 @@ import {
   NDBC_API_STALE_MS,
 } from "./environmental-harness/freshness-policy";
 import { gateAlertPublish } from "./environmental-harness/alert-gate";
+import { buildSignalProvenance } from "./environmental-harness/provenance";
 import { buildLiveConditionsRouteResponse } from "../routes/live-conditions";
 import { buildReefAlertsRouteResponse } from "../routes/reef-alerts";
 import { buildFeedHealthRouteResponse } from "../routes/feed-health";
@@ -210,13 +211,15 @@ test("reef alerts include provenance harness fields", async () => {
         productDate,
         freshnessStatus: classifyCrwFreshness(Date.parse(productDate), now),
         verificationStatus: "verified",
-        provenance: {
+        provenance: buildSignalProvenance({
           source: CRW_SOURCE,
-          sourceFeed: "https://coralreefwatch.noaa.gov/example",
           productDate,
-          ingestedAt: new Date(now).toISOString(),
           contentHash: "abc123",
-        },
+        }),
+        provenanceId: "PRV-CRW-1",
+        rootEventId: "EHE-ingestion-test-root",
+        sourceIngestionEventId: "EHE-ingestion-test-source",
+        verificationEventId: "EHE-ingestion-test-verify",
       },
     ],
   });

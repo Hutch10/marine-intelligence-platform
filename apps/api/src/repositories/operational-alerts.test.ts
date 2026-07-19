@@ -88,10 +88,12 @@ async function seedSampleAlerts(db: MockDatabase, idPrefix = "") {
   await db.execute(
     `CREATE TABLE IF NOT EXISTS investigations (
       id TEXT PRIMARY KEY,
-      title TEXT,
-      summary TEXT,
-      state TEXT,
-      confidence INTEGER
+      title TEXT NOT NULL,
+        summary TEXT,
+        state TEXT NOT NULL,
+        confidence INTEGER,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
     )`
   );
 
@@ -154,15 +156,17 @@ test("operational alerts repository supports active-only filtering", async () =>
   await db2.execute(
     `CREATE TABLE IF NOT EXISTS investigations (
       id TEXT PRIMARY KEY,
-      title TEXT,
+      title TEXT NOT NULL,
       summary TEXT,
-      state TEXT,
-      confidence INTEGER
+      state TEXT NOT NULL,
+      confidence INTEGER,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
     )`
   );
   await db2.execute(
-    `INSERT INTO investigations (id, title, summary, state, confidence) VALUES (?, ?, ?, ?, ?)`,
-    ["INV-1", "Test Investigation", "Summary", "Watch", 80]
+    `INSERT INTO investigations (id, title, summary, state, confidence, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ["INV-1", "Test Investigation", "Summary", "Watch", 80, "2026-03-24T12:00:00.000Z", "2026-03-24T12:00:00.000Z"]
   );
   await seedAlert(db2, {
     id: "alert-link-1",
@@ -245,10 +249,12 @@ test("operational alerts repository enforces bounded limit", async () => {
   await db.execute(
     `CREATE TABLE IF NOT EXISTS investigations (
       id TEXT PRIMARY KEY,
-      title TEXT,
-      summary TEXT,
-      state TEXT,
-      confidence INTEGER
+      title TEXT NOT NULL,
+        summary TEXT,
+        state TEXT NOT NULL,
+        confidence INTEGER,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
     )`
   );
 
@@ -313,3 +319,6 @@ test("operational alerts repository returns unavailable fallback when query fail
     fallbackReason: "db_query_failed",
   });
 });
+
+
+

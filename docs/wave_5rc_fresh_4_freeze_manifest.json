@@ -1,0 +1,57 @@
+{
+  "schemaVersion": "1.0",
+  "baselineCommit": "df9d8a4ee19754f21d628e462583d6b59dcbd03f",
+  "worktreeIdentity": "C:\\Users\\hetfw\\wave-5rc-fresh-4",
+  "creationTimestamp": "2026-07-19T10:48:09-05:00",
+  "freezeModel": "external-digest",
+  "orderedTrackedPathInventory": [
+    "apps/api/src/db/async-client.ts",
+    "apps/api/src/db/client.ts",
+    "apps/api/src/repositories/operational-alerts.test.ts",
+    "apps/api/src/routes/live-conditions.test.ts",
+    "apps/api/src/routes/operational-analytics.test.ts",
+    "apps/api/src/routes/reef-alerts.test.ts",
+    "apps/api/src/services/environmental-harness.test.ts",
+    "apps/api/src/workers/ingest-live-feeds.resilience.test.ts",
+    "apps/api/src/workers/ingest-live-feeds.test.ts"
+  ],
+  "semanticDeltaSummaries": {
+    "apps/api/src/db/async-client.ts": "Added journal_mode = WAL and busy_timeout = 5000",
+    "apps/api/src/db/client.ts": "Removed WAL mode pragmas",
+    "apps/api/src/repositories/operational-alerts.test.ts": "Updated fixture timestamp and freshnessStatus logic",
+    "apps/api/src/routes/live-conditions.test.ts": "Added lineage identifiers",
+    "apps/api/src/routes/operational-analytics.test.ts": "Dynamically generated timestamp",
+    "apps/api/src/routes/reef-alerts.test.ts": "Added lineage identifiers",
+    "apps/api/src/services/environmental-harness.test.ts": "Added lineage identifiers, buildSignalProvenance",
+    "apps/api/src/workers/ingest-live-feeds.resilience.test.ts": "Whitespace formatting",
+    "apps/api/src/workers/ingest-live-feeds.test.ts": "Added bounded retries to afterEach hook for robust DB cleanup"
+  },
+  "canonicalCommands": [
+    "node apps/api/scripts/run-tests.mjs",
+    "pnpm run test"
+  ],
+  "testResults": {
+    "apiCanonicalSuite": "PASS",
+    "fullMonorepoSuite": "PASS"
+  },
+  "lifecycleResults": {
+    "testOwnedAdaptersClosed": true,
+    "backgroundWorkersTerminated": true,
+    "walShmHandlesReleased": true,
+    "temporaryDatabaseFilesDeleted": true,
+    "repeatedTestRunsDoNotAccumulateHandles": true,
+    "ebusySuppressionEliminated": true
+  },
+  "buildResults": {
+    "reproducibility": "UNPROVEN"
+  },
+  "generatedExcludedPathInventory": [
+    "apps/api/.verification/hostile-evidence.json",
+    "apps/api/.verification/operational-validation-evidence.json",
+    "packages/shared/dist/types.d.ts",
+    "test-anomalies.ts",
+    "test-live.ts",
+    "current_test_output.log",
+    "current_api_test_output.log"
+  ]
+}

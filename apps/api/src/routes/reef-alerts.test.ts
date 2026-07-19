@@ -32,6 +32,10 @@ test("reef-alerts route returns db-backed reef stress alerts", async () => {
           productDate,
           observedAt: productDate,
         }),
+        provenanceId: "PRV-CRW-1",
+        rootEventId: "EHE-ingestion-test-root",
+        sourceIngestionEventId: "EHE-ingestion-test-source",
+        verificationEventId: "EHE-ingestion-test-verify",
       },
     ],
   });
