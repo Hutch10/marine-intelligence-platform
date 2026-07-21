@@ -32,12 +32,12 @@ test("operational analytics record accepts page_view and increments daily bucket
   await incrementOperationalAnalytics(adapter, {
     eventType: "page_view",
     dimension: "dashboard",
-    occurredAtMs: Date.parse("2026-06-03T12:00:00.000Z"),
+    occurredAtMs: Date.now(),
   });
   await incrementOperationalAnalytics(adapter, {
     eventType: "page_view",
     dimension: "dashboard",
-    occurredAtMs: Date.parse("2026-06-03T15:00:00.000Z"),
+    occurredAtMs: Date.now(),
   });
 
   const buckets = await readOperationalAnalyticsSummary(adapter, 30);

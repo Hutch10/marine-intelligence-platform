@@ -36,6 +36,10 @@ export function createLocalAdapter(path = resolveDatabasePath(), readOnly = true
   };
 
   const db = new DatabaseSync(path, { open: true, readOnly });
+  if (!readOnly) {
+    db.prepare("PRAGMA journal_mode = WAL").run();
+    db.prepare("PRAGMA busy_timeout = 5000").run();
+  }
 
   return {
     async execute(sql: string, params: unknown[] = []): Promise<AsyncDbRow[]> {
