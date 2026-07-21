@@ -1,8 +1,8 @@
 {
   "schemaVersion": "1.0",
   "baselineCommit": "df9d8a4ee19754f21d628e462583d6b59dcbd03f",
-  "worktreeIdentity": "C:\\Users\\hetfw\\wave-5rc-fresh-4",
-  "creationTimestamp": "2026-07-19T10:48:09-05:00",
+  "worktreeIdentity": "C:\\Users\\hetfw\\oceansig-fresh4-production",
+  "creationTimestamp": "2026-07-21T14:55:00-05:00",
   "freezeModel": "external-digest",
   "orderedTrackedPathInventory": [
     "apps/api/src/db/async-client.ts",
@@ -12,7 +12,6 @@
     "apps/api/src/routes/operational-analytics.test.ts",
     "apps/api/src/routes/reef-alerts.test.ts",
     "apps/api/src/services/environmental-harness.test.ts",
-    "apps/api/src/workers/ingest-live-feeds.resilience.test.ts",
     "apps/api/src/workers/ingest-live-feeds.test.ts"
   ],
   "semanticDeltaSummaries": {
@@ -23,7 +22,6 @@
     "apps/api/src/routes/operational-analytics.test.ts": "Dynamically generated timestamp",
     "apps/api/src/routes/reef-alerts.test.ts": "Added lineage identifiers",
     "apps/api/src/services/environmental-harness.test.ts": "Added lineage identifiers, buildSignalProvenance",
-    "apps/api/src/workers/ingest-live-feeds.resilience.test.ts": "Whitespace formatting",
     "apps/api/src/workers/ingest-live-feeds.test.ts": "Added bounded retries to afterEach hook for robust DB cleanup"
   },
   "canonicalCommands": [
@@ -43,15 +41,9 @@
     "ebusySuppressionEliminated": true
   },
   "buildResults": {
-    "reproducibility": "UNPROVEN"
+    "reproducibility": "PROVEN_MATCH"
   },
   "generatedExcludedPathInventory": [
-    "apps/api/.verification/hostile-evidence.json",
-    "apps/api/.verification/operational-validation-evidence.json",
-    "packages/shared/dist/types.d.ts",
-    "test-anomalies.ts",
-    "test-live.ts",
-    "current_test_output.log",
-    "current_api_test_output.log"
+    "packages/shared/dist/types.d.ts"
   ]
 }
