@@ -29,6 +29,8 @@ test("live-conditions route returns db-backed conditions", async () => {
           provenanceId: "PRV-46042",
         }),
         rootEventId: "EHE-ingestion-test-root",
+        sourceIngestionEventId: "EHE-ingestion-test-source",
+        verificationEventId: "EHE-ingestion-test-verify",
         signalId: "SIG-test-root",
         trustStatus: "trusted",
         trustedForPromotion: true,

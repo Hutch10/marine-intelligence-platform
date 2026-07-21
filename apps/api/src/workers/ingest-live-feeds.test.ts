@@ -5,6 +5,47 @@ import {
   runIngestLiveFeedsCli,
   type IngestLiveFeedsDependencies,
 } from "./ingest-live-feeds";
+
+import { beforeEach, afterEach } from "node:test";
+import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+
+const tempDirs: string[] = [];
+beforeEach(() => {
+  const dir = mkdtempSync(join(tmpdir(), "marine-test-"));
+  const dbPath = join(dir, "marine.sqlite");
+  tempDirs.push(dir);
+  mkdirSync(dir, { recursive: true });
+  process.env.MARINE_DB_PATH = dbPath;
+});
+
+afterEach(async () => {
+  delete process.env.MARINE_DB_PATH;
+  while (tempDirs.length > 0) {
+    const dir = tempDirs.pop();
+    if (dir) {
+      let retries = 5;
+      let success = false;
+      while (retries > 0 && !success) {
+        try {
+          rmSync(dir, { recursive: true, force: true });
+          success = true;
+        } catch (e: any) {
+          if (e.code === "ENOENT") {
+            success = true;
+          } else if (e.code === "EBUSY") {
+            retries--;
+            if (retries === 0) throw e;
+            await new Promise((resolve) => setTimeout(resolve, 100));
+          } else {
+            throw e;
+          }
+        }
+      }
+    }
+  }
+});
 import { CRW_SOURCE } from "../connectors/coral-reef-watch/constants";
 
 function createNow(values: number[]): () => number {
@@ -488,3 +529,4 @@ test("runIngestLiveFeedsCli sets failure exit code when all sources fail", async
   assert.equal(report.status, "failed");
   assert.equal(exitCode, 1);
 });
+
