@@ -1,8 +1,9 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "1.1",
   "baselineCommit": "df9d8a4ee19754f21d628e462583d6b59dcbd03f",
+  "implementationCommit": "3817902fbb50f4200405a4eecc097620aeffdcff",
   "worktreeIdentity": "C:\\Users\\hetfw\\oceansig-fresh4-production",
-  "creationTimestamp": "2026-07-21T14:55:00-05:00",
+  "creationTimestamp": "2026-07-21T15:00:00-05:00",
   "freezeModel": "external-digest",
   "orderedTrackedPathInventory": [
     "apps/api/src/db/async-client.ts",
@@ -42,8 +43,5 @@
   },
   "buildResults": {
     "reproducibility": "PROVEN_MATCH"
-  },
-  "generatedExcludedPathInventory": [
-    "packages/shared/dist/types.d.ts"
-  ]
+  }
 }
