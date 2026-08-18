@@ -10,7 +10,7 @@ const OPERATOR_PREFIX = "/operator";
 function isOperatorAccessAllowed(request: NextRequest): boolean {
   const requiredToken = process.env.OPERATOR_ACCESS_TOKEN?.trim();
   if (!requiredToken) {
-    return true;
+    return false;
   }
 
   const queryToken = request.nextUrl.searchParams.get("token")?.trim();

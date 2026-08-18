@@ -130,7 +130,11 @@ function formatReasonCategory(category: "parse_failure" | "validation_failure" |
   }
 }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: { [key: string]: string | string[] | undefined };
+}) {
   const marineData = await getDashboardMarineSurfaceData();
   const {
     metrics,
@@ -166,6 +170,15 @@ export default async function DashboardPage() {
       pageSubtitle="Monitor ocean conditions, detect anomalies, and track reef stress across monitored regions."
     >
       <div className="mx-auto flex max-w-[1400px] flex-col gap-6 p-6">
+        {searchParams.notice === "operator_access_required" && (
+          <div role="alert" className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4">
+            <h3 className="text-sm font-semibold text-rose-400">Operator access required</h3>
+            <p className="mt-1 text-sm text-rose-300/80">
+              The requested view is a restricted operational surface. You must be an authorized operator to access this area.
+            </p>
+          </div>
+        )}
+
         {/* Command center header */}
         <section className="rounded-2xl border border-surface-border bg-ocean-900 p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
