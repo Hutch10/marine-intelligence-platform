@@ -178,7 +178,7 @@ beforeEach(() => {
 });
 
 test("dashboard page renders only live-backed marine surfaces and trust notices", async () => {
-  const page = await DashboardPage();
+  const page = await DashboardPage({ searchParams: {} });
   render(page);
 
   expect(screen.getByText("Live ocean conditions, signal detection, and reef stress monitoring.")).toBeInTheDocument();
@@ -189,7 +189,7 @@ test("dashboard page renders only live-backed marine surfaces and trust notices"
 });
 
 test("dashboard page passes surface status into anomaly and signal sections", async () => {
-  const page = await DashboardPage();
+  const page = await DashboardPage({ searchParams: {} });
   render(page);
 
   expect(screen.getByTestId("anomaly-summary")).toHaveTextContent("Summary is derived from live routes.");
@@ -197,7 +197,7 @@ test("dashboard page passes surface status into anomaly and signal sections", as
 });
 
 test("dashboard page station IDs in live conditions link to canonical station risk route", async () => {
-  const page = await DashboardPage();
+  const page = await DashboardPage({ searchParams: {} });
   render(page);
 
   const stationLink = screen.getByRole("link", { name: "46042" });
@@ -206,21 +206,64 @@ test("dashboard page station IDs in live conditions link to canonical station ri
 });
 
 test("dashboard page does not surface investigation IDs as text", async () => {
-  // SIGNALS fixture contains linkedInvestigationId: "TRK-201" but signal-card
-  // no longer renders it — this test locks that behavior in.
-  // Note: SignalCenter is mocked in this test file so we verify at the page level only.
-  const page = await DashboardPage();
+  const page = await DashboardPage({ searchParams: {} });
   render(page);
 
   expect(screen.queryByText("TRK-201")).not.toBeInTheDocument();
 });
 
 test("dashboard page renders live conditions and reef stress panels", async () => {
-  const page = await DashboardPage();
+  const page = await DashboardPage({ searchParams: {} });
   render(page);
 
   expect(screen.getByText("Live Ocean Conditions")).toBeInTheDocument();
   expect(screen.getByText("46042")).toBeInTheDocument();
   expect(screen.getByText("Reef Stress Watch")).toBeInTheDocument();
   expect(screen.getByText("Alert Level 1")).toBeInTheDocument();
+});
+
+test("exact operator_access_required notice renders role='alert'", async () => {
+  const page = await DashboardPage({ searchParams: { notice: "operator_access_required" } });
+  render(page);
+
+  const alert = screen.getByRole("alert");
+  expect(alert).toBeInTheDocument();
+  expect(alert).toHaveTextContent("Operator access required");
+});
+
+test("missing notice renders no alert", async () => {
+  const page = await DashboardPage({ searchParams: {} });
+  render(page);
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
+test("unknown notice renders no alert", async () => {
+  const page = await DashboardPage({ searchParams: { notice: "unknown_notice_type" } });
+  render(page);
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
+test("array/malformed notice values render no alert", async () => {
+  const page = await DashboardPage({ searchParams: { notice: ["operator_access_required", "other"] } });
+  render(page);
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
+test("no arbitrary query content is reflected", async () => {
+  const page = await DashboardPage({ searchParams: { notice: "<script>alert('XSS')</script>" } });
+  render(page);
+  expect(screen.queryByText(/XSS/i)).not.toBeInTheDocument();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
+test("banner copy contains no token, header, secret, or authentication implementation details", async () => {
+  const page = await DashboardPage({ searchParams: { notice: "operator_access_required" } });
+  render(page);
+  const alert = screen.getByRole("alert");
+  const text = alert.textContent?.toLowerCase() || "";
+
+  expect(text).not.toContain("token");
+  expect(text).not.toContain("header");
+  expect(text).not.toContain("secret");
+  expect(text).not.toContain("x-operator-token");
 });
