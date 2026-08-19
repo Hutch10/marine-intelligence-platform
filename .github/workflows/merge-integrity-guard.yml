@@ -1,0 +1,30 @@
+name: Merge Integrity Guard
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  verify-scope:
+    name: Verify Release Scope
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Run scope verification
+        run: |
+          if [ ! -f "RELEASE_SCOPE.txt" ]; then
+            echo "::error::BLOCK: RELEASE_SCOPE.txt is missing. You must explicitly declare authorized paths for releases targeting main."
+            exit 1
+          fi
+
+          echo "Comparing PR head (${{ github.event.pull_request.head.sha }}) against base (${{ github.event.pull_request.base.sha }})..."
+          node scripts/verify-release-scope.js ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} RELEASE_SCOPE.txt
