@@ -224,17 +224,6 @@ const serverRoutes: ServerRoute[] = [
       },
     }),
   },
-    {
-      method: "GET",
-      path: "/api/v1/risk/score",
-      handler: ({ query }) => getRiskScoreRoute.handler({
-        body: undefined,
-        query: {
-          stationId: query?.stationId,
-          window: query?.window,
-        },
-      }),
-    },
   {
     method: "POST",
     path: "/risk/evaluate",
@@ -261,21 +250,11 @@ const serverRoutes: ServerRoute[] = [
     path: "/live-conditions",
     handler: () => getLiveConditionsRoute.handler({ body: undefined }),
   },
-    {
-      method: "GET",
-      path: "/api/v1/live-conditions",
-      handler: () => getLiveConditionsRoute.handler({ body: undefined }),
-    },
   {
     method: "GET",
     path: "/reef-alerts",
     handler: () => getReefAlertsRoute.handler({ body: undefined }),
   },
-    {
-      method: "GET",
-      path: "/api/v1/reef-alerts",
-      handler: () => getReefAlertsRoute.handler({ body: undefined }),
-    },
   {
     method: "GET",
     path: "/signals",
@@ -503,42 +482,6 @@ const serverRoutes: ServerRoute[] = [
   {
     method: "GET",
     path: "/health",
-    handler: async () => {
-      let dbReachable = false;
-      try {
-        if (process.env.TURSO_DATABASE_URL) {
-          const { getAsyncAdapter } = await import("./db/async-client");
-          const adapter = getAsyncAdapter(true);
-          await adapter.execute("SELECT 1");
-          adapter.close();
-          dbReachable = true;
-        } else if (hasDatabasePath()) {
-          const db = openReadOnlyDatabase();
-          db.prepare("SELECT 1").all();
-          db.close();
-          dbReachable = true;
-        }
-      } catch {
-        dbReachable = false;
-      }
-
-      const feedHealthResponse = await getFeedHealthRoute.handler({ body: undefined, query: {} });
-
-      return {
-        status: 200,
-        json: {
-          status: "ok",
-          uptimeSeconds: Math.floor((Date.now() - SERVER_STARTED_AT) / 1000),
-          dbReachable,
-          feedHealth: feedHealthResponse.status === 200 ? feedHealthResponse.json : null,
-        },
-        headers: {},
-      };
-    },
-  },
-  {
-    method: "GET",
-    path: "/api/v1/health",
     handler: async () => {
       let dbReachable = false;
       try {
