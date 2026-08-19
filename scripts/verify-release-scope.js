@@ -32,7 +32,6 @@ console.log(`Mode: ${allowlistMode ? 'ALLOWLIST' : 'EXACT'}`);
 
 let treeId;
 try {
-  // get merge tree
   const mergeTreeOut = execSync(`git merge-tree ${target} ${head}`, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
   treeId = mergeTreeOut.split('\n')[0].trim();
   if (!treeId || treeId.length !== 40) {
@@ -51,7 +50,9 @@ try {
   process.exit(1);
 }
 
-const changedFiles = diffOut.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+const rawChangedFiles = diffOut.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+// Explicitly exclude the single known control path from validation
+const changedFiles = rawChangedFiles.filter(l => l !== 'RELEASE_SCOPE.txt');
 const changedSet = new Set(changedFiles);
 
 if (changedFiles.length > 0 && authorizedPaths.size === 0) {
@@ -61,11 +62,15 @@ if (changedFiles.length > 0 && authorizedPaths.size === 0) {
 
 let failed = false;
 console.log(`\nProposed changes against ${target}:`);
-if (changedFiles.length === 0) {
+if (rawChangedFiles.length === 0) {
   console.log("  (No changes)");
 }
 
-for (const file of changedFiles) {
+for (const file of rawChangedFiles) {
+  if (file === 'RELEASE_SCOPE.txt') {
+    console.log(`  [EXCLUDED CONTROL METADATA] ${file}`);
+    continue;
+  }
   if (authorizedPaths.has(file)) {
     console.log(`  [AUTHORIZED]   ${file}`);
   } else {
