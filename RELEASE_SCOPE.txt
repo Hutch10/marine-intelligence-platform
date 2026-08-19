@@ -1,0 +1,3 @@
+.github/workflows/merge-integrity-guard.yml
+scripts/verify-release-scope.js
+scripts/verify-release-scope.test.js
