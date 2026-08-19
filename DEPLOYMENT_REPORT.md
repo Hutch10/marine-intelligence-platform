@@ -445,3 +445,26 @@ vercel rollback <previous-deployment-url>
 **Report Generated:** 2026-05-09 15:55 UTC  
 **Session:** Deployment remediation (context continuation)  
 **Next Review:** After Turso credentials added and API redeployed
+
+---
+
+# Marine Intelligence Platform - Production Deployment Report
+## Session: 2026-08-18 | OceanSig Operator-Access & Merge-Integrity Incidents
+
+### 1. Operator-Access Remediation
+* **Candidate SHA:** cbbe29cdb229493ee404e22dffbe6e9fbaedddd3
+* **PR:** #4
+* **Scope:** 6 authorized web paths
+* **Test results:** 518/518 web tests PASS
+* **Result:** Production release successful. (Note: Preview SSO smoke-test limitation prevented direct curl verification).
+
+### 2. Merge-Integrity Correction
+* **Accidental Squash Merge SHA:** 3fc966c702321ba35517678d5b2f4db91b930f2c
+* **Root Cause:** Feature branch was based on non-current/unmerged PR lineage, which resulted in the squash merge resurrecting unintended historical API paths.
+* **Unintended Paths:** `apps/api/src/server.ts`, `apps/api/src/server.publication-aliases.test.ts`
+* **Corrective SHA:** e99e529e5045abdbed803754a4eeb03bd2732cad
+* **Corrective PR:** #5
+* **Final Main SHA:** 19b9fd57297c57f64a6e8eca532144f1edd53cb3
+* **API Validation:** 850/850 API tests PASS
+* **Final State:** Resulting tree proven exactly equivalent to the intended `a14d886` release tree.
+
