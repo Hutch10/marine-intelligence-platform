@@ -136,3 +136,5 @@ pnpm --filter web lint     # ESLint
 | `ALLOW_SYNTHETIC_BASELINE_IN_PRODUCTION` | api | `false` | Set to `true` to allow synthetic/seed observations in production queries (not recommended) |
 
 Test
+
+Fail
