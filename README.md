@@ -134,3 +134,5 @@ pnpm --filter web lint     # ESLint
 | `NEXT_PUBLIC_MARINE_API_URL` | web | `http://localhost:4000` | Canonical base URL for web-to-API requests |
 | `MARINE_API_BASE_URL` | web | — | Legacy compatibility fallback if `NEXT_PUBLIC_MARINE_API_URL` is unset |
 | `ALLOW_SYNTHETIC_BASELINE_IN_PRODUCTION` | api | `false` | Set to `true` to allow synthetic/seed observations in production queries (not recommended) |
+
+Authorized test
